@@ -1,0 +1,55 @@
+skill: self-healing-pipeline
+scenario: build_task_failure_agent
+connection: default
+description: |
+  Build a new self-healing pipeline agent that monitors a Snowflake task DAG for failures,
+  diagnoses root causes via Cortex LLM, and auto-retries within guardrails.
+  Tests: session start routing to Build operation, compound request decomposition
+  and order confirmation, pipeline DDL generation, and agent stored procedure creation.
+  Requires live Snowflake — the session start discovery scan runs against the connection.
+
+requires_live_snowflake: true
+
+inputs:
+  target_database: ANALYTICS
+  target_schema: PIPELINES
+  task_name: DAILY_REVENUE_LOAD
+  scenario_description: |
+    Build a new self-healing pipeline for my DAILY_REVENUE_LOAD task in
+    ANALYTICS.PIPELINES. It loads revenue data nightly and fails intermittently
+    with stale data and upstream dependency timeouts.
+
+stopping_point_responses:
+  # Session start: skill confirms detected intent before routing
+  session_start_intent_confirm: |
+    Yes, build a new self-healing pipeline for DAILY_REVENUE_LOAD in ANALYTICS.PIPELINES.
+
+  # Compound build decomposition: skill lists all operations and asks for order
+  compound_build_order_confirm: |
+    Proceed in default order: Build first, then Monitor.
+    Skip DQM, Optimize, and Fix-readiness for now.
+
+  # After loading references/pipeline-build.md: review pipeline design before DDL runs
+  pipeline_design_review: |
+    Design looks correct. Standard task monitoring, LLM diagnosis via CORTEX.COMPLETE,
+    REVIEW guardrail tier to start. Proceed to DDL generation.
+
+  # After DDL is generated: approve execution
+  ddl_review: |
+    DDL looks correct. Execute it against ANALYTICS.PIPELINES.
+
+  # After agent stored procedure is created: confirm done
+  agent_creation_confirm: |
+    Agent stored procedure created successfully. That is all I need for now.
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  no_phase_errors: true
+  output_contains_sp: "contains: 'SP_'"
+  output_contains_runbook: "contains: 'RUNBOOK'"
+  output_contains_task: "contains: 'TASK'"
+  guardrail_tier_review: "contains: 'REVIEW'"    # default tier for new builds
+
+cleanup:
+  drop_after_test: false

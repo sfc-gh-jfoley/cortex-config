@@ -1,0 +1,33 @@
+skill: rule-reviewer
+scenario: full_mode_single_rule
+description: |
+  FULL mode review of rules/200-python-core.md using 8-dimension, 115-point rubric.
+  Tests: schema_validator.py execution, Agent Execution Test blocking-issue count,
+  all 8 dimension scores, PLAN→ACT gate, and review file write to reviews/rule-reviews/.
+
+inputs:
+  target_file: rules/200-python-core.md
+  review_date: 2026-04-25
+  review_mode: FULL
+  model: claude-sonnet-4-6
+  output_root: reviews/
+  overwrite: false
+  timing_enabled: false
+
+stopping_point_responses:
+  plan_to_act: "ACT"    # authorizes review file write to reviews/rule-reviews/
+
+assertions:
+  skill_completed: true
+  output_contains_score_scale: "contains: '/115'"
+  output_contains_actionability: "contains: 'Actionability'"
+  output_contains_completeness: "contains: 'Completeness'"
+  output_contains_consistency: "contains: 'Consistency'"
+  output_contains_parsability: "contains: 'Parsability'"
+  output_contains_staleness: "contains: 'Staleness'"
+  output_contains_verdict: "contains: 'EXECUTABLE'"
+  review_file_written: true
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # keep review file for inspection

@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Agent Flag Tester — Eval Config YAML Template
+# ─────────────────────────────────────────────────────────────────────────────
+# Replace placeholders {DATABASE}, {SCHEMA}, {VIEW_NAME}, {DATASET_NAME},
+# {AGENT_FQN}, {VARIANT}, {DESCRIPTION} before uploading to stage.
+#
+# One YAML file per: variant × split × run slot
+# Example: config_base_dev_r1.yaml, config_agentic_test_r3.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Optional — omit if dataset already exists (use existing dataset_name below)
+dataset:
+  dataset_type: "CORTEX AGENT"
+  table_name: "{DATABASE}.{SCHEMA}.{VIEW_NAME}"
+  dataset_name: "{DATASET_NAME}"
+  column_mapping:
+    query_text: "INPUT_QUERY"
+    ground_truth: "GROUND_TRUTH"
+
+evaluation:
+  agent_params:
+    agent_name: "{AGENT_FQN}"
+    agent_type: "CORTEX AGENT"
+  run_params:
+    label: "flag-test"
+    description: "{DESCRIPTION}"
+  source_metadata:
+    type: "DATASET"
+    dataset_name: "{DATASET_NAME}"
+
+metrics:
+  # Built-in metrics
+  - "answer_correctness"
+  - "logical_consistency"
+
+  # Custom metric — tool selection accuracy
+  # Replaces the deprecated built-in tool_selection_accuracy
+  - name: "tool_selection_accuracy"
+    score_ranges:
+      min_score: [0, 3]
+      median_score: [4, 6]
+      max_score: [7, 10]
+    prompt: |
+      Evaluate whether the agent selected the correct tool(s) for the user's query.
+
+      Compare the tools the agent actually called:
+      {{tool_info}}
+
+      With the expected behavior described in the ground truth:
+      {{ground_truth}}
+
+      Rate from 0-10 where:
+        0 = Wrong tool entirely, or no tool called when one was needed
+        3 = Partially correct tool selection but missed key tools
+        5 = Correct primary tool but suboptimal sequence or unnecessary extra calls
+        8 = Correct tool(s) in correct sequence with minimal waste
+       10 = Perfect tool selection matching expected behavior exactly
+
+      Consider:
+      - Did the agent call the right semantic view tool for this question?
+      - Did it avoid unnecessary or redundant tool calls?
+      - For multi-tool questions, did it call tools in a logical sequence?
+      - Did it call tools that have no relevance to the question?
+
+      Output ONLY a numeric score between 0 and 10.

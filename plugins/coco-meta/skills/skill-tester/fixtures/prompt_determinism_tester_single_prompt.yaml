@@ -1,0 +1,44 @@
+skill: prompt-determinism-tester
+scenario: prompt_determinism_tester_single_prompt
+connection: null
+requires_live_snowflake: false
+description: |
+  Test a single HOL prompt for build determinism using SUGGEST mode.
+  Tests: Step 1 confirm stop, 3 parallel Plan agent swarm via Task tool,
+  convergence scoring across 6 dimensions (Objects 20%, DDL Structure 30%,
+  Sequence 15%, Row Counts 10%, Features 15%, Artifacts 10%),
+  divergence detail report, and Step 5 review stop.
+  Uses a simple CREATE TABLE + INSERT prompt to produce a predictable high-convergence result.
+
+inputs:
+  mode: single_prompt
+  improvement_mode: SUGGEST
+  schema_context: null
+  prompt_text: |
+    Create a Snowflake table called SALES_PIPELINE with these exact columns:
+      OPPORTUNITY_ID VARCHAR PRIMARY KEY,
+      ACCOUNT_NAME VARCHAR,
+      ARR NUMBER(12,2),
+      STAGE VARCHAR,
+      CLOSE_DATE DATE.
+    Insert exactly 5 rows with realistic sample data.
+
+# Stopping points per SKILL.md:
+# ✋ Step 1: Confirm prompt(s), context, and mode — STOP
+# ✋ Step 5: Review determinism report before iterating — STOP
+# ✋ Step 8: Confirm before DDL/DML to Snowflake — STOP
+stopping_point_responses:
+  step_1_confirm_inputs: "yes, proceed with SUGGEST mode, no schema context"
+  step_5_report_review: "looks good, no iteration needed"
+  step_8_save_to_snowflake: "no"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  spawns_3_plan_agents: true
+  output_contains_convergence: "contains: 'convergence'"
+  output_contains_percentage: "contains: '%'"
+  output_contains_verdict: "contains: 'DETERMINISTIC'"
+
+cleanup:
+  drop_after_test: false

@@ -1,0 +1,43 @@
+skill: semantic-view-discovery
+scenario: tpch_sf1_discover_mode
+connection: default
+description: |
+  Discover mode against SNOWFLAKE_SAMPLE_DATA.TPCH_SF1 (8 tables).
+  Tests column-name inference path (no FK constraints in shared DB, no query history).
+  Expected: 9 relationships inferred from _KEY suffix pattern, 2-3 domain clusters
+  (Orders+Supply Chain + Geography), ORDERS+LINEITEM always co-clustered,
+  NATION+REGION always co-clustered, handoff output with FQNs and join keys.
+
+  NOTE: SNOWFLAKE_SAMPLE_DATA is a shared database — KEY_COLUMN_USAGE and
+  TABLE_CONSTRAINTS views do not exist. The skill must gracefully skip FK/PK
+  scan (Bug #1 fix) and proceed with column inference only.
+  NOTE: Zero query history expected — co-occurrence step returns empty.
+
+inputs:
+  mode: discover
+  database: SNOWFLAKE_SAMPLE_DATA
+  schema: TPCH_SF1
+  connection: default
+
+stopping_point_responses:
+  phase_1_scope_confirm: "yes"
+  phase_2_scaling_check: null  # 8 tables < 200, no prompt
+  phase_2_no_constraints: "proceed"  # acknowledge no FK/PK
+  phase_2_no_cooccurrence: "B"  # proceed with FK/column-name evidence only
+  phase_4_approve_groupings: "1"  # approve as-is
+
+assertions:
+  tables_found: "= 8"
+  relationships_inferred: ">= 5"
+  domains_created: ">= 2"
+  orders_lineitem_same_domain: true
+  nation_region_same_domain: true
+  handoff_contains_fqns: true
+  handoff_contains_join_keys: true
+  no_snowhouse_queries: true
+  zero_table_early_exit: false  # should NOT trigger (8 tables exist)
+  no_crash_on_missing_key_column_usage: true
+
+cleanup:
+  drop_after_test: false
+  no_side_effects: true  # discover mode is read-only

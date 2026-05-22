@@ -1,0 +1,30 @@
+skill: coco-usage
+scenario: coco_usage_30day_summary
+connection: default
+requires_live_snowflake: true
+description: |
+  Query CoCo CLI credit and token spend for the last 30 days.
+  Tests: connection detection from settings.json cortexAgentConnectionName field,
+  account confirmation STOP, user ID resolution via SNOWFLAKE.ACCOUNT_USAGE.USERS join,
+  My Spend query with DATEADD 30-day window, and markdown table output
+  with credits, tokens, and request count.
+
+inputs:
+  user_question: "how much have I spent on CoCo in the last 30 days?"
+  intent: my_spend
+  time_period: last_30_days
+
+# Step 0 is the ONLY explicit stopping point in this skill:
+# "⚠️ STOP: Wait for Y/N" after presenting inferred connection from cortexAgentConnectionName.
+stopping_point_responses:
+  step_0_connection_confirm: "yes"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  output_contains_credits: "contains: 'credits'"
+  output_contains_tokens: "contains: 'tokens'"
+  output_contains_requests: "contains: 'requests'"
+
+cleanup:
+  drop_after_test: false

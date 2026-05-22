@@ -1,0 +1,7 @@
+{
+  "name": "rule-governance",
+  "description": "Rule and memory governance: create, review, load, bulk-audit rules, and organize memories",
+  "version": "1.0.0",
+  "author": { "name": "Joey Foley" },
+  "skills": ["./skills"]
+}

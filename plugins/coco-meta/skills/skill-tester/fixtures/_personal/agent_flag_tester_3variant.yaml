@@ -1,0 +1,62 @@
+skill: agent-flag-tester
+scenario: 3variant_full_sweep
+connection: default
+description: |
+  Full 3-variant flag comparison (BASE/AGENTIC/FASTPATH_OFF) for an existing Cortex
+  Agent with a cortex_analyst_text_to_sql tool. Provides 10 eval questions via inline
+  content for auto-ground-truth generation, runs 3 evaluations per split (18 total),
+  and confirms winner recommendation using answer_correctness as the primary metric.
+
+inputs:
+  agent_fqn: DEMO_DB.PUBLIC.SALES_AGENT
+  connection: default
+  database: DEMO_DB
+  schema: PUBLIC
+  agent_name: SALES_AGENT
+  runs_per_split: 3
+  run_prefix: demo_flag_v1
+  eval_population_method: "1"                  # text file import
+  eval_questions_file: /tmp/sales_eval_questions.txt
+  eval_questions_content: |
+    # revenue_analysis
+    What was total revenue last quarter broken down by region?
+    Show me the top 10 accounts by ARR
+    Which region had the highest YoY growth rate?
+
+    # pipeline
+    How many opportunities are in the final stage?
+    What is the weighted pipeline value by sales segment?
+    Which rep has the most deals closing this month?
+
+    # product
+    Which product line has the highest win rate?
+    What is the average deal size for enterprise accounts?
+
+    # churn
+    Which accounts are most at risk of churn this quarter?
+    Show me the renewal forecast for Q3
+
+stopping_point_responses:
+  phase_1_agent_summary: "yes"                 # confirm agent spec summary, proceed to variants
+  phase_2_variant_selection: "1"               # all 3 variants (BASE, AGENTIC, FASTPATH_OFF)
+  phase_2_create_variants: "yes"               # execute CREATE AGENT SQL; skip rollback clone
+  phase_3_gt_review: "accept all"              # accept all 10 auto-generated ground truth answers
+  phase_3_split_confirm: "yes"                 # confirm 45/55 DEV/TEST split distribution
+  phase_4_gt_verify: "proceed"                 # acknowledge ground truth verification report
+  phase_5_config_confirm: "yes"                # confirm 18 config files uploaded, fire evals
+  phase_7_promote: "AGENTIC"                   # promote AGENTIC variant as winner
+  phase_8_optimize: "no"                       # skip optimization handoff; proceed to cleanup
+
+assertions:
+  skill_completed: true
+  execute_ai_evaluation_called: "contains: 'EXECUTE_AI_EVALUATION'"
+  winner_recommended: "contains: 'winner'"
+  answer_correctness_shown: "contains: 'answer_correctness'"
+  no_phase_errors: true
+  variant_count: "== 3"
+  comparison_table_present: "contains: 'AGENTIC'"
+
+cleanup:
+  drop_variant_agents: true
+  drop_stage_configs: true
+  keep_eval_table: true                        # always preserve eval dataset; never drop it

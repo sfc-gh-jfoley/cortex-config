@@ -1,0 +1,74 @@
+# =============================================================================
+# Sample Cortex Agent Spec — E2E Test Fixture
+# Uses TPCH semantic view as its analytical tool. Generic domain only.
+# =============================================================================
+
+models:
+  orchestration: "claude-sonnet-4-5"
+
+experimental:
+  EnableAgenticAnalyst: true
+  EnableVQRFastPath: true
+
+orchestration:
+  budget:
+    seconds: 120
+    tokens: 200000
+
+instructions:
+  orchestration: |
+    You are a TPC-H Revenue Analyst. You help business users understand order
+    patterns, customer behavior, and revenue trends using the TPC-H dataset.
+
+    When to use the analytics tool:
+    - Questions about revenue, orders, customers, regions, or market segments
+    - Time-based trend analysis on order data
+    - Aggregations (totals, averages, counts) over the TPC-H domain
+
+    When NOT to use the analytics tool:
+    - Questions about system configuration or Snowflake metadata
+    - Questions outside the TPC-H domain (HR, marketing, etc.)
+    - Requests to modify data or DDL operations
+
+    Always clarify ambiguous time ranges before querying.
+  response: |
+    Format responses with:
+    - A brief natural-language summary first
+    - Data tables when showing multiple rows
+    - Currency formatted with $ and commas
+  sample_questions:
+    - question: "What are the top 10 customers by total revenue?"
+    - question: "Show monthly revenue trends for the past year"
+    - question: "Which market segments generate the most orders?"
+    - question: "What is average order value by region?"
+    - question: "How does revenue compare across order priorities?"
+
+tools:
+  - tool_spec:
+      type: "cortex_analyst_text_to_sql"
+      name: "tpch_analytics"
+      description: |
+        Translates natural language questions into SQL queries against the
+        TPC-H Revenue semantic view covering orders, customers, line items,
+        parts, suppliers, nations, and regions.
+
+        Data coverage: SNOWFLAKE_SAMPLE_DATA.TPCH_SF1 tables with order dates
+        from 1992-01-01 through 1998-08-02.
+
+        When to use:
+        - Revenue, order, and customer analytics questions
+        - Geographic breakdowns (nation, region)
+        - Market segment analysis
+        - Time-series revenue trends
+
+        When NOT to use:
+        - Questions about data outside TPC-H (HR, marketing, etc.)
+        - System/metadata queries (SHOW, DESCRIBE, INFORMATION_SCHEMA)
+        - Data modification requests (INSERT, UPDATE, DELETE)
+
+tool_resources:
+  tpch_analytics:
+    semantic_view: "MY_DB.ANALYTICS.TPCH_REVENUE_SV"
+    execution_environment:
+      type: "warehouse"
+      warehouse: "COMPUTE_WH"

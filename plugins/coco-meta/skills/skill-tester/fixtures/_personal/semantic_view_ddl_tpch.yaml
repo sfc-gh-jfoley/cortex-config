@@ -1,0 +1,71 @@
+skill: semantic-view-ddl
+scenario: tpch_order_analytics_happy_path
+connection: default
+description: |
+  TPC-H SF1 happy path — ORDERS, LINEITEM, CUSTOMER from SNOWFLAKE_SAMPLE_DATA.
+  Available in every Snowflake account; safe baseline regression test.
+  Tests: description generation on undocumented columns, FK detection via _KEY suffix,
+  composite PK on LINEITEM, numeric vs identifier column classification, and
+  AI_SQL_GENERATION quality for order/revenue analytics.
+
+  NOTE: SNOWFLAKE.CORTEX.ANALYST() may not be available on all accounts. Phase 6
+  self-test must use the direct SQL fallback path (query physical tables). self_test_pass_rate
+  is evaluated against direct SQL queries, not Cortex Analyst NL→SQL output.
+  NOTE: ALTER SEMANTIC VIEW SET AI_VERIFIED_QUERIES is not supported syntax. Phase 7
+  must use CREATE OR REPLACE with AI_VERIFIED_QUERIES inline.
+
+inputs:
+  sv_name: TPCH_ORDER_ANALYTICS
+  sv_db: DEMO_DB
+  sv_schema: PUBLIC
+  tables:
+    - SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
+    - SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.LINEITEM
+    - SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER
+  business_context: |
+    TPC-H order and customer analytics — track order revenue, line item details,
+    and customer segments. Key metrics: total order revenue (O_TOTALPRICE),
+    extended line item price (L_EXTENDEDPRICE), discounted line item value
+    (L_EXTENDEDPRICE * (1 - L_DISCOUNT)), order count, average order value.
+    Key dimensions: order status (O_ORDERSTATUS), order date (O_ORDERDATE),
+    customer market segment (C_MKTSEGMENT), ship mode (L_SHIPMODE),
+    line item return flag (L_RETURNFLAG), line item status (L_LINESTATUS).
+    Primary joins: LINEITEM.L_ORDERKEY → ORDERS.O_ORDERKEY,
+    ORDERS.O_CUSTKEY → CUSTOMER.C_CUSTKEY.
+  doc_context: null
+
+stopping_point_responses:
+  phase_1_confirm: "yes"
+  phase_2_description_review: "yes"
+  phase_3_classification: "ok"
+  phase_3_overrides:
+    - "ORDERS.O_ORDERKEY -> DIMENSION"     # surrogate key, not a measure
+    - "ORDERS.O_CUSTKEY -> DIMENSION"      # FK — identifier, not a measure
+    - "ORDERS.O_SHIPPRIORITY -> DIMENSION" # low-cardinality categorical integer
+    - "LINEITEM.L_ORDERKEY -> DIMENSION"   # FK — part of composite PK
+    - "LINEITEM.L_LINENUMBER -> DIMENSION" # FK part — sequence number, not a measure
+    - "LINEITEM.L_PARTKEY -> DIMENSION"    # FK — identifier
+    - "LINEITEM.L_SUPPKEY -> DIMENSION"    # FK — identifier
+    - "CUSTOMER.C_CUSTKEY -> DIMENSION"    # PK — identifier
+    - "CUSTOMER.C_NATIONKEY -> DIMENSION"  # FK — identifier
+    - "ORDERS.O_CLERK -> SKIP"            # free-text clerk identifier — not useful as a dimension
+    - "ORDERS.O_COMMENT -> SKIP"          # free-text comment — not useful as a dimension
+  phase_4_relationships: "ok"
+  phase_5_ddl_review: "go"
+  phase_6_result: "accept"
+  phase_7_verified_queries: "yes"
+
+assertions:
+  ddl_executes: true
+  ddl_or_replace: true
+  describe_tables: ">= 3"
+  describe_facts: ">= 4"          # O_TOTALPRICE, L_EXTENDEDPRICE, L_DISCOUNT, L_QUANTITY at minimum
+  describe_dimensions: ">= 6"     # O_ORDERSTATUS, O_ORDERDATE, C_MKTSEGMENT, L_SHIPMODE, L_RETURNFLAG, L_LINESTATUS
+  describe_relationships: ">= 1"  # at minimum lineitem→orders or orders→customer
+  descriptions_populated: ">= 8"  # CORTEX.COMPLETE should describe majority of fact/dim columns
+  self_test_pass_rate: ">= 0.5"   # measured via direct SQL fallback if CORTEX.ANALYST() unavailable
+  ai_generation_instructions: true
+
+cleanup:
+  drop_after_test: false
+  sv_suffix: "_TEST"

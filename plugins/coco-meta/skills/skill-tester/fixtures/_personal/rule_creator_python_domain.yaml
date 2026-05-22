@@ -1,0 +1,28 @@
+skill: rule-creator
+scenario: python_domain_new_rule
+description: |
+  Create a new Python-domain rule (Python Logging best practices) in the 200-299 range.
+  Tests: RULES_INDEX.md search, domain number assignment, template_generator.py execution,
+  web research, content population, schema_validator.py loop (exit code 0), RULES_INDEX.md
+  indexing, and PLAN→ACT gate before any file writes.
+
+inputs:
+  technology: Python Logging
+  aspect: core
+  timing_enabled: false
+  # domain range auto-detected as 200-299 (Python) from RULES_INDEX.md
+  # next available number discovered during Phase 1 Discovery
+
+stopping_point_responses:
+  plan_to_act: "ACT"    # authorizes template_generator.py, rule file write, and RULES_INDEX.md update
+
+assertions:
+  skill_completed: true
+  output_contains_rule_path: "contains: 'rules/2'"          # 200-series Python range
+  output_contains_rules_index: "contains: 'RULES_INDEX'"    # index entry confirmed
+  output_contains_validation: "contains: 'exit code 0'"     # schema_validator.py passed
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # keep rule file — can be validated with rule-reviewer afterward
+  # Note: quality threshold for created rule is score >= 87/115 per rule-creator SKILL.md

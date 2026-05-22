@@ -1,0 +1,30 @@
+skill: memory-organizer
+scenario: memory_organizer_consolidation
+connection: null
+requires_live_snowflake: false
+description: |
+  Organize and consolidate the /memories directory.
+  Tests: Phase 1 directory inventory and INDEX.md read, Phase 2 signal gathering
+  (drift/decay/contradictions/duplicates), Phase 3 consolidation with date normalization,
+  Phase 4 INDEX.md pruning to ≤200 lines, Phase 5 validation and summary.
+  NOTE: This skill has NO explicit stopping points — it runs autonomously through all 5 phases.
+
+inputs:
+  user_request: "organize my memories"
+  mode: full_consolidation
+
+# This skill has no labeled STOPPING POINT gates in its SKILL.md.
+# The entries below are soft confirmation checkpoints in case an agent pauses.
+stopping_point_responses:
+  phase_1_inventory_confirm: "continue"
+  phase_3_consolidation_plan: "proceed with all proposed changes"
+  phase_5_validation_confirm: "looks good"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  output_not_empty: true
+  output_contains_summary: "contains: 'INDEX'"
+
+cleanup:
+  drop_after_test: false

@@ -1,0 +1,161 @@
+skill: semantic-view-ddl
+scenario: adversarial_traps_all_six_diagnostics
+connection: default
+description: |
+  Adversarial fixture designed to trigger all 5 semantic correctness checks.
+  Uses DEMO_DB.PUBLIC tables with deliberate modeling traps:
+  - ORDERS with wrong PK (ORDER_DATE instead of ORDER_ID) → cardinality lie
+  - INVENTORY_SNAPSHOTS table → snapshot SUM trap (semi-additive)
+  - DIM_REGION table with no relationship → orphaned table
+  - DEAL_ITEMS (many) with metric at DEALS (one) grain + PRODUCTS dim → fan trap
+  - Duplicate synonym "revenue" on two metrics → synonym overlap
+  
+  The test PASSES if the skill's Phase 5 self-check CATCHES all 5 traps
+  and either fixes them or flags them for the user. If any trap passes
+  silently, it's a test FAILURE.
+
+inputs:
+  sv_name: ADVERSARIAL_TRAPS_SV
+  sv_db: DEMO_DB
+  sv_schema: PUBLIC
+  tables:
+    - DEMO_DB.PUBLIC.ADV_DEALS
+    - DEMO_DB.PUBLIC.ADV_DEAL_ITEMS
+    - DEMO_DB.PUBLIC.ADV_PRODUCTS
+    - DEMO_DB.PUBLIC.ADV_INVENTORY_SNAPSHOTS
+    - DEMO_DB.PUBLIC.ADV_DIM_REGION
+  business_context: |
+    Sales analytics with deal pipeline and inventory tracking.
+    Key metrics: total deal amount (ADV_DEALS.AMOUNT), line item revenue
+    (ADV_DEAL_ITEMS.LINE_AMOUNT), inventory on-hand (ADV_INVENTORY_SNAPSHOTS.QTY_ON_HAND).
+    Dimensions: product category, region, deal status, snapshot date.
+    Joins: ADV_DEAL_ITEMS.DEAL_ID → ADV_DEALS.DEAL_ID,
+    ADV_DEAL_ITEMS.PRODUCT_ID → ADV_PRODUCTS.PRODUCT_ID.
+    NOTE: ADV_DIM_REGION has no FK from any other table (deliberately orphaned).
+    NOTE: ADV_INVENTORY_SNAPSHOTS is a daily snapshot — one row per product per day.
+  doc_context: |
+    ADV_DEALS: One row per deal. DEAL_ID is the unique key. Has AMOUNT, STATUS, CLOSE_DATE.
+    ADV_DEAL_ITEMS: Many items per deal. ITEM_ID is unique. DEAL_ID is FK back to deals.
+    ADV_PRODUCTS: Product master. PRODUCT_ID is PK. CATEGORY, PRODUCT_NAME.
+    ADV_INVENTORY_SNAPSHOTS: Daily inventory snapshot. Composite PK: (PRODUCT_ID, SNAPSHOT_DATE).
+      QTY_ON_HAND is NOT additive across dates — it's a point-in-time balance.
+    ADV_DIM_REGION: Region lookup. REGION_CODE PK. No table references it.
+
+  # TRAPS embedded in fixture:
+  # 1. Orphaned table: ADV_DIM_REGION has no FK from any fact table
+  # 2. Fan trap: If metric SUM(AMOUNT) is on ADV_DEALS but grouped by ADV_PRODUCTS.CATEGORY
+  #    (only reachable via ADV_DEAL_ITEMS), numbers inflate
+  # 3. Cardinality lie: We'll suggest DEAL_ID as PK on ADV_DEAL_ITEMS (it's not unique there)
+  # 4. Semi-additive: ADV_INVENTORY_SNAPSHOTS.QTY_ON_HAND is a snapshot balance
+  # 5. Synonym overlap: "revenue" will appear on both deals.total_amount and deal_items.line_revenue
+
+stopping_point_responses:
+  phase_1_confirm: "yes"
+  phase_2_description_review: "yes"
+  phase_3_classification: "ok"
+  phase_3_overrides:
+    - "ADV_INVENTORY_SNAPSHOTS.QTY_ON_HAND -> FACT"
+    - "ADV_INVENTORY_SNAPSHOTS.SNAPSHOT_DATE -> DIMENSION"
+    - "ADV_DIM_REGION.REGION_CODE -> DIMENSION"
+    - "ADV_DIM_REGION.REGION_NAME -> DIMENSION"
+  phase_4_relationships: "ok"
+  phase_4_pk_overrides:
+    # TRAP: suggest wrong PK for deal_items (DEAL_ID is not unique in this table)
+    - "ADV_DEAL_ITEMS: PRIMARY KEY (DEAL_ID)"
+  phase_5_ddl_review: "go"
+  phase_5_synonym_injection:
+    # TRAP: suggest "revenue" as synonym on both metrics
+    - "deals.total_amount WITH SYNONYMS = ('revenue', 'deal value')"
+    - "deal_items.line_revenue WITH SYNONYMS = ('revenue', 'line amount')"
+  phase_6_result: "accept"
+  phase_7_verified_queries: "yes"
+
+assertions:
+  # The skill should CATCH these issues, not silently pass them
+  orphan_detected: true           # ADV_DIM_REGION flagged as orphaned
+  fan_trap_detected: true         # deals.total_amount grouped by products.category flagged
+  cardinality_lie_detected: true  # DEAL_ID as PK on ADV_DEAL_ITEMS flagged
+  semi_additive_detected: true    # QTY_ON_HAND flagged for NON ADDITIVE BY review
+  synonym_overlap_detected: true  # "revenue" on two metrics flagged
+  self_check_count: "14/14"       # all checks ran (some may flag warnings, not failures)
+  ddl_generated: true             # DDL still generated (with fixes applied)
+  
+  # These assertions verify the traps were FIXED, not just detected:
+  final_ddl_no_orphan: true       # ADV_DIM_REGION either removed or relationship added
+  final_ddl_correct_pk: true      # ADV_DEAL_ITEMS uses ITEM_ID as PK
+  final_ddl_no_dup_synonym: true  # "revenue" appears in only one definition
+
+setup_sql: |
+  -- Create the adversarial test tables
+  CREATE DATABASE IF NOT EXISTS DEMO_DB;
+  CREATE SCHEMA IF NOT EXISTS DEMO_DB.PUBLIC;
+  
+  CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.ADV_DEALS (
+    DEAL_ID NUMBER PRIMARY KEY,
+    AMOUNT NUMBER(12,2),
+    STATUS VARCHAR(20),
+    CLOSE_DATE DATE,
+    REP_NAME VARCHAR(100)
+  );
+  INSERT INTO DEMO_DB.PUBLIC.ADV_DEALS VALUES
+    (1, 50000, 'WON', '2024-03-15', 'Alice'),
+    (2, 75000, 'WON', '2024-04-01', 'Bob'),
+    (3, 30000, 'LOST', '2024-04-10', 'Alice'),
+    (4, 120000, 'OPEN', NULL, 'Carol');
+
+  CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.ADV_DEAL_ITEMS (
+    ITEM_ID NUMBER PRIMARY KEY,
+    DEAL_ID NUMBER,         -- FK to ADV_DEALS (NOT unique here — multiple items per deal)
+    PRODUCT_ID NUMBER,      -- FK to ADV_PRODUCTS
+    LINE_AMOUNT NUMBER(12,2),
+    QUANTITY NUMBER
+  );
+  INSERT INTO DEMO_DB.PUBLIC.ADV_DEAL_ITEMS VALUES
+    (101, 1, 10, 20000, 5),
+    (102, 1, 20, 30000, 3),
+    (103, 2, 10, 45000, 10),
+    (104, 2, 30, 30000, 6),
+    (105, 3, 20, 30000, 8),
+    (106, 4, 10, 60000, 15),
+    (107, 4, 30, 60000, 12);
+
+  CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.ADV_PRODUCTS (
+    PRODUCT_ID NUMBER PRIMARY KEY,
+    PRODUCT_NAME VARCHAR(100),
+    CATEGORY VARCHAR(50)
+  );
+  INSERT INTO DEMO_DB.PUBLIC.ADV_PRODUCTS VALUES
+    (10, 'Widget Pro', 'Hardware'),
+    (20, 'DataSync', 'Software'),
+    (30, 'CloudPack', 'Services');
+
+  CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.ADV_INVENTORY_SNAPSHOTS (
+    PRODUCT_ID NUMBER,
+    SNAPSHOT_DATE DATE,
+    QTY_ON_HAND NUMBER,
+    WAREHOUSE VARCHAR(50),
+    PRIMARY KEY (PRODUCT_ID, SNAPSHOT_DATE)
+  );
+  INSERT INTO DEMO_DB.PUBLIC.ADV_INVENTORY_SNAPSHOTS VALUES
+    (10, '2024-04-01', 150, 'East'),
+    (10, '2024-04-02', 145, 'East'),
+    (10, '2024-04-03', 142, 'East'),
+    (20, '2024-04-01', 500, 'West'),
+    (20, '2024-04-02', 498, 'West'),
+    (30, '2024-04-01', 75, 'East'),
+    (30, '2024-04-02', 80, 'East');
+
+  CREATE OR REPLACE TABLE DEMO_DB.PUBLIC.ADV_DIM_REGION (
+    REGION_CODE VARCHAR(10) PRIMARY KEY,
+    REGION_NAME VARCHAR(50),
+    COUNTRY VARCHAR(50)
+  );
+  INSERT INTO DEMO_DB.PUBLIC.ADV_DIM_REGION VALUES
+    ('EAST', 'Eastern Region', 'US'),
+    ('WEST', 'Western Region', 'US'),
+    ('INTL', 'International', 'Global');
+
+cleanup:
+  drop_after_test: true
+  drop_tables: true
+  sv_suffix: "_TRAP_TEST"

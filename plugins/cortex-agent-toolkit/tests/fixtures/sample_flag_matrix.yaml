@@ -1,0 +1,36 @@
+# =============================================================================
+# Sample Flag Matrix — E2E Test Fixture
+# 3-variant configuration for agent-flag-tester.
+# =============================================================================
+
+source_agent: "MY_DB.ANALYTICS.TPCH_REVENUE_AGENT"
+target_schema: "MY_DB.ANALYTICS"
+eval_dataset: "TPCH_EVAL_DS_20250101"
+
+variants:
+  - suffix: "BASE"
+    description: "Baseline — no agentic features. Simplest reasoning path."
+    experimental:
+      EnableAgenticAnalyst: false
+
+  - suffix: "AGENTIC"
+    description: "Agentic analyst enabled with fast-path optimization."
+    experimental:
+      EnableAgenticAnalyst: true
+
+  - suffix: "FASTPATH_OFF"
+    description: "Agentic analyst with fast-path disabled — forces full reasoning chain."
+    experimental:
+      EnableAgenticAnalyst: true
+      DisableFastPath: true
+
+run_config:
+  runs_per_variant: 3
+  splits:
+    - "DEV"
+    - "TEST"
+  label_prefix: "flag_sweep"
+  metrics:
+    - "answer_correctness"
+    - "logical_consistency"
+    - "tool_selection_accuracy"

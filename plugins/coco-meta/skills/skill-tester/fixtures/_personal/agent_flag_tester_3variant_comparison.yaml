@@ -1,0 +1,75 @@
+skill: agent-flag-tester
+scenario: 3variant_flag_comparison
+connection: default
+description: |
+  Full 3-variant flag comparison (BASE, AGENTIC, FASTPATH_OFF) for a Cortex Agent.
+  Tests: all 7 phases including variant creation, eval dataset build+validation,
+  ground truth verification, YAML config upload, EXECUTE_AI_EVALUATION launch,
+  results extraction with mean±stddev, and winner recommendation.
+  Uses a pre-existing eval table (Option 3 import) to avoid needing a live
+  Cortex Analyst query endpoint for ground truth generation.
+
+inputs:
+  agent_fqn: SALES_DEMO.PUBLIC.SALES_AGENT
+  connection: default
+  database: SALES_DEMO
+  schema: PUBLIC
+  agent_name: SALES_AGENT
+  runs_per_split: 3
+  run_prefix: fixture_flag_v1
+  # Use all 3 variants (default)
+  variants: ["BASE", "AGENTIC", "FASTPATH_OFF"]
+  # Eval table already exists with valid ground truth
+  eval_table_exists: true
+  eval_table_fqn: SALES_DEMO.PUBLIC.SALES_AGENT_EVAL
+
+stopping_point_responses:
+  # Phase 1: Confirm agent summary (model, tools, semantic views, current flags)
+  phase_1_agent_summary_confirm: "confirmed, proceed"
+
+  # Phase 2: Confirm CREATE AGENT SQL for all 3 variants; skip rollback clone
+  phase_2_create_variants_confirm: "no rollback needed, create variants"
+
+  # Phase 3: Ground truth validation complete — confirm split distribution
+  # (eval table exists, splits already assigned, GT completeness = 100%)
+  phase_3_split_distribution_confirm: "splits look correct, proceed"
+
+  # Phase 4: Ground truth verification results acknowledged
+  phase_4_gt_verification_confirm: "all PASS, proceed"
+
+  # Phase 5: Config summary confirmed (3 variants × 2 splits × 3 runs = 18 files)
+  phase_5_config_summary_confirm: "18 configs confirmed, fire evals"
+
+  # Phase 7: After results, promote AGENTIC variant (assume it wins)
+  # (In actual test run, the agent will recommend the actual winner)
+  phase_7_promote_winner: "promote AGENTIC variant, proceed to cleanup"
+
+  # Phase 8 (optional): Skip optimization handoff for this fixture
+  phase_8_optimization_handoff: "no, done for now"
+
+assertions:
+  skill_completed: true
+  # EXECUTE_AI_EVALUATION called (not the deprecated SYSTEM$EXECUTE_AI_OBSERVABILITY_RUN)
+  uses_execute_ai_evaluation: "contains: 'EXECUTE_AI_EVALUATION'"
+  # Results contain per-metric mean ± stddev
+  per_metric_scores_present: "contains: '±'"
+  # Comparison table with all 3 variants
+  three_variants_in_table: "contains: 'FASTPATH_OFF'"
+  # Metric names use the correct field names (not deprecated 'correctness')
+  answer_correctness_metric: "contains: 'answer_correctness'"
+  logical_consistency_metric: "contains: 'logical_consistency'"
+  # Winner recommendation provided
+  winner_recommendation: "contains: 'recommend'"
+  # GET_AI_EVALUATION_DATA used for score extraction
+  score_extraction_function: "contains: 'GET_AI_EVALUATION_DATA'"
+  # DEV and TEST splits both evaluated
+  dev_split_present: "contains: 'DEV'"
+  test_split_present: "contains: 'TEST'"
+  # flag_sweep_baseline.json written (Phase 8 handoff artifact)
+  # NOTE: if phase_8 = "no", this file is NOT written — test accordingly
+  flag_sweep_baseline_NOT_written: false   # skipped (user chose no optimization)
+
+cleanup:
+  drop_after_test: true     # drop variant agents; keep eval table for re-testing
+  # Cleanup SQL: DROP AGENT IF EXISTS SALES_DEMO.PUBLIC.SALES_AGENT_{BASE,AGENTIC,FASTPATH_OFF}
+  # eval table SALES_DEMO.PUBLIC.SALES_AGENT_EVAL is preserved

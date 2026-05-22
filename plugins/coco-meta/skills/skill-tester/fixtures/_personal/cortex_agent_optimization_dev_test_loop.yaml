@@ -1,0 +1,62 @@
+skill: cortex-agent-optimization
+scenario: dev_test_improvement_loop
+connection: default
+description: |
+  Iterative DEV/TEST improvement loop for an existing Cortex Agent.
+  Tests: OPTIMIZE intent routing → optimize/SKILL.md, initial DEV eval execution,
+  failure analysis on DEV results only, first instruction edit, re-eval, and
+  accept/reject decision based on DEV vs TEST split comparison.
+  Supervised mode (default) — all ⚠️ STOP gates are active.
+  No flag sweep baseline exists — pure instruction optimization.
+
+inputs:
+  intent: "OPTIMIZE"
+  mode: "supervised"
+  agent_fqn: SALES_DEMO.PUBLIC.SALES_AGENT
+  connection: default
+  workspace_path: /tmp/skill-tester-agent-opt/
+  # Eval dataset already set up (DEV/TEST split exists)
+  eval_dataset_fqn: SALES_DEMO.PUBLIC.SALES_AGENT_EVAL
+  runs_per_split: 2        # reduced for fixture speed
+  run_prefix: opt_fixture_v1
+
+stopping_point_responses:
+  # Skill reads optimization log before starting (no log exists → first iteration)
+  # STOP: confirm which optimization intent to run
+  intent_confirm: "OPTIMIZE"
+
+  # After initial DEV eval completes → STOP: review DEV results before proposing changes
+  # The skill presents DEV scores and failure analysis
+  initial_eval_review: "proceed with analysis"
+
+  # After failure analysis → STOP: approve/modify proposed instruction changes
+  # Agent proposes 1-2 targeted changes based on DEV failures only
+  instruction_changes_approve: "apply changes"
+
+  # After re-eval with edited instructions → STOP: accept or reject iteration
+  # If DEV improved and TEST did not regress: accept
+  iteration_accept_reject: "accept"
+
+  # After accepting → STOP: continue or stop optimization loop
+  continue_or_stop: "stop for now, review results"
+
+assertions:
+  skill_completed: true
+  # DEV/TEST split explicitly referenced (never peek at TEST before deploying)
+  dev_split_referenced: "contains: 'DEV'"
+  test_split_referenced: "contains: 'TEST'"
+  # Optimization log updated
+  optimization_log_updated: "contains: 'iteration'"
+  # Failure analysis performed on DEV only (TEST not examined during optimization)
+  dev_only_analysis: "contains: 'DEV'"
+  # Accept/reject decision made with reasoning
+  accept_reject_decision: "contains: 'accept'"
+  # EXECUTE_AI_EVALUATION used (not deprecated API)
+  uses_execute_ai_evaluation: "contains: 'EXECUTE_AI_EVALUATION'"
+  # Instructions actually changed (not a no-op iteration)
+  instructions_modified: true
+  # No TEST regression (acceptance criterion)
+  test_no_regression: "contains: 'TEST'"
+
+cleanup:
+  drop_after_test: false    # keep workspace for inspection

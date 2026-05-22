@@ -1,0 +1,51 @@
+skill: bulk-rule-reviewer
+scenario: staleness_check_all_rules
+connection: default
+description: |
+  STALENESS mode bulk review of all rules/*.md files.
+  Tests: discovery stage, per-rule staleness scoring via rule-reviewer,
+  aggregation, summary report with 115pt-scale thresholds.
+  Uses filter_pattern: rules/*.md and max_parallel: 3 for speed.
+
+requires_live_snowflake: false
+
+inputs:
+  review_date: "2026-04-25"
+  review_mode: STALENESS
+  model: claude-sonnet-4-6
+  filter_pattern: "rules/*.md"
+  skip_existing: true
+  overwrite: false
+  max_parallel: 3
+  output_root: /tmp/skill-test-bulk-reviewer/
+  timing_enabled: false
+
+stopping_point_responses:
+  # No interactive stops in bulk-rule-reviewer — ACT command triggers full execution
+  plan_to_act_gate: "ACT"
+
+assertions:
+  summary_file_written: true                        # _bulk-review-*.md exists in output_root/summaries/
+  individual_review_files_count: ">= 1"             # at least 1 review written
+  priority_sections_present: true                   # Priority 1-4 sections in summary
+  score_denominator_10: true                        # STALENESS mode: each score is X/10, not X/100 or X/115
+  summary_uses_115pt_thresholds: true              # NOT_EXECUTABLE <70, NEEDS_REFINEMENT 70-91,
+                                                    # EXECUTABLE_WITH_REFINEMENTS 92-102, EXECUTABLE 103-115
+  no_batching_evidence: true                        # no review file < 800 bytes (staleness mode minimum)
+  appendix_all_rules_table: true                    # Appendix: All Rules by Score table present
+
+cleanup:
+  drop_after_test: false
+
+notes: |
+  STALENESS mode only scores the Staleness dimension (max 10/10 per rule).
+  The 115pt threshold labels still apply to the final aggregated verdict column:
+  each rule is rated NOT_EXECUTABLE / NEEDS_REFINEMENT / etc. based on its
+  FULL-mode historical score (if known) or a staleness proxy.
+
+  Key regression test:
+  - summary_uses_115pt_thresholds: if this fails, the Phase 2 threshold fix
+    in bulk-rule-reviewer/SKILL.md was not applied correctly.
+
+  The `no_batching_evidence` assertion checks that the Anti-Optimization Protocol
+  was respected — STALENESS reviews should still be per-rule, not batched.

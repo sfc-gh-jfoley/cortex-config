@@ -1,0 +1,45 @@
+skill: snowflake-ml-container-runtime
+scenario: snowflake_ml_container_runtime_xgboost
+connection: default
+requires_live_snowflake: true
+description: |
+  Train an XGBoost classifier in Snowflake Container Runtime (CPU).
+  Tests: Step 1 requirements gathering stop, CPU compute selection (< 1M rows → CPU),
+  DataConnector.from_dataframe() usage, OSS xgboost (not snowflake.ml.modeling),
+  model registration to Snowflake Model Registry with auto-generated version name,
+  and target_platforms=["WAREHOUSE"] for warehouse inference.
+
+inputs:
+  source_db: SNOWFLAKE_SAMPLE_DATA
+  source_schema: TPCH_SF1
+  source_table: SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
+  target_column: O_ORDERSTATUS
+  model_type: classification
+  compute: CPU
+  model_name: ORDERS_STATUS_CLASSIFIER
+  registry_db: ML_DEMO
+  registry_schema: PUBLIC
+
+# Stopping points per SKILL.md:
+# ✋ After Step 1: Confirm requirements before building
+# ✋ After feature engineering: Verify no SQL errors
+# ✋ After training: Review metrics before registry
+# ✋ After registry: Verify model registered
+stopping_point_responses:
+  step_1_requirements_confirm: "source=SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS, target=O_ORDERSTATUS, classification, CPU, auto version name"
+  after_feature_engineering: "no SQL errors, proceed"
+  after_training_metrics: "metrics acceptable, proceed to registry"
+  after_registry_verify: "model registered, done"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  output_not_empty: true
+  uses_dataconnector: "contains: 'DataConnector'"
+  uses_container_runtime: "contains: 'Container Runtime'"
+  uses_oss_xgboost: "contains: 'xgb'"
+  no_snowflake_ml_modeling: true
+  target_platform_warehouse: "contains: 'WAREHOUSE'"
+
+cleanup:
+  drop_after_test: false

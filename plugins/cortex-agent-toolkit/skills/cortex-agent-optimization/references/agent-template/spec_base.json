@@ -1,0 +1,16 @@
+{
+  "models": {
+    "orchestration": "auto"
+  },
+  "orchestration": {
+    "budget": {
+      "seconds": 300,
+      "tokens": 200000
+    }
+  },
+  "tools": [
+    {"type": "builtin", "tool_name": "search_tool"},
+    {"type": "builtin", "tool_name": "analyze_tool"},
+    {"type": "builtin", "tool_name": "query_tool"}
+  ]
+}

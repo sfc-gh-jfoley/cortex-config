@@ -1,0 +1,42 @@
+name: release-change-monitor
+version: "1.0.0"
+created: "2026-04-09"
+author: jfoley
+status: draft
+
+test_scenarios:
+  - name: "Full scan for bundle 2026_03"
+    description: "Run all 5 phases against the latest BCR bundle"
+    trigger: "Run a full scan for the latest Snowflake behavior change bundle against my pipelines"
+    expected_behavior: "Fetches 2026_03 bundle page, inventories pipelines, produces impact matrix, generates remediation plan, and test strategy"
+    phases_covered: [1, 2, 3, 4, 5]
+
+  - name: "Quick check — latest changes only"
+    description: "Phase 1 only — fetch and summarize without impact analysis"
+    trigger: "What changed in the latest Snowflake release?"
+    expected_behavior: "Fetches behavior change announcements, summarizes active bundles with lifecycle status"
+    phases_covered: [1]
+
+  - name: "Impact analysis for specific bundle"
+    description: "User provides a bundle ID, skill runs phases 2-3"
+    trigger: "Will bundle 2026_02 break any of my pipelines in PROD_DB?"
+    expected_behavior: "Inventories PROD_DB objects, cross-references against 2026_02 changes, produces severity-scored impact report"
+    phases_covered: [2, 3]
+
+  - name: "Test plan generation"
+    description: "Generate testing workflow for a specific bundle"
+    trigger: "Generate a test plan for BCR bundle 2026_03"
+    expected_behavior: "Produces step-by-step test plan with SQL commands for enabling bundle, running regression, and rollback"
+    phases_covered: [5]
+
+  - name: "Remediation tracking"
+    description: "User wants to track fix progress for an existing scan"
+    trigger: "Show me the remediation status for bundle 2026_02"
+    expected_behavior: "Loads previous scan from memory, shows checklist with completion status"
+    phases_covered: [4]
+
+validation_notes:
+  - "Skill depends on web_fetch for release notes — may fail if Snowflake changes page structure"
+  - "ACCOUNTADMIN required for SYSTEM$ENABLE_BEHAVIOR_CHANGE_BUNDLE"
+  - "Pipeline inventory queries require SNOWFLAKE.ACCOUNT_USAGE access"
+  - "Impact analysis quality depends on GET_DDL availability for all object types"

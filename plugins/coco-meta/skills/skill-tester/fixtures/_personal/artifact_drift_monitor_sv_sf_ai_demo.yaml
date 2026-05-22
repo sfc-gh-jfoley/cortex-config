@@ -1,0 +1,38 @@
+skill: artifact-drift-monitor
+scenario: sv_sf_ai_demo_marketing
+connection: default
+description: |
+  Tests SV drift detection against SF_AI_DEMO.DEMO_SCHEMA.MARKETING_SEMANTIC_VIEW.
+  Created Oct 2025 — 6+ months of potential query history. Verifies: lookback
+  confirmation, QUERY_HISTORY scan, TABLE_GAP and COLUMN_GAP scoring with
+  ADD/SKIP rationale, approval gate enforcement, and DDL only for approved items.
+
+inputs:
+  artifact_type: sv
+  artifact_name: SF_AI_DEMO.DEMO_SCHEMA.MARKETING_SEMANTIC_VIEW
+  lookback_days: 90   # default for SV — confirm with user at Phase 1
+
+stopping_point_responses:
+  phase_1_lookback_confirm: "yes"          # accept 90-day default
+  phase_6_approval_gate: "approve all ADD" # approve everything with ADD recommendation
+
+assertions:
+  # Core flow assertions
+  lookback_confirmed: true               # Phase 1 asked and got confirmation
+  query_history_scanned: true            # At least one QUERY_HISTORY SELECT was executed
+  manifest_presented: true               # The ╔═══ ARTIFACT DRIFT MONITOR manifest block appeared
+  approval_gate_shown: true              # The ╔═══ APPROVAL REQUIRED block appeared
+  ddl_only_for_approved: true            # No DDL generated before approval was given
+
+  # Content assertions — flexible since we don't know exact gap count
+  gap_suggestions_count: ">= 0"         # Could be 0 if artifact is perfectly used
+  recommendations_have_rationale: true   # Each suggestion has both add_reason and skip_reason
+  bypass_signals_checked: true           # Step 2.5 bypass query was executed
+  final_summary_shown: true             # The ╔═══ REMEDIATION PLAN block appeared
+
+  # Quality assertions
+  lookback_default_sv: "== 90"           # Default lookback for SV is 90 days
+  low_signal_check: true                 # Checked if query_population < 20 (warned if so)
+
+cleanup:
+  drop_after_test: false   # Nothing is created/dropped — drift monitor is read-only

@@ -1,0 +1,48 @@
+skill: cortex-agent-flags
+scenario: freshness_check_and_present
+connection: default
+description: |
+  Freshness check workflow: verify EXPERIMENTAL_FLAGS.md currency, run Snowflake docs
+  search + Glean #feat-cortex-agents search, merge findings, present applicable flags
+  to user for an agent with cortex_analyst_text_to_sql tools.
+
+requires_live_snowflake: false
+
+inputs:
+  # Context: user is creating/editing a Cortex Agent with one analyst tool
+  agent_has_tools:
+    - type: cortex_analyst_text_to_sql
+      name: query_sales_data
+  # No DESCRIBE AGENT needed for this test — tools provided directly
+  current_flags: {}    # no flags set yet (new agent)
+
+stopping_point_responses:
+  # Step 3: skill presents applicable flags and asks which to enable
+  flag_selection: "1"    # enable EnableAgenticAnalyst (recommended option #1)
+  # Step 6: skill asks to update EXPERIMENTAL_FLAGS.md if changes found
+  update_reference_doc: "no"   # skip writing to avoid side effects in test
+
+assertions:
+  freshness_check_ran: true                # Step 0 ran: last_verified date checked
+  docs_search_ran: true                    # cortex search docs "cortex agent experimental..." ran
+  glean_search_ran: true                   # mcp__glean__search ran for #feat-cortex-agents
+  flags_filtered_by_tool_type: true       # only cortex_analyst_text_to_sql-relevant flags shown
+  enable_agentic_analyst_presented: true  # EnableAgenticAnalyst shown as option
+  enable_vqr_fast_path_presented: true    # EnableVQRFastPath shown as option
+  deprecated_flags_excluded: true         # no DEPRECATED flags in presentation
+  spec_snippet_generated: true            # experimental {} block shown with selected flag
+  user_confirmation_requested: true       # skill asked which flags to enable
+
+cleanup:
+  drop_after_test: false
+
+notes: |
+  This fixture does NOT require live Snowflake but DOES require:
+  - cortex search docs tool to be available (or graceful skip if unavailable)
+  - mcp__glean__search to be available (or graceful skip if unavailable)
+
+  The update_reference_doc: "no" response prevents the skill from modifying
+  EXPERIMENTAL_FLAGS.md during the test, keeping the test idempotent.
+
+  Variant fixture idea: set current_flags with an old/deprecated flag to test
+  the deprecation detection and removal suggestion flow.

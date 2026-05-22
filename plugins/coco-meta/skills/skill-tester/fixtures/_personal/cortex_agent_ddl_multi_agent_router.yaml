@@ -1,0 +1,115 @@
+skill: cortex-agent-ddl
+scenario: multi_agent_router_create
+connection: default
+description: |
+  Multi-agent routing agent creation — builds a master routing agent that
+  dispatches to 2 existing sub-agents (DISH_AGENT and NETWORK_OPS_AGENT) via
+  UDF custom tools calling the Snowflake Agent REST API.
+  Tests the new multi-agent orchestration path:
+    - Phase 1: Step 1.0.5 router detection gate (AGENT_TYPE = "router")
+    - Phase 2: Step 2.0 multi-agent branch (SHOW AGENTS, DESCRIBE AGENT, UDF creation)
+    - Phase 2: Infrastructure DDL (network rule, secret, EAI) - user says "already have them"
+    - Phase 2: Agent-caller UDF template generation per sub-agent
+    - Phase 2: Tool description auto-generation from sub-agent metadata
+    - Phase 3: Step 3.0 strict-router instruction template (not domain template)
+    - Phase 3: R-BP-1 "Do NOT attempt to answer yourself" presence check
+    - Phase 4: generic tool type with function FQN in tool_resources
+    - Phase 5: Rule 16 router self-answer warning check (should PASS with strict template)
+    - Phase 5: EnableVQRFastPath = false for routers
+    - Phase 6: CREATE AGENT with generic tools
+    - Phase 7: Smoke test via DATA_AGENT_RUN
+
+inputs:
+  intent: "new"
+  agent_type: "router"
+  agent_name: MULTI_DOMAIN_ROUTER
+  agent_db: DISH_ONTOLOGY_DEMO
+  agent_schema: PUBLIC
+  agent_warehouse: COMPUTE_WH
+  agent_purpose: |
+    A central routing agent that auto-dispatches user questions to the appropriate
+    domain-specific sub-agent. Routes subscriber/churn questions to DISH_AGENT
+    and network/infrastructure questions to NETWORK_OPS_AGENT.
+  sub_agents:
+    - DISH_ONTOLOGY_DEMO.DISH_KG.DISH_AGENT
+    - BDM_CORA_DB.NETWORK_OPS_SEMANTIC.NETWORK_OPS_AGENT
+  infrastructure_exists: true
+  eai_name: cortex_agent_external_access
+  secret_fqn: DISH_ONTOLOGY_DEMO.PUBLIC.cortex_agent_token_secret
+  agent_profile:
+    display_name: "Multi-Domain Router"
+    avatar: "assistant"
+    color: "#2E86AB"
+  sample_questions:
+    - "What is Marcus Williams' total monthly value across all products?"
+    - "How many NOC incidents were reported last month?"
+    - "Which subscribers have churn risk AND live in markets with network outages?"
+
+output_name_field: agent_name
+
+stopping_point_responses:
+  phase_1_type_gate: "B"
+  phase_1_confirm: "go"
+  phase_2_sub_agent_selection: "all"
+  phase_2_infrastructure: "B"
+  phase_2_udf_confirm: "go"
+  phase_2_tool_descriptions: "go"
+  phase_3_instructions: "go"
+  phase_5_spec_review: "go"
+  phase_6_grants: "skip"
+  phase_7_eval_menu: "4"
+
+result_schema:
+  run: "<RUN_NAME>"
+  skill_completed: true/false
+  phases_executed: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6", "Phase 7"]
+  phase_errors: []
+  agent_type_detected: "router"
+  router_branch_used: true/false
+  sub_agents_discovered: true/false
+  infrastructure_skipped: true/false
+  udfs_generated: true/false
+  udf_count: "<number>"
+  strict_router_template_used: true/false
+  self_answer_prohibition_present: true/false
+  vqr_fastpath_disabled: true/false
+  generic_tools_in_spec: true/false
+  rule_16_passed: true/false
+  agent_created: true/false
+  agent_fqn: "<DISH_ONTOLOGY_DEMO.PUBLIC.MULTI_DOMAIN_ROUTER_TEST_N>"
+  handoff_json_written: true/false
+  smoke_test_score_pct: "<percentage 0-100>"
+  warnings: []
+
+skill_assertions:
+  agent_type_detected: "router"
+  router_branch_used: true
+  sub_agents_discovered: true
+  infrastructure_skipped: true
+  udfs_generated: true
+  udf_count: ">= 2"
+  strict_router_template_used: true
+  self_answer_prohibition_present: true
+  vqr_fastpath_disabled: true
+  generic_tools_in_spec: true
+  rule_16_passed: true
+  agent_created: true
+  handoff_json_written: true
+
+consistency_fields:
+  - field: agent_created
+    weight: 0.20
+  - field: router_branch_used
+    weight: 0.20
+  - field: strict_router_template_used
+    weight: 0.20
+  - field: generic_tools_in_spec
+    weight: 0.15
+  - field: vqr_fastpath_disabled
+    weight: 0.15
+  - field: handoff_json_written
+    weight: 0.10
+
+cleanup:
+  drop_after_test: true
+  agent_suffix: "_TEST"

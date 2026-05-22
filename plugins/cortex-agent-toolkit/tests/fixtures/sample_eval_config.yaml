@@ -1,0 +1,54 @@
+# =============================================================================
+# Sample Eval Configuration — E2E Test Fixture
+# 5 TPCH-domain questions with expected answers for EXECUTE_AI_EVALUATION.
+# =============================================================================
+
+dataset:
+  dataset_type: "CORTEX AGENT"
+  table_name: "MY_DB.ANALYTICS.TPCH_AGENT_EVAL_DATASET"
+  dataset_name: "TPCH_EVAL_DS_20250101"
+  column_mapping:
+    query_text: "INPUT_QUERY"
+    ground_truth: "GROUND_TRUTH"
+
+evaluation:
+  agent_params:
+    agent_name: "MY_DB.ANALYTICS.TPCH_REVENUE_AGENT"
+    agent_type: "CORTEX AGENT"
+  run_params:
+    label: "e2e-test"
+    description: "End-to-end evaluation of TPCH revenue agent"
+  source_metadata:
+    type: "DATASET"
+    dataset_name: "TPCH_EVAL_DS_20250101"
+
+metrics:
+  - "answer_correctness"
+  - "logical_consistency"
+
+questions:
+  - input_query: "What are the top 5 customers by total revenue?"
+    expected: |
+      Query should SELECT customer name and SUM of order total price,
+      GROUP BY customer, ORDER BY revenue DESC, LIMIT 5.
+      Tool: tpch_analytics.
+
+  - input_query: "How many orders were placed in 1995?"
+    expected: |
+      Query should COUNT orders WHERE O_ORDERDATE between 1995-01-01 and 1995-12-31.
+      Result is a single number. Tool: tpch_analytics.
+
+  - input_query: "What is the average order value by market segment?"
+    expected: |
+      Query should JOIN orders with customers, compute AVG(O_TOTALPRICE),
+      GROUP BY C_MKTSEGMENT. Returns 5 segments. Tool: tpch_analytics.
+
+  - input_query: "Show revenue by region for fulfilled orders"
+    expected: |
+      Query should filter O_ORDERSTATUS = 'F', JOIN through customers -> nations -> regions,
+      SUM(O_TOTALPRICE) GROUP BY R_NAME. Tool: tpch_analytics.
+
+  - input_query: "Which nation has the most suppliers?"
+    expected: |
+      Query should JOIN suppliers with nations, COUNT suppliers GROUP BY N_NAME,
+      ORDER BY count DESC LIMIT 1. Tool: tpch_analytics.

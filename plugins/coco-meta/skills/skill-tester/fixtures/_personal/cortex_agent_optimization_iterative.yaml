@@ -1,0 +1,42 @@
+skill: cortex-agent-optimization
+scenario: iterative_supervised_2iter
+connection: default
+description: |
+  Supervised iterative optimization loop — 2 iterations against an existing agent
+  and pre-built eval dataset with DEV/TEST splits.
+  Iteration 1: instruction change proposed, user accepts, TEST score improves.
+  Iteration 2: instruction change proposed, user accepts running the eval, TEST
+  regresses — user rejects, revert applied.
+  Tests: baseline eval execution, DEV-only failure analysis, instruction proposal
+  flow, deploy-eval-review cycle, accept/reject decisions, and final report.
+
+inputs:
+  intent: OPTIMIZE
+  execution_mode: supervised
+  agent_fqn: DEMO_DB.PUBLIC.SALES_AGENT
+  connection: default
+  database: DEMO_DB
+  schema: PUBLIC
+  eval_table: DEMO_DB.PUBLIC.SALES_AGENT_EVAL
+  runs_per_split: 3
+  flag_sweep_baseline_exists: false            # no prior flag sweep; no revalidation trigger
+
+stopping_point_responses:
+  baseline_eval_complete: "proceed"            # baseline DEV+TEST scores reviewed; continue
+  iteration_1_instruction_proposal: "accept"   # approve proposed instruction change for iter 1
+  iteration_1_eval_complete: "accept"          # TEST improved — accept iteration 1
+  iteration_2_instruction_proposal: "accept"   # approve running iteration 2 (change looks reasonable)
+  iteration_2_eval_complete: "reject"          # TEST regressed — reject; revert to iter 1 state
+  final_report: "done"                         # acknowledge final report; end session
+
+assertions:
+  skill_completed: true
+  dev_split_analyzed: "contains: 'DEV'"
+  test_split_evaluated: "contains: 'TEST'"
+  accept_decision_shown: "contains: 'accept'"
+  reject_decision_shown: "contains: 'reject'"
+  no_phase_errors: true
+  optimization_log_updated: true
+
+cleanup:
+  drop_after_test: false                       # keep agent and eval table for continued iteration

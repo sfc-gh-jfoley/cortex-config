@@ -1,0 +1,49 @@
+skill: vqr-semantic-view-generator
+scenario: domain_yaml_from_query_file
+connection: default
+description: |
+  Generate per-domain Semantic View YAML files from a sql-table-extractor JSON manifest
+  and a source SQL queries CSV. Tests domain analysis, live schema fetch from Snowflake,
+  metric extraction from SQL aggregations, and YAML generation with relationships.
+  Input files must exist at the paths below before running (e.g. produced by
+  sql-table-extractor against TPCH_SF1.PUBLIC).
+
+inputs:
+  # Output from a prior sql-table-extractor run against TPCH_SF1.PUBLIC
+  extracted_tables_json: /tmp/vqr_test/extracted_tables.json
+  source_queries_csv: /tmp/vqr_test/queries.csv
+  target_domain: orders
+  output_dir: /tmp/vqr_test/semantic_views/
+  view_prefix: TPCH
+  snowflake_connection: default
+
+stopping_point_responses:
+  # Step 1 — after `--action analyze`: confirm domain groupings look right
+  step_1_domain_analysis: |
+    Domains look correct. I see orders, suppliers, and customers — that matches
+    the TPC-H schema. Proceed to schema fetch.
+
+  # Step 3 — after `--action extract-metrics`: review aggregations pulled from SQL
+  step_3_metrics_review: |
+    Extracted metrics look good. SUM(L_EXTENDEDPRICE) as revenue and
+    COUNT(O_ORDERKEY) as order_count are the key ones. Accept all. Proceed.
+
+  # Step 5 — after `--action generate`: review YAML structure before optional deploy
+  step_5_yaml_review: |
+    YAML structure is correct. All tables reference TPCH_SF1.PUBLIC.
+    Facts (L_EXTENDEDPRICE, O_TOTALPRICE) correctly typed as numeric measures.
+    Relationships use actual FK columns. No deploy needed — save files only.
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  output_contains_yaml: "contains: '.yaml'"
+  no_phase_errors: true
+  yaml_has_tables: "contains: 'tables'"
+  yaml_has_metrics: "contains: 'metrics'"
+  yaml_has_relationships: "contains: 'relationships'"
+  schemas_fetched_from_snowflake: true    # Step 2 (fetch-schemas) must succeed
+  deploy_not_executed: true               # Step 6 is optional and skipped in this scenario
+
+cleanup:
+  drop_after_test: false

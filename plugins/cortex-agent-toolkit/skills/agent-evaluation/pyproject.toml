@@ -1,0 +1,9 @@
+[project]
+name = "agent-evaluation"
+version = "0.1.0"
+description = "Tools for Cortex Agent Evaluations"
+requires-python = ">=3.11"
+dependencies = [
+    "snowflake-connector-python>=3.0.0",
+    "requests>=2.28.0",
+]

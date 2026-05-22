@@ -1,0 +1,89 @@
+skill: semantic-view-ddl
+scenario: governance_mtt_soft_panel
+connection: default
+description: |
+  Tests the MTT (multi-tenant) governance path with DEALER_ID as tenant discriminator.
+  Validates that:
+    1. Step 1.5 governance questions are asked (with 's' escape hatch visible)
+    2. DEALER_ID is locked as DIMENSION in Phase 3 Step 3.0-A
+    3. Governance panel appears after Step 3.3 (non-blocking)
+    4. RAP suggestion is present in the panel
+    5. Phase 4 is reached without requiring hard confirmation
+  Tables: DEALERS + 4 transaction tables from COX_AUTO_HOL.PUBLIC
+  Regulated mode: OFF (soft panel, not hard stop)
+
+inputs:
+  sv_name: DEALER_MTT_GOVERNANCE_SV
+  sv_db: COX_AUTO_HOL
+  sv_schema: PUBLIC
+  tables:
+    - COX_AUTO_HOL.PUBLIC.VEHICLES
+    - COX_AUTO_HOL.PUBLIC.DEALERS
+    - COX_AUTO_HOL.PUBLIC.AUTOTRADER_LISTINGS
+    - COX_AUTO_HOL.PUBLIC.MANHEIM_TXNS
+    - COX_AUTO_HOL.PUBLIC.DEALERTRACK_DEALS
+  business_context: |
+    Dealer-level analytics for a multi-tenant automotive platform.
+    Each dealer is a separate tenant. DEALER_ID is the tenant discriminator column
+    present in DEALERS (primary), AUTOTRADER_LISTINGS (FK), and DEALERTRACK_DEALS (FK).
+    Key metrics: avg days on market, sale price spread, backend revenue per deal.
+  doc_context: null
+  # Governance intake answers (provided at Step 1.5)
+  governance_intake:
+    is_mtt: true
+    tenant_columns: ["DEALER_ID"]
+    pii_scan_mode: "patterns"
+    regulated_mode: false
+
+stopping_point_responses:
+  # Step 1.5: governance questions — simulate answering all three
+  phase_1_5_governance: |
+    1. Yes — DEALER_ID is the tenant column
+    2. A (name patterns only)
+    3. No (not regulated)
+  # Phase 1 MANDATORY STOP
+  phase_1_confirm: "yes"
+  # Phase 2: auto-description review
+  phase_2_description_review: "yes"
+  # Phase 3: classification table review
+  phase_3_classification: "ok"
+  # Phase 3.4: governance panel — press Enter (non-blocking, should auto-continue)
+  phase_3_governance_panel: ""
+  # Phase 4: relationship review
+  phase_4_relationships: "ok"
+  # Phase 5: DDL review
+  phase_5_ddl_review: "go"
+  # Phase 6: execute
+  phase_6_result: "accept"
+  # Phase 7: verified queries
+  phase_7_verified_queries: "skip"
+
+assertions:
+  # Step 1.5 was shown with escape hatch
+  step_1_5_shown: true
+  escape_hatch_visible: true           # panel mentions "(Type 's' to skip...)"
+  mtt_intake_asked: true
+  regulated_mode_question_asked: true
+
+  # Phase 3 MTT locking
+  dealer_id_locked_as_dimension: true  # "DEALER_ID" appears with DIMENSION in classification
+  tenant_lock_reason_shown: true       # reason mentions MTT or tenant boundary
+
+  # Governance panel (Step 3.4)
+  governance_panel_shown: true         # "─── Governance Notes ───" present in output
+  governance_panel_blocking: false     # panel did NOT hard-stop; Phase 4 was reached
+  rap_offered: true                    # "rap" prompt visible in governance panel
+  regulated_hard_stop: false           # no hard STOPPING POINT language (REGULATED_MODE=false)
+
+  # Phase progression
+  phase_4_reached: true
+
+  # DDL correctness
+  ddl_executes: true
+  describe_dimensions: ">= 5"
+  describe_facts: ">= 3"
+  describe_metrics: ">= 2"
+
+cleanup:
+  drop_after_test: false
+  sv_suffix: "_MTT_TEST"

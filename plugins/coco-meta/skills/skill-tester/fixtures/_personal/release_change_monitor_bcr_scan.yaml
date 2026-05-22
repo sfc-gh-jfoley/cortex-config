@@ -1,0 +1,52 @@
+skill: release-change-monitor
+scenario: bcr_bundle_full_scan
+connection: default
+description: |
+  Full scan of the latest BCR bundle against pipelines in a Snowflake account.
+  Tests: web_fetch of release notes via scrape-workflow.md, pipeline inventory queries
+  (tasks, dynamic tables, streams, stored procedures), and cross-reference impact analysis.
+  Stops after Phase 3 impact analysis with inline markdown output.
+  Phase 4 (remediation plan) and Phase 5 (test strategy) are not invoked in this scenario.
+
+inputs:
+  scan_mode: "Full scan"
+  target_bundle: "latest"
+  scope_databases:
+    - ANALYTICS
+  intent_description: |
+    I want to know if the latest BCR bundle will break any of my data pipelines
+    in the ANALYTICS database.
+
+stopping_point_responses:
+  # Session start: skill confirms intent + bundle + scope before proceeding
+  session_start_confirm: |
+    Run a full scan for the latest bundle against the ANALYTICS database. Ready to proceed.
+
+  # After Phase 1 (BCR fetch + parse): review structured change list before inventory
+  phase_1_bcr_fetch_review: |
+    Bundle content looks complete. Proceed to pipeline inventory.
+
+  # After Phase 2 (pipeline inventory): review object counts before impact analysis
+  phase_2_pipeline_inventory_review: |
+    Inventory looks correct. All tasks, dynamic tables, and streams captured.
+    Proceed to impact analysis.
+
+  # After Phase 3 (impact analysis): choose output format
+  phase_3_impact_analysis_review: |
+    Impact analysis complete. Show results as a markdown report inline in chat.
+  output_format_choice: "Markdown report"
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  no_phase_errors: true
+  # Either changes found (impact section) or clean bill of health
+  output_contains_impact_or_pass: "contains: 'impact'"
+  output_has_severity_classification: "contains: 'CRITICAL'"
+  output_has_executive_summary: "contains: 'summary'"
+  # Phases 4 and 5 must NOT have run
+  remediation_plan_not_generated: true
+  test_strategy_not_generated: true
+
+cleanup:
+  drop_after_test: false

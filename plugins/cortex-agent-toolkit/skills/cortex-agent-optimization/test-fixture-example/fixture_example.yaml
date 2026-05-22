@@ -1,0 +1,42 @@
+# cortex-agent-optimization fixture example
+# Tests the SETUP intent routing path.
+# Does NOT require live Snowflake — the skill reads the agent spec and
+# scaffolds a local workspace without writing to Snowflake until Step 7.
+
+skill: cortex-agent-optimization
+scenario: setup_intent_routing
+connection: default
+description: |
+  Verifies that the SETUP intent is detected correctly and that setup/SKILL.md
+  is loaded. Also checks that the agent spec is extracted and workspace
+  parameters are surfaced at the ⚠️ STOP gate in Step 1.
+
+requires_live_snowflake: false   # SETUP only reads the agent spec; no writes yet
+
+inputs:
+  intent: "set up optimization"
+  agent_fqn: "DEMO_DB.PUBLIC.DEMO_AGENT"
+  connection: "default"
+  workspace_root: "/tmp/demo_agent_opt"
+  execution_mode: "supervised"
+
+stopping_point_responses:
+  step_1_stop: "confirm"   # Accept extracted agent details + workspace setup
+
+skill_assertions:
+  skill_completed: true
+  phases_executed:
+    - "SETUP"
+  output_contains: "setup/SKILL.md"   # Router must load the sub-skill
+  output_contains_2: "workspace"       # Must show workspace setup to user
+
+result_schema:
+  run: "<RUN_NAME>"
+  skill_completed: true
+  phases_executed: ["SETUP"]
+  primary_output: "<workspace scaffold summary>"
+  output_artifact_name: null
+  warnings: []
+
+cleanup:
+  drop_after_test: false

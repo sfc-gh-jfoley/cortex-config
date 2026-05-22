@@ -1,0 +1,31 @@
+skill: cortex-agent-flags
+scenario: freshness_check_info_lookup
+connection: default
+description: |
+  User asks what experimental flags are available for Cortex Agents before configuring
+  a new agent. Tests: search-first workflow (Snowflake docs search + Glean #feat-cortex-agents),
+  EXPERIMENTAL_FLAGS.md read, applicability filtering for an analyst-tool agent (no charts,
+  no stage skills), flag presentation with last_verified date, and correct no-update
+  outcome when no new flags are discovered.
+
+inputs:
+  user_intent: "what experimental flags are available for Cortex Agents?"
+  agent_context: |
+    New agent with cortex_analyst_text_to_sql tool.
+    No chart output tools. No skills from stage or Git repo.
+  known_agent_fqn: null                       # no existing agent to DESCRIBE for flag inspection
+
+stopping_point_responses:
+  step_3_flag_selection: "1, 2"               # select EnableAgenticAnalyst and EnableVQRFastPath
+  step_6_update_reference: "no"               # no changes found; skip EXPERIMENTAL_FLAGS.md rewrite
+
+assertions:
+  skill_completed: true
+  enable_agentic_analyst_shown: "contains: 'EnableAgenticAnalyst'"
+  last_verified_date_shown: "contains: 'last_verified'"
+  docs_search_attempted: true
+  glean_search_attempted: true
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false                       # no Snowflake objects created by this skill

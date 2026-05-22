@@ -1,0 +1,202 @@
+---
+name: semantic-view-toolkit
+description: >
+  Full lifecycle toolkit for Snowflake Semantic Views. Discover what to build,
+  create SVs, audit existing ones, evaluate quality, optimize iteratively,
+  run evolutionary search, compose multi-SV architectures, and monitor for drift.
+  Single entry point — tell me where you are in your journey and I'll route you.
+triggers:
+  - semantic view toolkit
+  - sv toolkit
+  - help with semantic views
+  - semantic view lifecycle
+  - I have a semantic view
+  - I need a semantic view
+  - discover semantic views
+  - create semantic view
+  - audit semantic view
+  - evaluate semantic view
+  - optimize semantic view
+  - sv optimization
+  - sv evaluation
+  - sv discovery
+  - sv audit
+  - sv watch
+  - sv drift
+  - compose semantic views
+  - nested semantic view
+  - multi sv
+  - vqr generator
+  - verified queries
+  - improve my sv
+  - tune my sv
+---
+
+# Semantic View Toolkit
+
+Full lifecycle management for Snowflake Semantic Views — from discovery through optimization.
+
+## How to Use
+
+Tell me where you are in your SV journey, or pick from the options below:
+
+```
+1. I have no SV — help me find what to build         → sv-discovery
+2. I know my tables — create an SV                   → sv-ddl
+3. I have an SV — audit/improve it                   → sv-audit
+4. I want to evaluate my SV quality                  → sv-evaluation
+5. I want to optimize my SV iteratively              → sv-optimization
+6. I've hit a plateau — try evolutionary search      → sv-gepa-optimizer
+7. I need to compose multiple SVs                    → sv-composer
+8. I need ongoing monitoring/maintenance             → sv-watch
+9. I need more verified queries for my SV            → vqr-generator
+
+Or just describe what you need — I'll figure out where to route you.
+```
+
+---
+
+## Intent Detection
+
+| User Language | Route To | Skill Path |
+|---|---|---|
+| "what tables should be in my SV", "discover", "recommend groupings", "I have a database", "find tables", "data mart" | **sv-discovery** | `skills/sv-discovery/SKILL.md` |
+| "create SV", "build semantic view", "DDL", "I know my tables", "create from these tables" | **sv-ddl** | `skills/sv-ddl/SKILL.md` |
+| "audit my SV", "what's missing", "unused columns", "relationship gaps", "coverage" | **sv-audit** | `skills/sv-audit/SKILL.md` |
+| "evaluate", "eval", "run evaluation", "how good is my SV", "sql correctness", "accuracy" | **sv-evaluation** | `skills/sv-evaluation/SKILL.md` |
+| "optimize", "improve", "iterate", "fix failures", "tune", "iterative loop" | **sv-optimization** | `skills/sv-optimization/SKILL.md` |
+| "GEPA", "evolutionary", "population", "hit a wall", "plateau", "local optimum", "broad search" | **sv-gepa-optimizer** | `skills/sv-gepa-optimizer/SKILL.md` |
+| "compose", "nested SV", "multiple SVs", "SV references another", "multi-domain", "multi-SV agent" | **sv-composer** | `skills/sv-composer/SKILL.md` |
+| "watch", "drift", "monitor", "maintenance", "schema changed", "new tables", "stale" | **sv-watch** | `skills/sv-watch/SKILL.md` |
+| "VQR", "verified queries", "need more examples", "grow eval set", "generate questions" | **vqr-generator** | `skills/vqr-generator/SKILL.md` |
+
+---
+
+## Lifecycle Flow
+
+```
+sv-discovery ─────────────────────────────────────────────────────────────┐
+  │ "what tables?"                                                        │
+  ▼                                                                       │
+sv-ddl                                                                    │
+  │ "create SV"                                                           │
+  ▼                                                                       │
+sv-evaluation ◄── vqr-generator                                           │
+  │ "baseline score"    │ "grow eval coverage"                            │
+  ▼                     │                                                 │
+sv-optimization ────────┘                                                 │
+  │ "iterative loop"                                                      │
+  │ (hit plateau?)                                                        │
+  ▼                                                                       │
+sv-gepa-optimizer                                                         │
+  │ "evolutionary search"                                                 │
+  ▼                                                                       │
+sv-composer                                            sv-audit ◄─────────┘
+  │ "compose for agent"                                  │ "audit existing"
+  ▼                                                      ▼
+→ hand off to cortex-agent-toolkit              sv-watch
+                                                  │ "ongoing monitoring"
+```
+
+**You can enter anywhere.** Have an existing SV? Jump to sv-audit or sv-evaluation. Just need VQRs? Go straight to vqr-generator. Want to monitor? sv-watch doesn't require running discovery first.
+
+---
+
+## Execution Modes
+
+Every skill in this toolkit supports two modes:
+
+### AUTOPILOT
+Point and run. Minimal interaction. Agent makes decisions, reports results.
+- Best for: demos, quick iterations, experienced users
+- Trigger: user says "just run it", "autopilot", or starts with a clear target
+
+### GUIDED
+Step-by-step walkthrough. Explains each step, asks for approval at gates.
+- Best for: first-time users, learning, careful production changes
+- Trigger: user says "walk me through it", "explain", or default for new users
+
+**Mode is asked once per session, remembered for all subsequent skill invocations.**
+
+---
+
+## Persistence (Snowflake State)
+
+This toolkit persists state in a `_SV_TOOLKIT_META` schema (created on first use in the user's target database):
+
+```sql
+-- Created automatically when needed:
+CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;
+
+-- Tables:
+_SV_TOOLKIT_META.OPTIMIZATION_LOG    -- iteration history, scores, accept/reject
+_SV_TOOLKIT_META.WATCH_LOG           -- drift detections, shadow alerts
+_SV_TOOLKIT_META.GEPA_RUNS           -- GEPA generation history, operator weights
+_SV_TOOLKIT_META.EVAL_HISTORY        -- all eval run results (denormalized)
+_SV_TOOLKIT_META.DISCOVERY_STATE     -- domain groupings, relationship graph
+```
+
+---
+
+## Source Object Support
+
+Semantic views can reference any queryable object. This toolkit discovers and works with all of them:
+
+| Object Type | INFORMATION_SCHEMA View | Notes |
+|---|---|---|
+| Base Tables | `TABLES WHERE TABLE_TYPE = 'BASE TABLE'` | Primary source |
+| Views | `TABLES WHERE TABLE_TYPE = 'VIEW'` | May reference other databases |
+| Dynamic Tables | `DYNAMIC_TABLES` | Include TARGET_LAG in metadata |
+| External Tables | `TABLES WHERE TABLE_TYPE = 'EXTERNAL TABLE'` | Iceberg or non-Iceberg |
+| Materialized Views | `TABLES WHERE TABLE_TYPE = 'MATERIALIZED VIEW'` | Pre-aggregated |
+
+See `references/queryable-objects.md` for detection patterns and INFORMATION_SCHEMA queries per type.
+
+---
+
+## Composable SV Patterns
+
+Two composition patterns supported by `sv-composer`:
+
+### Pattern 1: Nested SVs
+SV-A references dimensions/facts from SV-B. Enables layered semantic models where a "core" SV defines shared entities (customers, products) and domain SVs build on top.
+
+### Pattern 2: Multi-SV Agent Composition
+Multiple independent SVs become separate `cortex_analyst_text_to_sql` tools in one Cortex Agent. Each SV covers a domain; the agent routes questions to the right tool.
+
+See `references/composable-sv-patterns.md` for syntax and design guidance.
+
+---
+
+## Relationship to Other Plugins
+
+| Plugin | Relationship |
+|---|---|
+| `cortex-agent-toolkit` | **Downstream consumer.** sv-composer generates hand-off docs for cortex-agent-ddl. |
+| `ontology-demo` (kg-data-discovery) | **Upstream feeder.** KG discovery can identify SV candidates; graduated domains use curated SVs. |
+| Bundled `semantic-view` skill | **Complementary.** Bundled skill handles YAML/FastGen path and Snowsight optimization. This toolkit handles DDL path, programmatic eval, and automated optimization. |
+
+---
+
+## Quick Start
+
+```
+$semantic-view-toolkit
+"I have a database called ANALYTICS_DB and need semantic views for it"
+```
+
+→ Routes to sv-discovery. After discovery, chains to sv-ddl, then sv-evaluation.
+
+```
+$semantic-view-toolkit
+"I have SALES_DB.PUBLIC.REVENUE_SV and it's giving wrong answers"
+```
+
+→ Routes to sv-evaluation (if VQRs exist) or sv-audit (if no VQRs yet).
+
+```
+$semantic-view-toolkit
+"Optimize my SV — I've been getting 60% accuracy and can't get higher"
+```
+
+→ Routes to sv-optimization (or sv-gepa if they mention plateau/evolutionary).

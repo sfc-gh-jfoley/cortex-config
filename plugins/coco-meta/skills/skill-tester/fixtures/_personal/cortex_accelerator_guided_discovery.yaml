@@ -1,0 +1,64 @@
+skill: cortex-accelerator
+scenario: guided_discovery_through_domain_map_gate
+connection: default
+description: |
+  Run cortex-accelerator in Guided mode from Phase 0 (full scan) through the
+  Phase 5 hard gate (user confirms domain map). Scenario: single-database clean
+  schema, no existing SVs or agents, no KG _META databases.
+  Tests: Phase 0 scan scope confirmation, Phase 3 gap report review, Phase 5
+  hard gate approval, and validated_domain_map.json output artifact.
+  Stops before Phase 6 (Build) — fixture does not execute the build pipeline.
+
+inputs:
+  mode: "Guided (default)"
+  database_scope:
+    - SALES_ANALYTICS
+  schema_scope:
+    - SALES_ANALYTICS.PUBLIC
+  business_context: |
+    B2B SaaS sales analytics. Key entities: opportunities, accounts, contacts,
+    activities. Key metrics: ARR, win rate, days-to-close, pipeline coverage.
+    Primary BI tool: Salesforce reports (no Tableau/PowerBI).
+  bi_tools: []          # none — skip Phase 4 BI intake, go straight to targeted questions
+
+stopping_point_responses:
+  # Phase 0: confirm which databases/schemas to scan
+  phase_0_scan_scope_confirm: "yes, scan SALES_ANALYTICS.PUBLIC"
+
+  # Phase 3: user reviews gap + conflict report before resolution
+  # (gaps = undocumented columns; conflicts = naming inconsistencies)
+  phase_3_gap_report_review: "accept gaps, proceed to resolution"
+
+  # Phase 4: no BI tools → answer targeted question interview
+  # (Accelerator asks targeted questions to fill gaps from Phase 3)
+  phase_4_targeted_questions: |
+    Primary join key: OPPORTUNITY_ID links opportunities → activities → contacts.
+    ARR = SUM(OPPORTUNITIES.ANNUAL_CONTRACT_VALUE).
+    Win rate = COUNT_IF(STAGE = 'Closed Won') / COUNT(*) over a time period.
+    Days-to-close = DATEDIFF(day, CREATED_DATE, CLOSE_DATE).
+
+  # Phase 5: HARD GATE — user confirms validated domain map before any pipeline runs
+  phase_5_domain_map_gate: "approved"
+
+  # NOT including phase_6 — fixture stops after domain map approval
+  # (Build pipeline is tested separately via kg/ontology fixtures)
+
+assertions:
+  skill_completed: true
+  # Gate artifact: validated_domain_map.json mentioned in output
+  domain_map_artifact: "contains: 'validated_domain_map.json'"
+  # Domain map has APPROVED status
+  domain_map_approved: "contains: 'APPROVED'"
+  # Trust scores computed during discovery phases
+  trust_scores_present: "contains: 'trust'"
+  # Scan covered the target database
+  scan_covered_database: "contains: 'SALES_ANALYTICS'"
+  # At least 1 domain identified
+  domains_found: ">= 1"
+  # Gap report was generated (Phase 3)
+  gap_report_generated: "contains: 'gap'"
+  # Phase 5 gate was reached (hard gate passed)
+  phase_5_reached: "contains: 'domain map'"
+
+cleanup:
+  drop_after_test: false    # validated_domain_map.json kept for downstream skill tests

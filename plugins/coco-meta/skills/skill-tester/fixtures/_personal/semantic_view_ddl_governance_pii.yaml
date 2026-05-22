@@ -1,0 +1,95 @@
+skill: semantic-view-ddl
+scenario: governance_pii_soft_panel
+connection: default
+description: |
+  Tests the PII governance path with CONSUMER_EMAIL in VINSOLUTIONS_LEADS.
+  Validates that:
+    1. Step 1.5 governance questions are asked (with 's' escape hatch visible)
+    2. CONSUMER_EMAIL is flagged at Priority 0 (before heuristics)
+    3. PII columns default to SKIP classification (not FACT/DIMENSION)
+    4. PII auto-SKIP notice appears after Step 3.3 (non-blocking ℹ️, not full panel)
+    5. Mask suggestion is present in the notice
+    6. Phase 4 is reached without requiring hard confirmation
+  Tables: VINSOLUTIONS_LEADS from COX_AUTO_HOL.PUBLIC
+  Regulated mode: OFF (soft panel, not hard stop)
+  Note: CONSUMER_PHONE is not present in the actual test table.
+
+inputs:
+  sv_name: LEADS_PII_GOVERNANCE_SV
+  sv_db: COX_AUTO_HOL
+  sv_schema: PUBLIC
+  tables:
+    - COX_AUTO_HOL.PUBLIC.VINSOLUTIONS_LEADS
+  business_context: |
+    CRM leads analytics for auto dealer sales teams.
+    Key metrics: lead conversion rate, leads by source, follow-up lag time.
+    Key dimensions: lead source, lead status, vehicle of interest, assigned sales rep.
+    CONSUMER_EMAIL is a contact field — may need masking.
+  doc_context: null
+  # Governance intake answers (provided at Step 1.5)
+  governance_intake:
+    is_mtt: false
+    tenant_columns: []
+    pii_scan_mode: "patterns"
+    regulated_mode: false
+
+stopping_point_responses:
+  # Step 1.5: governance questions — simulate answering all three
+  phase_1_5_governance: |
+    1. No (not multi-tenant for this SV)
+    2. A (name patterns only)
+    3. No (not regulated)
+  # Phase 1 MANDATORY STOP
+  phase_1_confirm: "yes"
+  # Phase 2: auto-description review
+  phase_2_description_review: "yes"
+  # Phase 3: classification table review — accept default SKIP for PII columns
+  phase_3_classification: "ok"
+  # Phase 3.4: PII auto-SKIP notice — press Enter (non-blocking, should auto-continue)
+  phase_3_governance_panel: ""
+  # Phase 4: relationship review
+  phase_4_relationships: "ok"
+  # Phase 5: DDL review
+  phase_5_ddl_review: "go"
+  # Phase 6: execute
+  phase_6_result: "accept"
+  # Phase 7: verified queries
+  phase_7_verified_queries: "skip"
+
+assertions:
+  # Step 1.5 was shown with escape hatch
+  step_1_5_shown: true
+  escape_hatch_visible: true           # panel mentions "(Type 's' to skip...)"
+  regulated_mode_question_asked: true
+
+  # PII detection (Phase 3 Step 3.0-B, Priority 0)
+  pii_scan_mode: "patterns"
+  consumer_email_flagged: true         # CONSUMER_EMAIL appears in PII_FLAGGED
+  consumer_phone_flagged: false        # CONSUMER_PHONE absent from this table
+  pii_columns_default_skip: true       # PII columns default to SKIP classification
+  pii_priority_zero_applied: true      # PII check ran before heuristic rules
+
+  # Governance output (Step 3.4)
+  governance_panel_shown: false        # full "─── Governance Notes ───" panel NOT shown
+                                       # (PII_KEPT_AS_DIMENSION is empty + IS_MTT=false → auto-SKIP notice path)
+  governance_panel_or_skip_note: true  # ℹ️ auto-SKIP notice IS shown (PII_FLAGGED non-empty)
+  governance_panel_blocking: false     # notice did NOT hard-stop; Phase 4 was reached
+  mask_offered: true                   # "mask" prompt visible in auto-SKIP notice
+  pii_kept_as_dimension_listed: false  # defaults accepted → no PII kept as DIMENSION
+  regulated_hard_stop: false           # no hard STOPPING POINT language (REGULATED_MODE=false)
+
+  # When PII_KEPT_AS_DIMENSION is empty and IS_MTT=false, panel MAY be skipped
+  # (per 3.4 short-circuit logic) — this is acceptable; the note about SKIP defaults counts
+  governance_panel_or_skip_note: true  # either panel OR ℹ️ note must appear
+
+  # Phase progression
+  phase_4_reached: true
+
+  # DDL correctness
+  ddl_executes: true
+  describe_dimensions: ">= 3"         # lead_source, lead_status, vehicle_of_interest at minimum
+  describe_metrics: ">= 1"            # lead_count at minimum
+
+cleanup:
+  drop_after_test: false
+  sv_suffix: "_PII_TEST"

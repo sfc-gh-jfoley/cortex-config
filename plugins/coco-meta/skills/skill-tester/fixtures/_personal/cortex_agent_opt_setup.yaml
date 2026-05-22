@@ -1,0 +1,87 @@
+skill: cortex-agent-optimization
+scenario: setup_intent
+connection: default
+description: |
+  SETUP intent: scaffold an optimization project for an existing Cortex Agent.
+  Tests: workspace creation, agent spec extraction, eval table setup,
+  DEV/TEST split creation, ctx rules set, optimization log initialized.
+  
+  NOTE: Requires a deployed Cortex Agent accessible via the `snow` CLI.
+
+requires_live_snowflake: true
+
+inputs:
+  intent: SETUP
+  agent_fqn: "DEMO_DB.PUBLIC.DEMO_AGENT"
+  connection: default
+  cli_tool: snow
+  execution_mode: supervised
+  workspace_root: /tmp/skill-test-coa-workspace/
+  runs_per_split: 3
+
+stopping_point_responses:
+  # Step 1: STOP GATE — present agent details + workspace setup for confirmation
+  step_1_confirm: "proceed"
+  # Step 2: workspace + files created automatically
+  # Step 3: build script created automatically
+  # Step 4: eval table — choose import method
+  step_4_import_method: "1"    # Option 1: import from text file
+  step_4_question_file: /tmp/skill-test-coa-workspace/test_questions.txt
+  # Step 4: STOP GATE — human review of generated ground truth
+  step_4_gt_review: "accept all"
+  # Step 6: STOP GATE — baseline eval results presented
+  step_6_baseline_confirm: "accept"
+
+assertions:
+  workspace_created: true                   # <workspace_root>/<AGENT_DIR>/agent/ exists
+  orchestration_instructions_md: true      # agent/orchestration_instructions.md written
+  spec_base_json: true                      # agent/spec_base.json written
+  build_script_created: true               # scripts/build_agent_spec.py created
+  eval_table_created: true                  # <AGENT_NAME>_EVAL table exists
+  dev_test_splits_created: true            # _EVAL_DEV and _EVAL_TEST views created
+  baseline_snapshot_created: true          # snapshots/baseline/ directory exists
+  optimization_log_initialized: true       # optimization_log.md created with v0 baseline entry
+  ctx_rules_set: ">= 4"                    # at least 4 ctx rules set (per SKILL.md)
+  runs_per_split_recommended: true         # recommendation displayed based on question count
+
+cleanup:
+  drop_after_test: true
+  cleanup_dirs:
+    - /tmp/skill-test-coa-workspace/
+  cleanup_objects:
+    - "DEMO_DB.PUBLIC.DEMO_AGENT_EVAL"
+    - "DEMO_DB.PUBLIC.DEMO_AGENT_EVAL_DEV"
+    - "DEMO_DB.PUBLIC.DEMO_AGENT_EVAL_TEST"
+
+setup:
+  create_test_files:
+    - path: /tmp/skill-test-coa-workspace/test_questions.txt
+      content: |
+        # sales_queries
+        What were total sales last month?
+        Which region had the highest revenue?
+        Show top 10 customers by spend
+        
+        # product_queries
+        What is our best-selling product?
+        Which products have declining sales?
+        
+        # forecasting
+        Project Q3 revenue based on Q1/Q2 trends
+        What is the expected churn rate this quarter?
+
+notes: |
+  This fixture requires:
+  1. A deployed Cortex Agent at DEMO_DB.PUBLIC.DEMO_AGENT
+  2. `snow` CLI installed and configured with `default` connection
+  3. Python 3.11+ for the build script generation
+
+  The test_questions.txt has 8 questions across 3 categories.
+  With runs_per_split: 3, the recommendation engine should output
+  "50-100 questions → recommend 3 (default)" — or "< 20 → recommend 6"
+  since we only have 8 questions.
+
+  Key regression tests:
+  - ctx_rules_set >= 4: verifies the 4 mandatory ctx rules are set on first use
+  - optimization_log_initialized: verifies v0 baseline entry exists
+  - dev_test_splits_created: verifies eval-data sub-skill ran correctly

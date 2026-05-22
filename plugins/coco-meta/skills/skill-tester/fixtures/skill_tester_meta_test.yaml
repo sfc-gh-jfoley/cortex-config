@@ -1,0 +1,31 @@
+skill: skill-tester
+scenario: skill_tester_meta_test
+connection: default
+requires_live_snowflake: true
+description: |
+  Meta-test: run skill-tester against the coco_usage_my_spend fixture (simplest live fixture).
+  Tests: test_runner.md loading, fixture file parsing, 3 parallel subagent spawning,
+  result consolidation across runs, assertion scoring, and PASS/FAIL report generation.
+  This validates the skill-tester infrastructure itself.
+
+inputs:
+  target_skill: coco-usage
+  fixture_file: fixtures/coco_usage_my_spend.yaml
+  runs: 3
+
+# skill-tester (via test_runner.md) has no formal STOP gates in the main SKILL.md.
+# Checkpoints below reflect natural pause points in the runner workflow.
+stopping_point_responses:
+  after_fixture_loaded: "fixture loaded, proceed with 3 runs"
+  after_parallel_runs_complete: "all 3 runs done, compare"
+  after_results_compared: "accept report"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  output_contains_pass_or_fail: "contains: 'PASS'"
+  output_contains_parallel_count: "contains: '3'"
+  spawns_subagents: true
+
+cleanup:
+  drop_after_test: false

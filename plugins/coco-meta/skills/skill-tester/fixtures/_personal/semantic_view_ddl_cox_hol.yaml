@@ -1,0 +1,65 @@
+skill: semantic-view-ddl
+scenario: cox_cci_hol_happy_path
+connection: default
+description: |
+  Cox Automotive CoCo HOL — 5-table vehicle lifecycle dataset.
+  Tests: description generation, VIN-based FK detection, days-on-market metrics,
+  VARIANT column (CONDITION_REPORT) handling, and AI_SQL_GENERATION quality.
+
+inputs:
+  sv_name: VEHICLE_LIFECYCLE_360_SV
+  sv_db: COX_AUTO_HOL
+  sv_schema: PUBLIC
+  tables:
+    - COX_AUTO_HOL.PUBLIC.VEHICLES
+    - COX_AUTO_HOL.PUBLIC.DEALERS
+    - COX_AUTO_HOL.PUBLIC.AUTOTRADER_LISTINGS
+    - COX_AUTO_HOL.PUBLIC.MANHEIM_TXNS
+    - COX_AUTO_HOL.PUBLIC.DEALERTRACK_DEALS
+  business_context: |
+    Cox Automotive vehicle lifecycle analytics for dealer groups.
+    Key metrics: days on market (AUTOTRADER_LISTINGS.DAYS_ON_MARKET),
+    wholesale vs retail price spread (MANHEIM_TXNS.WHOLESALE_PRICE vs DEALERTRACK_DEALS.SALE_PRICE),
+    backend revenue per deal (DEALERTRACK_DEALS.BACKEND_REVENUE),
+    dealer turn rate (DEALERS.AVG_TURN_DAYS).
+    Key dimensions: dealer, make, model, category, listing status, sale channel.
+    Primary join key: VIN links VEHICLES → AUTOTRADER_LISTINGS → MANHEIM_TXNS → DEALERTRACK_DEALS.
+    DEALERS.DEALER_ID is FK in AUTOTRADER_LISTINGS and DEALERTRACK_DEALS.
+  doc_context: |
+    VEHICLES: One row per vehicle (VIN). CONDITION_REPORT is a VARIANT JSON column
+    containing inspection details — treat as SKIP (not queryable by Cortex Analyst).
+    DEALERS: Dealer master. PRIMARY KEY is DEALER_ID. AVG_TURN_DAYS is average
+    inventory turn time across all vehicles for that dealer.
+    AUTOTRADER_LISTINGS: Retail marketplace listings. One VIN can have multiple listings
+    over time (relisted after price drops). Use LISTING_ID as PK.
+    MANHEIM_TXNS: Wholesale auction transactions. BUYER_DEALER_ID links to DEALERS.
+    DEALERTRACK_DEALS: Closed financing deals. One deal per VIN typically.
+
+stopping_point_responses:
+  phase_1_confirm: "yes"
+  phase_2_description_review: "yes"
+  phase_3_classification: "ok"
+  phase_3_overrides:
+    - "VEHICLES.CONDITION_REPORT -> SKIP"    # VARIANT not queryable
+    - "DEALERTRACK_DEALS.APR -> FACT"        # APR is a measure (numeric)
+    - "VEHICLES.MODEL_YEAR -> DIMENSION"     # year used as filter, not sum
+  phase_4_relationships: "ok"
+  phase_5_ddl_review: "go"
+  phase_6_result: "accept"
+  phase_7_verified_queries: "yes"
+
+assertions:
+  ddl_executes: true
+  ddl_or_replace: true
+  describe_tables: ">= 3"        # at minimum VEHICLES + DEALERS + one transaction table
+  describe_facts: ">= 5"        # list_price, days_on_market, sale_price, backend_revenue, wholesale_price
+  describe_dimensions: ">= 8"   # make, model, category, status, dealer_name, region, condition_grade, model_year
+  describe_relationships: ">= 2" # vehicles→dealers, listings→dealers (via DEALER_ID)
+  describe_metrics: ">= 2"      # avg_days_on_market, total_backend_revenue at minimum
+  descriptions_populated: ">= 10" # CORTEX.COMPLETE should describe most columns
+  self_test_pass_rate: ">= 0.5"
+  ai_generation_instructions: true
+
+cleanup:
+  drop_after_test: false         # keep for inspection and comparison
+  sv_suffix: "_TEST"             # each run creates VEHICLE_LIFECYCLE_360_SV_TEST_1/2/3

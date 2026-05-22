@@ -1,0 +1,96 @@
+skill: cortex-agent-ddl
+scenario: dish_subscriber_360_create
+connection: default
+description: |
+  DISH demo agent creation — builds a new Cortex Agent against
+  DISH_ONTOLOGY_DEMO.DISH_KG.DISH_SUBSCRIBER_360 semantic view.
+  Tests all cortex-agent-ddl correctness invariants:
+    - Phase 2: DESCRIBE SEMANTIC VIEW access check (not SELECT * LIMIT 0)
+    - Phase 2: CORTEX.COMPLETE model probe (haiku → sonnet fallback chain)
+    - Phase 2: Tool description auto-generated from SV metadata
+    - Phase 4/5: execution_environment nested in tool_resources (not spec root)
+    - Phase 6: DESCRIBE AGENT returns 'agent_spec' column (not 'spec')
+    - Phase 7: DATA_AGENT_RUN uses FLATTEN/WHERE type='text' (not hardcoded content[N])
+    - Phase 7: handoff.json written via Write tool before session ends
+  NOTE: DESCRIBE AGENT returns column 'agent_spec', not 'spec'.
+  NOTE: DATA_AGENT_RUN text extraction uses FLATTEN WHERE type='text' — content index
+  varies by account (content[6] on this account, not content[7]).
+
+inputs:
+  intent: "new"
+  agent_name: DISH_AGENT_DDL
+  agent_db: DISH_ONTOLOGY_DEMO
+  agent_schema: DISH_KG
+  agent_warehouse: COMPUTE_WH
+  agent_purpose: |
+    EchoStar Subscriber 360 — answers questions about subscriber churn risk,
+    multi-product bundles, care interactions, and retention opportunities
+    across DISH TV, Sling, Boost Mobile, and Hughes Broadband.
+  tools:
+    - name: query_subscriber_360
+      type: cortex_analyst_text_to_sql
+      semantic_view: DISH_ONTOLOGY_DEMO.DISH_KG.DISH_SUBSCRIBER_360
+  agent_profile:
+    display_name: "EchoStar Subscriber 360 (Test)"
+    avatar: "robot"
+    color: "#0057B8"
+  sample_questions:
+    - "Which subscribers have 3 or more products and are at churn risk?"
+    - "What is the total monthly value at risk from subscribers showing churn signals?"
+    - "Which care interactions in the last 30 days are unresolved?"
+
+output_name_field: agent_name
+
+stopping_point_responses:
+  phase_2_tool_descriptions: "yes"
+  phase_3_instructions: "go"
+  phase_5_spec_review: "go"
+  phase_6_grants: "skip"
+  phase_7_eval_menu: "4"
+
+result_schema:
+  run: "<RUN_NAME>"
+  skill_completed: true/false
+  phases_executed: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6", "Phase 7"]
+  phase_errors: []
+  agent_created: true/false
+  agent_fqn: "<DISH_ONTOLOGY_DEMO.DISH_KG.DISH_AGENT_DDL_TEST_N>"
+  model_probe_ran: true/false
+  model_selected: "<model name used>"
+  describe_sv_used: true/false
+  select_limit0_used: false
+  description_generated: true/false
+  execution_environment_correct: true/false
+  describe_agent_column_correct: true/false
+  flatten_pattern_used: true/false
+  handoff_json_written: true/false
+  smoke_test_score_pct: "<percentage 0-100>"
+  warnings: []
+
+skill_assertions:
+  agent_created: true
+  model_probe_ran: true
+  describe_sv_used: true
+  select_limit0_used: false
+  description_generated: true
+  execution_environment_correct: true
+  describe_agent_column_correct: true
+  flatten_pattern_used: true
+  handoff_json_written: true
+  smoke_test_score_pct: ">= 60"
+
+consistency_fields:
+  - field: agent_created
+    weight: 0.30
+  - field: execution_environment_correct
+    weight: 0.25
+  - field: handoff_json_written
+    weight: 0.20
+  - field: describe_agent_column_correct
+    weight: 0.15
+  - field: flatten_pattern_used
+    weight: 0.10
+
+cleanup:
+  drop_after_test: true
+  agent_suffix: "_TEST"

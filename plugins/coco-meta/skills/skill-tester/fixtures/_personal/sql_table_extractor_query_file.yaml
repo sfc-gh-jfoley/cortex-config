@@ -1,0 +1,31 @@
+skill: sql-table-extractor
+scenario: extract_from_sql_file
+connection: default
+description: |
+  Extract all tables and columns referenced in a SQL file. Single-operation skill with
+  no interactive stopping points. Tests: auto-detection of .sql input format, Snowflake
+  double-dot notation expansion (database..table → database.PUBLIC.table), DML/DDL
+  skip logic, and consolidated JSON output with dimension/fact table classification.
+  The input file must exist before running — create it with representative SELECT queries.
+
+inputs:
+  input_path: /tmp/sql_extractor_test/sample_queries.sql
+  output_path: /tmp/sql_extractor_test/extracted_tables.json
+  # sql_column not needed for .sql file input (only used for CSV mode)
+
+# No interactive stopping points — this skill runs extraction and prints results.
+# Step 2 (Review Results) is output display only, no gate.
+stopping_point_responses: {}
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  output_contains_table: "contains: 'table'"
+  no_phase_errors: true
+  output_has_summary: "contains: 'summary'"
+  output_has_consolidated: "contains: 'consolidated'"
+  unique_tables_found: ">= 1"
+  dml_ddl_skipped: true    # INSERT/UPDATE/CREATE TABLE queries must be excluded
+
+cleanup:
+  drop_after_test: false

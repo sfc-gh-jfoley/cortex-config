@@ -1,0 +1,7 @@
+{
+  "name": "coco-meta",
+  "description": "Quality assurance toolkit for Cortex Code skill authors. Regression-test skills with fixture-driven parallel runs, measure token and time performance, verify prompt determinism across agents, and score documentation and plans against structured rubrics.",
+  "version": "1.0.0",
+  "author": { "name": "Joey Foley" },
+  "skills": ["./skills"]
+}

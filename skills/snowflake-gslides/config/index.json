@@ -1,0 +1,1165 @@
+{
+  "_description": "Icon index for gslides diagram. Names without .png extension.",
+  "_search_order": "snowflake/ -> logos/ -> general/ -> aws/ -> azure/ -> fabric/",
+  "_format": "Items: string or {name, hint}. hint for disambiguation only.",
+  "snowflake_objects": {
+    "_description": "Snowflake database objects and features",
+    "items": [
+      {
+        "name": "snowflake_database",
+        "hint": "Single database. Use snowflake_databases for multiple DBs"
+      },
+      {
+        "name": "snowflake_databases",
+        "hint": "Multiple databases icon"
+      },
+      {
+        "name": "database",
+        "hint": "Generic DB. Use snowflake_database for Snowflake",
+        "general": true
+      },
+      "schema",
+      {
+        "name": "table",
+        "hint": "Snowflake table object"
+      },
+      "view",
+      {
+        "name": "materialized",
+        "hint": "Materialized View"
+      },
+      {
+        "name": "external_tables",
+        "hint": "External Table. Use \"external\" for abstract concept"
+      },
+      {
+        "name": "hybrid_tables",
+        "hint": "Hybrid Table object"
+      },
+      {
+        "name": "iceberg_tables",
+        "hint": "Iceberg Table. Use \"iceberg\" for format itself"
+      },
+      {
+        "name": "interactive_tables",
+        "hint": "Interactive Table object"
+      },
+      {
+        "name": "dynamic_tables",
+        "hint": "Dynamic Table. Use \"dynamic\" for abstract concept"
+      },
+      "stream",
+      "task",
+      "pipe",
+      "stored_procedure",
+      "function",
+      {
+        "name": "scalar",
+        "hint": "Scalar UDF/function"
+      },
+      {
+        "name": "user_defined_table",
+        "hint": "UDTF (table function)"
+      },
+      {
+        "name": "user_defined_python",
+        "hint": "Python UDF"
+      },
+      {
+        "name": "user_defined_javascript",
+        "hint": "JavaScript UDF"
+      },
+      {
+        "name": "user_defined_sql",
+        "hint": "SQL UDF"
+      },
+      "volume",
+      "tag",
+      "policy",
+      "masking",
+      "row_access",
+      "alert",
+      "notebook",
+      "native_app",
+      "marketplace",
+      {"name": "internal_marketplace", "hint": "Internal Marketplace (組織内限定共有)"},
+      "failover_group",
+      {
+        "name": "database_role",
+        "hint": "Database role. Use \"database\" for generic DB"
+      },
+      "session",
+      "metadata",
+      {
+        "name": "tlog",
+        "hint": "Transaction log"
+      },
+      "event"
+    ]
+  },
+  "snowflake_services": {
+    "_description": "Snowflake platform services and features",
+    "items": [
+      {
+        "name": "snowflake_cortex",
+        "hint": "Cortex (AI/ML プラットフォーム全体)"
+      },
+      {
+        "name": "cortex_analyst",
+        "hint": "Cortex Analyst (自然言語→SQL)"
+      },
+      {
+        "name": "cortex_agent",
+        "hint": "Cortex Agent (自律型AIエージェント)"
+      },
+      {
+        "name": "ai_function",
+        "hint": "AI Functions (AI_COMPLETE, AI_EXTRACT等)"
+      },
+      {
+        "name": "snowflake_copilot",
+        "hint": "Copilot / Cortex Code (自然言語アシスタント)"
+      },
+      {
+        "name": "snowflake_intelligence",
+        "hint": "Snowflake Intelligence (BI)"
+      },
+      {
+        "name": "snowflake_horizon",
+        "hint": "Horizon (ガバナンス)"
+      },
+      {
+        "name": "snowflake_ml",
+        "hint": "Snowflake ML (ML ワークフロー)"
+      },
+      {
+        "name": "snowflake_trail",
+        "hint": "Snowflake Trail (学習)"
+      },
+      {
+        "name": "snowpark",
+        "hint": "Snowpark フレームワーク全般"
+      },
+      {
+        "name": "snowpark_containers",
+        "hint": "Snowpark Container Services (SPCS)"
+      },
+      {
+        "name": "snowpark_warehouse",
+        "hint": "Snowpark-optimized Warehouse"
+      },
+      {
+        "name": "snowpark_ml_modeling",
+        "hint": "Snowpark ML モデリング"
+      },
+      {
+        "name": "snowpark_ml_registry",
+        "hint": "Snowpark ML レジストリ"
+      },
+      "snowconvert_ai",
+      "document_ai",
+      "llm",
+      "streamlit_in_snowflake",
+      "openflow",
+      "spark_connect",
+      {
+        "name": "iceberg",
+        "hint": "Iceberg フォーマット/ロゴ. テーブルには iceberg_tables"
+      },
+      "unistore",
+      "universal_search",
+      "gen2_warehouse",
+      "virtual_warehouse",
+      "adaptive_warehouse",
+      {
+        "name": "interactive_warehouse",
+        "hint": "Interactive Warehouse (低レイテンシWH)"
+      },
+      "operating_snowflake",
+      {
+        "name": "services",
+        "hint": "service群/マネージドservice"
+      }
+    ]
+  },
+  "snowflake_roles": {
+    "_description": "Snowflake role icons",
+    "items": [
+      "accountadmin",
+      "sysadmin",
+      "securityadmin",
+      "useradmin",
+      "orgadmin",
+      "role"
+    ]
+  },
+  "data_formats": {
+    "_description": "File formats and data types",
+    "items": [
+      "json",
+      "csv",
+      "parquet",
+      "avro",
+      "xml",
+      "xls",
+      "xlw",
+      {
+        "name": "structured_data",
+        "hint": "行列形式のデータ (CSV, DB等)"
+      },
+      {
+        "name": "semi_structured_data",
+        "hint": "JSON, XML 等の半構造化データ"
+      },
+      {
+        "name": "unstructured_data",
+        "hint": "画像、PDF等の非構造化データ"
+      },
+      "generic_file",
+      "file",
+      {
+        "name": "document",
+        "hint": "書類/ドキュメント (generic )",
+        "general": true
+      },
+      {
+        "name": "spreadsheet_1",
+        "hint": "スプレッドシート (バリエーション1)"
+      },
+      {
+        "name": "spreadsheet_2",
+        "hint": "スプレッドシート (バリエーション2)"
+      },
+      {
+        "name": "data",
+        "hint": "generic データicon. data_lake, data_warehouse 等とは別"
+      },
+      "data_sheet",
+      "cube"
+    ]
+  },
+  "infrastructure": {
+    "_description": "Servers, networking, storage, cloud",
+    "items": [
+      {
+        "name": "server",
+        "hint": "単一サーバー",
+        "general": true
+      },
+      {
+        "name": "servers",
+        "hint": "複数サーバー/クラスタ",
+        "general": true
+      },
+      {
+        "name": "cloud",
+        "general": true
+      },
+      {
+        "name": "network_policy",
+        "hint": "Network Policy / Network Rule"
+      },
+      "network_rule",
+      {
+        "name": "storage",
+        "general": true
+      },
+      {
+        "name": "internal_stage",
+        "hint": "Snowflake Internal Stage"
+      },
+      {
+        "name": "external_stage",
+        "hint": "Snowflake External Stage"
+      },
+      {
+        "name": "desktop",
+        "general": true
+      },
+      {
+        "name": "laptop",
+        "general": true
+      },
+      {
+        "name": "mobile",
+        "general": true
+      },
+      {
+        "name": "system_function",
+        "hint": "System Function"
+      },
+      "platform",
+      "proxy",
+      {
+        "name": "hybrid",
+        "hint": "抽象的なハイブリッド構成. Hybrid Table には hybrid_tables"
+      },
+      "aws_s3_bucket",
+      "microsoft_azure_blob",
+      "gcs",
+      "backup",
+      "capacity",
+      "concurrency",
+      "storage_and_compute",
+      "directory",
+      "architecture",
+      "s3_data_protection",
+      {
+        "name": "external_function",
+        "hint": "External Function. For External Tables use external_tables"
+      }
+    ]
+  },
+  "people_and_roles": {
+    "_description": "Users, teams, personas",
+    "items": [
+      {
+        "name": "user_1",
+        "hint": "ユーザーicon (バリエーション1)",
+        "general": true
+      },
+      {
+        "name": "user_2",
+        "hint": "ユーザーicon (バリエーション2)",
+        "general": true
+      },
+      {
+        "name": "users",
+        "hint": "少人数グループ",
+        "general": true
+      },
+      {
+        "name": "users_multiple",
+        "hint": "大人数グループ"
+      },
+      {
+        "name": "data_engineers",
+        "hint": "データエンジニア (人物)"
+      },
+      "software_engineers",
+      {
+        "name": "machine_learning_engineers",
+        "hint": "ML エンジニア (人物)"
+      },
+      "sql_analysts",
+      "generative_ai_app_developers",
+      "external_customers_and_partners",
+      "data_providers",
+      "provider",
+      "group_sales",
+      "contact",
+      "self_service",
+      "public_role"
+    ]
+  },
+  "data_operations": {
+    "_description": "ETL, pipelines, processing",
+    "items": [
+      {
+        "name": "process",
+        "hint": "処理フロー (標準)"
+      },
+      {
+        "name": "process_1",
+        "hint": "処理フロー (バリエーション)"
+      },
+      {
+        "name": "processes",
+        "hint": "複数処理の並列実行"
+      },
+      "aggregate",
+      "simplify_pipelines",
+      {
+        "name": "data_engineering",
+        "hint": "データエンジニアリング (分野/活動)"
+      },
+      {
+        "name": "data_lake",
+        "hint": "データレイク (raw storage)"
+      },
+      {
+        "name": "data_warehouse",
+        "hint": "データウェアハウス (analytics基盤)"
+      },
+      "integrated_data",
+      "consolidate",
+      "refresh",
+      "copy",
+      "kafka_connectors",
+      "hadoop",
+      "hadoop_replace",
+      "simplify_admin",
+      {
+        "name": "dynamic",
+        "hint": "abstract 動的」コンセプト. Dynamic Table には dynamic_tables"
+      },
+      "transactions",
+      "eliminate_complexity",
+      "eliminate_delays",
+      {
+        "name": "management",
+        "hint": "management/マネジメント (generic )"
+      },
+      "optimize"
+    ]
+  },
+  "analytics_and_ai": {
+    "_description": "Analytics, ML, AI concepts",
+    "items": [
+      "ai",
+      {
+        "name": "machine_learning",
+        "hint": "ML/machine learning (技術/分野)"
+      },
+      "data_science",
+      {
+        "name": "data_analytics",
+        "hint": "データanalytics (具体的)"
+      },
+      {
+        "name": "analytics",
+        "hint": "analytics全般 (抽象)"
+      },
+      "embedded_analytics",
+      {
+        "name": "interactive_analytics",
+        "hint": "インタラクティブanalytics (BI等)"
+      },
+      "geospatial_analytics",
+      "accelerated_analytics",
+      "models",
+      "optimization",
+      {
+        "name": "search",
+        "hint": "検索機能 (Cortex Search等)",
+        "general": true
+      },
+      {
+        "name": "web_search",
+        "hint": "Web 検索/ブラウザ検索"
+      },
+      "optimization_performance",
+      "faster_insights",
+      "data_monetization"
+    ]
+  },
+  "security": {
+    "_description": "Security and governance",
+    "items": [
+      {
+        "name": "security",
+        "hint": "security全般. ガバナンスには security_governance",
+        "general": true
+      },
+      {
+        "name": "security_governance",
+        "hint": "ガバナンス寄りのsecurity"
+      },
+      {
+        "name": "cybersecurity",
+        "hint": "サイバーsecurity/脅威対策"
+      },
+      {
+        "name": "secure",
+        "hint": "安全/保護の抽象概念"
+      },
+      {
+        "name": "secure_data",
+        "hint": "データ保護に特化"
+      },
+      {
+        "name": "key",
+        "general": true
+      },
+      "integrity",
+      {
+        "name": "private_data_exchange",
+        "hint": "Private Data Exchange (限定共有)"
+      },
+      {
+        "name": "public_data_exchange",
+        "hint": "Public Data Exchange (公開共有)"
+      },
+      "trusted",
+      "truth"
+    ]
+  },
+  "communication": {
+    "_description": "Communication and collaboration tools",
+    "items": [
+      {
+        "name": "email",
+        "general": true
+      },
+      "chat_apis",
+      "social",
+      {
+        "name": "blog",
+        "hint": "ブログ記事"
+      },
+      {
+        "name": "blog_report",
+        "hint": "ブログレポート/記事analytics"
+      },
+      {
+        "name": "collaboration",
+        "hint": "コラボレーション (generic )"
+      },
+      "communicate",
+      {
+        "name": "sharing_collaboration",
+        "hint": "データ共有とコラボレーション"
+      },
+      {
+        "name": "application_collaboration",
+        "hint": "アプリ連携 (単数形)"
+      },
+      {
+        "name": "applications_and_collaboration",
+        "hint": "アプリ群と連携 (複数形)"
+      },
+      "webinar",
+      "video",
+      "audio",
+      "multimedia",
+      "connected"
+    ]
+  },
+  "ui_and_apps": {
+    "_description": "Applications, web, interfaces",
+    "items": [
+      {
+        "name": "application",
+        "hint": "アプリケーション (generic )"
+      },
+      {
+        "name": "web_app",
+        "general": true
+      },
+      {
+        "name": "data_applications",
+        "hint": "データアプリケーション (データ駆動型)"
+      },
+      {
+        "name": "code",
+        "general": true
+      },
+      "dev",
+      "tools",
+      "edit",
+      "window_function",
+      "javascript",
+      "sql",
+      "image",
+      "text",
+      {
+        "name": "log",
+        "hint": "ログファイル/ロギング"
+      },
+      {
+        "name": "3rd_party",
+        "hint": "サードパーティ全般"
+      },
+      {
+        "name": "3rd_party_app",
+        "hint": "サードパーティアプリケーション"
+      },
+      "software",
+      "play",
+      {
+        "name": "documentation",
+        "hint": "ドキュメンテーション/マニュアル. 通常の書類は document"
+      },
+      "information"
+    ]
+  },
+  "business_concepts": {
+    "_description": "Business, industry, and abstract concepts",
+    "items": [
+      "enterprise",
+      "corporate",
+      "finance",
+      "pricing",
+      "profit",
+      "cost_savings",
+      "investments",
+      "ecommerce",
+      "storefront",
+      {
+        "name": "manufacturing",
+        "hint": "製造業"
+      },
+      {
+        "name": "manufacturing_header",
+        "hint": "製造業 (ヘッダー/大きいバージョン)"
+      },
+      "retail_cpg_header",
+      "insurance",
+      "banking",
+      "telecom",
+      "education_k_12",
+      "higher_education",
+      "life_science",
+      "pharma",
+      "digital_health",
+      "time",
+      "calendar",
+      "location",
+      "world",
+      "launch",
+      "target",
+      "idea",
+      "results",
+      "flag",
+      "check",
+      "no",
+      {
+        "name": "advertising_media",
+        "hint": "広告メディア"
+      },
+      {
+        "name": "advertising_media_header",
+        "hint": "広告メディア (ヘッダー/大きいバージョン)"
+      },
+      "beverage",
+      "cpg",
+      "federal",
+      "state_local",
+      "fin_tech",
+      "finance_option",
+      {
+        "name": "gambling",
+        "hint": "ギャンブル業界"
+      },
+      {
+        "name": "gaming",
+        "hint": "ゲーム業界 (コントローラーicon)"
+      },
+      "sports",
+      "hardware_semiconductors",
+      "industry",
+      {
+        "name": "iot",
+        "hint": "IoT (Internet of Things)"
+      },
+      {
+        "name": "it",
+        "hint": "IT (Information Technology)"
+      },
+      "media_platforms",
+      "media_publishers",
+      "mining",
+      "patient_data",
+      "payer",
+      "technology",
+      "technology_header",
+      "transport",
+      "case_study",
+      "workshop",
+      "free_trial"
+    ]
+  },
+  "performance_and_scale": {
+    "_description": "Performance, scalability, and efficiency concepts",
+    "items": [
+      {
+        "name": "scale",
+        "hint": "スケール/拡張性"
+      },
+      "performance_scale",
+      {
+        "name": "speed_1",
+        "hint": "スピード (バリエーション1)"
+      },
+      {
+        "name": "speed_2",
+        "hint": "スピード (バリエーション2)"
+      },
+      "instant_elasticity",
+      "flexibility",
+      "on_demand",
+      "economy_scale",
+      "expand",
+      "auto"
+    ]
+  },
+  "abstract_and_values": {
+    "_description": "Abstract concepts, Snowflake values, and marketing",
+    "items": [
+      "be_excellent",
+      "make_each_other_best",
+      "own_it",
+      "put_customers_first",
+      "think_big",
+      "all_your_data",
+      "easily_onboard",
+      "easy",
+      {
+        "name": "easy_management",
+        "hint": "簡単なmanagement (マーケティング)"
+      },
+      "fulfilment",
+      "pay_to_play"
+    ]
+  },
+  "logos": {
+    "_description": "Third-party brand logos (in logos/ directory, 67 icons)",
+    "items": [
+      "aws",
+      "azure",
+      "googlecloud",
+      "snowflake",
+      "databricks",
+      "dbt",
+      "apachekafka",
+      "apachespark",
+      "apacheairflow",
+      "docker",
+      "kubernetes",
+      "terraform",
+      "python",
+      "git",
+      "github",
+      "gitlab",
+      "postgresql",
+      "mysql",
+      "mongodb",
+      "redis",
+      {
+        "name": "tableau",
+        "hint": "Tableau BI ツール (logos)"
+      },
+      "powerbi",
+      "looker",
+      {
+        "name": "bigquery",
+        "hint": "Google BigQuery DWH"
+      },
+      "slack",
+      "teams",
+      "jira",
+      "confluence",
+      "atlassian",
+      "sharepoint",
+      "box",
+      "github_actions",
+      "fivetran",
+      "dataiku",
+      {
+        "name": "google_analytics",
+        "hint": "Google Analytics"
+      },
+      "java",
+      "typescript",
+      {
+        "name": "vscode",
+        "hint": "Visual Studio Code"
+      },
+      {
+        "name": "nginx",
+        "hint": "LB / Reverse Proxy"
+      },
+      {
+        "name": "cloudflare",
+        "hint": "CDN / WAF"
+      },
+      {
+        "name": "rabbitmq",
+        "hint": "Message Queue"
+      },
+      {
+        "name": "apachepulsar",
+        "hint": "Message Queue (Pulsar)"
+      },
+      {
+        "name": "kong",
+        "hint": "API Gateway"
+      },
+      {
+        "name": "okta",
+        "hint": "Identity / SSO"
+      },
+      {
+        "name": "auth0",
+        "hint": "Auth"
+      },
+      {
+        "name": "letsencrypt",
+        "hint": "TLS/SSL"
+      },
+      {
+        "name": "elasticsearch",
+        "hint": "Search Engine"
+      },
+      {
+        "name": "opensearch",
+        "hint": "Search Engine (OSS)"
+      },
+      {
+        "name": "grafana",
+        "hint": "Monitoring Dashboard"
+      },
+      {
+        "name": "prometheus",
+        "hint": "Metrics Collection"
+      },
+      {
+        "name": "datadog",
+        "hint": "Observability"
+      },
+      {
+        "name": "pagerduty",
+        "hint": "Incident Management"
+      },
+      {
+        "name": "linux",
+        "hint": "OS"
+      },
+      {
+        "name": "airbyte",
+        "hint": "ELT (OSS)"
+      },
+      {
+        "name": "anthropic",
+        "hint": "AI/LLM"
+      },
+      {
+        "name": "stripe",
+        "hint": "Payments"
+      },
+      {
+        "name": "react",
+        "hint": "Frontend"
+      },
+      {
+        "name": "nextdotjs",
+        "hint": "Next.js Framework"
+      },
+      {
+        "name": "nodedotjs",
+        "hint": "Node.js Runtime"
+      },
+      {
+        "name": "openai",
+        "hint": "AI/LLM"
+      },
+      {
+        "name": "salesforce",
+        "hint": "CRM"
+      },
+      {
+        "name": "twilio",
+        "hint": "Communications API"
+      },
+      {
+        "name": "oracle",
+        "hint": "Oracle Database"
+      },
+      {
+        "name": "teradata",
+        "hint": "Teradata DWH"
+      },
+      {
+        "name": "informatica",
+        "hint": "Data Integration"
+      },
+      {
+        "name": "hive",
+        "hint": "Apache Hive"
+      },
+      {
+        "name": "db2",
+        "hint": "IBM Db2"
+      }
+    ]
+  },
+  "general_it": {
+    "_description": "汎用IT/システム図アイコン (Lucide Icons, ISC License, Snowflake Blue)",
+    "items": [
+      {
+        "name": "globe",
+        "hint": "インターネット/Web",
+        "general": true
+      },
+      {
+        "name": "monitor",
+        "hint": "ディスプレイ/画面",
+        "general": true
+      },
+      {
+        "name": "smartphone",
+        "hint": "スマートフォン",
+        "general": true
+      },
+      {
+        "name": "terminal",
+        "hint": "CLI/ターミナル",
+        "general": true
+      },
+      {
+        "name": "folder",
+        "hint": "フォルダ",
+        "general": true
+      },
+      {
+        "name": "wifi",
+        "hint": "ワイヤレス",
+        "general": true
+      },
+      {
+        "name": "router",
+        "hint": "ルーター/ネットワーク機器",
+        "general": true
+      },
+      {
+        "name": "shield",
+        "hint": "ファイアウォール/防御",
+        "general": true
+      },
+      {
+        "name": "clock",
+        "hint": "時間/スケジュール",
+        "general": true
+      },
+      {
+        "name": "bell",
+        "hint": "通知/アラート",
+        "general": true
+      },
+      {
+        "name": "webhook",
+        "hint": "Webhook/コールバック",
+        "general": true
+      },
+      {
+        "name": "container",
+        "hint": "container (generic )",
+        "general": true
+      },
+      {
+        "name": "layout_dashboard",
+        "hint": "ダッシュボード",
+        "general": true
+      },
+      {
+        "name": "cpu",
+        "hint": "CPU/プロセッサ/マイクロservice",
+        "general": true
+      },
+      {
+        "name": "hard_drive",
+        "hint": "storage/HDD",
+        "general": true
+      },
+      {
+        "name": "printer",
+        "hint": "プリンター",
+        "general": true
+      },
+      {
+        "name": "layers",
+        "hint": "レイヤー/スタック",
+        "general": true
+      },
+      {
+        "name": "git_branch",
+        "hint": "ブランチ/分岐",
+        "general": true
+      },
+      {
+        "name": "zap",
+        "hint": "API/トリガー/稲妻",
+        "general": true
+      },
+      {
+        "name": "message_square",
+        "hint": "メッセージキュー/チャット",
+        "general": true
+      }
+    ]
+  },
+  "aws_services": {
+    "_description": "AWS サービスアイコン (icons/aws/, 293個全量あり。よく使うもののみ掲載。ls icons/aws/ で全一覧)",
+    "items": [
+      {
+        "name": "amazon_simple_storage_service",
+        "hint": "S3",
+        "general": true
+      },
+      {
+        "name": "aws_glue",
+        "hint": "Glue (ETL)",
+        "general": true
+      },
+      {
+        "name": "aws_lambda",
+        "hint": "Lambda (Serverless)"
+      },
+      {
+        "name": "amazon_redshift",
+        "hint": "Redshift (DWH)"
+      },
+      {
+        "name": "amazon_dynamodb",
+        "hint": "DynamoDB (NoSQL)"
+      },
+      {
+        "name": "amazon_rds",
+        "hint": "RDS (Managed DB)"
+      },
+      {
+        "name": "amazon_sagemaker",
+        "hint": "SageMaker (ML)"
+      },
+      {
+        "name": "amazon_athena",
+        "hint": "Athena (Query)"
+      },
+      {
+        "name": "aws_lake_formation",
+        "hint": "Lake Formation"
+      },
+      {
+        "name": "amazon_emr",
+        "hint": "EMR (Spark/Hadoop)"
+      },
+      {
+        "name": "amazon_kinesis",
+        "hint": "Kinesis (Streaming/Firehose)"
+      },
+      {
+        "name": "amazon_kinesis_data_streams",
+        "hint": "Kinesis Streams"
+      },
+      {
+        "name": "amazon_eventbridge",
+        "hint": "EventBridge (Events)"
+      },
+      {
+        "name": "amazon_simple_queue_service",
+        "hint": "SQS (Queue)"
+      },
+      {
+        "name": "amazon_simple_notification_service",
+        "hint": "SNS (Notifications)"
+      },
+      {
+        "name": "aws_step_functions",
+        "hint": "Step Functions (Workflow)"
+      },
+      {
+        "name": "amazon_api_gateway",
+        "hint": "API Gateway"
+      },
+      {
+        "name": "aws_identity_and_access_management",
+        "hint": "IAM (Identity & Access)"
+      }
+    ]
+  },
+  "azure_services": {
+    "_description": "Azure service icons (605 total in azure/ dir, key ones listed here)",
+    "items": [
+      "virtual_machine",
+      "app_services",
+      "sql_database",
+      "storage_accounts",
+      "kubernetes_services",
+      "function_apps",
+      "azure_cosmos_db",
+      "cognitive_services",
+      "azure_synapse_analytics",
+      "event_hubs",
+      "azure_service_bus",
+      "key_vaults",
+      "monitor",
+      "logic_apps",
+      "api_management_services",
+      "container_instances",
+      "container_registries",
+      "machine_learning",
+      "bot_services",
+      "notification_hubs",
+      "virtual_networks",
+      "load_balancers",
+      "application_gateways",
+      "firewalls",
+      "dns_zones",
+      "front_door_and_cdn_profiles",
+      "azure_openai",
+      "ai_studio",
+      "data_lake_storage_gen1",
+      "azure_firewall_manager",
+      "blob_block",
+      {
+        "name": "sql_server",
+        "hint": "Microsoft SQL Server"
+      }
+    ]
+  },
+  "fabric_services": {
+    "_description": "Microsoft Fabric アイテムアイコン (icons/fabric/, 15個)",
+    "items": [
+      {
+        "name": "fabric",
+        "hint": "Microsoft Fabric ロゴ"
+      },
+      {
+        "name": "one_lake",
+        "hint": "OneLake"
+      },
+      {
+        "name": "lakehouse",
+        "hint": "Lakehouse"
+      },
+      {
+        "name": "data_warehouse",
+        "hint": "Fabric Data Warehouse"
+      },
+      {
+        "name": "pipeline",
+        "hint": "Fabric Pipeline"
+      },
+      {
+        "name": "dataflow",
+        "hint": "Dataflow"
+      },
+      {
+        "name": "notebook",
+        "hint": "Fabric Notebook"
+      },
+      {
+        "name": "semantic_model",
+        "hint": "Semantic Model"
+      },
+      {
+        "name": "event_house",
+        "hint": "Eventhouse (KQL)"
+      },
+      {
+        "name": "eventstream",
+        "hint": "Eventstream"
+      },
+      {
+        "name": "kql_database",
+        "hint": "KQL Database"
+      },
+      {
+        "name": "spark_job_direction",
+        "hint": "Spark Job"
+      },
+      {
+        "name": "copilot",
+        "hint": "Fabric Copilot"
+      },
+      {
+        "name": "data_factory",
+        "hint": "Fabric Data Factory"
+      },
+      {
+        "name": "sql_database",
+        "hint": "Fabric SQL Database"
+      }
+    ]
+  }
+}

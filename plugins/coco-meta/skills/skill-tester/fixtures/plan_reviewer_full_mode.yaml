@@ -1,0 +1,38 @@
+skill: plan-reviewer
+scenario: full_mode_single_plan
+description: |
+  FULL mode review of an LLM-generated plan file using the 8-dimension, 100-point rubric.
+  Tests: Agent Execution Test (blocking issue count), all 8 dimension scores with worksheets,
+  weighted scoring formula, verdict threshold application, PLAN→ACT gate, and review
+  file write to reviews/plan-reviews/.
+  Precondition: a plan file must exist at the target_file path before running this fixture.
+  Use any plan file exported from exit_plan_mode, or create /tmp/test_plan_fixture.md with
+  a multi-step implementation plan (~30 lines) as test input.
+
+inputs:
+  target_file: /tmp/test_plan_fixture.md   # create before running: any multi-step plan file
+  review_date: 2026-04-25
+  review_mode: FULL
+  model: claude-sonnet-4-6
+  output_root: reviews/
+  overwrite: false
+  timing_enabled: false
+  # test_plan_content (for runner to pre-create /tmp/test_plan_fixture.md):
+  #   A 25-30 line plan describing steps to build a Python data pipeline,
+  #   containing a mix of clear steps and some ambiguous phrases ("as needed",
+  #   "appropriate error handling") to exercise the Agent Execution Test path.
+
+stopping_point_responses:
+  plan_to_act: "ACT"    # authorizes review file write to reviews/plan-reviews/
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  output_contains_verdict_pass: "contains: 'PASS'"
+  output_contains_verdict_fail: "contains: 'FAIL'"    # either PASS or FAIL present
+  output_contains_score: "contains: '/100'"
+  review_file_written: true
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # keep review file for inspection

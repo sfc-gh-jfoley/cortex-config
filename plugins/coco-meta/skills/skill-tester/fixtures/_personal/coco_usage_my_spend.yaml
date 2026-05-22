@@ -1,0 +1,41 @@
+skill: coco-usage
+scenario: my_spend_today
+connection: default
+description: |
+  Personal spend query for today. Tests: connection detection from settings.json,
+  user ID resolution, My Spend query execution, markdown table output.
+
+requires_live_snowflake: true
+
+inputs:
+  intent: "my spend today"
+  # No explicit inputs — coco-usage detects connection from ~/.snowflake/cortex/settings.json
+  # and resolves user ID from CURRENT_USER()
+
+stopping_point_responses:
+  # Step 0: Connection detection presents account name and asks Y/N
+  connection_confirm: "Y"
+
+assertions:
+  connection_detected: true              # cortexAgentConnectionName or active_connection found
+  account_confirmed: true               # user confirmed correct account
+  user_id_resolved: true                # SELECT user_id FROM USERS WHERE name = CURRENT_USER()
+  query_executes: true                   # My Spend query runs without error
+  markdown_table_output: true           # results presented as markdown table
+  total_credits_present: true           # output includes "total_credits" column
+  total_tokens_present: true            # output includes "total_tokens" column
+  latency_note_shown: true             # "up to 45-minute latency" note present
+  # Note: numeric values are not asserted — depend on actual usage
+
+cleanup:
+  drop_after_test: false
+
+notes: |
+  This fixture REQUIRES a live Snowflake connection (ACCOUNT_USAGE access).
+  The connection must have access to SNOWFLAKE.ACCOUNT_USAGE.CORTEX_CODE_CLI_USAGE_HISTORY.
+  
+  The connection_confirm: "Y" response bypasses the Step 0 account confirmation gate.
+  To test the "user says N" path (switch account), use a variant fixture.
+
+  Edge case: if no CoCo usage exists for today, the query returns 0 rows.
+  The skill should handle this gracefully (empty table, not an error).

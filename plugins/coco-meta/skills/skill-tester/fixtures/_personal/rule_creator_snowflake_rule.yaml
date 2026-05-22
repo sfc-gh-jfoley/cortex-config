@@ -1,0 +1,54 @@
+skill: rule-creator
+scenario: create_snowflake_technology_rule
+connection: default
+description: |
+  Create a new Snowflake technology rule via the 5-phase workflow.
+  Tests: template_generator.py execution, web research, content population,
+  schema validation loop, RULES_INDEX.md update.
+  Uses "Snowflake Hybrid Tables" as the target technology (domain 100-199).
+
+requires_live_snowflake: false
+
+inputs:
+  technology: "Snowflake Hybrid Tables"
+  aspect: core
+  timing_enabled: false
+  # constraints: null (no offline/online restriction)
+
+stopping_point_responses:
+  # Phase 1: Discovery presents domain range and next number; agent auto-proceeds
+  # Phase 2-5 proceed automatically
+  # The PLAN → ACT gate is the only user-facing stop in rule-creator
+  plan_to_act_gate: "ACT"
+
+assertions:
+  rule_file_created: true                   # rules/NNN-snowflake-hybrid-tables.md exists
+  filename_format_valid: true               # matches /^\d{3}-[a-z]+(-[a-z]+)*\.md$/
+  rule_number_in_range: "100-199"           # Snowflake domain range
+  schema_validates_0_critical: true         # schema_validator.py exit code 0
+  keyword_count: "10-15"                    # 10-15 comma-separated keywords in metadata
+  token_budget_format: true                 # TokenBudget: ~NUMBER format
+  all_9_sections_present: true             # Scope, Context, Contract, Patterns,
+                                            # Anti-Patterns, Examples, References,
+                                            # Version, Metadata
+  contract_6_xml_tags: true                 # Contract section has 6 XML tags before line 160
+  min_code_examples: ">= 2"                # at least 2 code examples
+  min_anti_patterns: ">= 2"               # at least 2 anti-patterns
+  rules_index_updated: true                 # entry added to RULES_INDEX.md
+  rules_index_entry_numeric_order: true    # entry in correct numeric position
+
+cleanup:
+  drop_after_test: false
+  # Keep created rule for inspection; in real usage, delete manually if unwanted
+
+notes: |
+  This fixture is STRUCTURAL — no live Snowflake required.
+  template_generator.py and schema_validator.py must be present in the project's scripts/.
+  
+  The stopping_point_responses only needs the plan_to_act_gate because rule-creator
+  is otherwise fully automated (no mid-phase user stops).
+  
+  Key regression tests:
+  - schema_validates_0_critical: ensures the 5-phase loop ran to completion
+  - all_9_sections_present: catches partial template population
+  - rules_index_updated: confirms Phase 5 (Indexing) ran

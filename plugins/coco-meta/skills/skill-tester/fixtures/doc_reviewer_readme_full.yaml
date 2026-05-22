@@ -1,0 +1,50 @@
+skill: doc-reviewer
+scenario: readme_full_mode
+connection: default
+description: |
+  FULL mode review of a project README.md.
+  Tests: all 6 dimensions scored, Cross-Reference Verification Table,
+  Link Validation Table, Coverage Checklist, verdict on 100pt scale.
+  Uses project root README.md as target.
+
+requires_live_snowflake: false
+
+inputs:
+  review_date: "2026-04-25"
+  review_mode: FULL
+  model: claude-sonnet-4-6
+  target_files:
+    - README.md
+  review_scope: single
+  output_root: /tmp/skill-test-doc-reviewer/
+  overwrite: true
+  timing_enabled: false
+
+stopping_point_responses:
+  # doc-reviewer has a PLAN → ACT gate before file modifications
+  plan_to_act_gate: "ACT"
+
+assertions:
+  review_written: true                          # review file exists at output_root/doc-reviews/
+  all_6_dimensions_present: true               # Accuracy, Completeness, Clarity, Structure,
+                                                # Staleness, Consistency
+  cross_reference_table_present: true          # Cross-Reference Verification Table in output
+  link_validation_table_present: true          # Link Validation Table in output
+  coverage_checklist_present: true             # Coverage Checklist in output
+  score_in_range: "0-100"                       # total score is 0-100 (not 115 — separate rubric)
+  verdict_present: true                         # EXCELLENT / GOOD / NEEDS_IMPROVEMENT / POOR / INADEQUATE
+  schema_validation_skipped_for_doc: true      # No schema_validator.py call for README.md
+  executive_summary_present: true             # review opens with executive summary
+
+cleanup:
+  drop_after_test: false
+
+notes: |
+  doc-reviewer uses a 6-dimension/100pt rubric — different from rule-reviewer's 8-dimension/115pt.
+  This is intentional: documentation quality is measured differently from rule executability.
+  
+  The score_in_range: "0-100" assertion is critical to verify the two skills maintain
+  separate rubric scales and don't bleed together.
+
+  If README.md doesn't exist in the test project, this fixture will fail at input validation.
+  The skill correctly reports "File not found: README.md" in that case.

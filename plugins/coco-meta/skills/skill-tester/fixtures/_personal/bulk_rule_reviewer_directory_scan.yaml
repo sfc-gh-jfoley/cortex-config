@@ -1,0 +1,32 @@
+skill: bulk-rule-reviewer
+scenario: directory_scan_python_subset
+description: |
+  Bulk FULL-mode review of all Python rules (rules/200-*.md) — a scoped subset for test speed.
+  Tests: Discovery stage, per-rule rule-reviewer workflow (schema validation, 8 dimensions,
+  evidence requirements), aggregation, summary report generation, and PLAN→ACT gate
+  before writing the master summary to reviews/summaries/.
+
+inputs:
+  review_date: 2026-04-25
+  review_mode: FULL
+  model: claude-sonnet-4-6
+  filter_pattern: rules/200-*.md    # Python rules only — limits test to ~8-10 rules
+  skip_existing: false              # force fresh reviews even if prior runs exist
+  overwrite: false                  # use sequential numbering (-01, -02) for conflicts
+  max_parallel: 1                   # sequential mode for deterministic test output
+  output_root: reviews/
+  timing_enabled: false
+
+stopping_point_responses:
+  plan_to_act: "ACT"    # authorizes write of master summary to reviews/summaries/
+  # Note: individual rule review files are written during Stage 2 (before this gate)
+
+assertions:
+  skill_completed: true
+  output_contains_score_scale: "contains: '/115'"          # progress lines show score/115
+  output_contains_bulk_summary: "contains: '_bulk-review'" # master summary filename
+  output_contains_priority: "contains: 'Priority'"         # prioritized sections present
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # keep individual reviews and summary for inspection

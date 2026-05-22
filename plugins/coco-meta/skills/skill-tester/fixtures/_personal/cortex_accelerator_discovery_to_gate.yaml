@@ -1,0 +1,56 @@
+skill: cortex-accelerator
+scenario: discovery_to_domain_map_gate
+connection: default
+description: |
+  Guided discovery through Phases 0–5 on a TPC-H account with no existing SVs or agents.
+  Tests: scan scorecard output, domain hypothesis, gap/conflict report, BI intake via
+  question library (no tools available), and Phase 5 hard gate producing an approved
+  validated_domain_map.json. Scenario ends at APPROVED — Phase 6 (Build) is not invoked.
+
+inputs:
+  mode: "Guided"
+  target_databases:
+    - TPCH_SF1
+  use_case_description: |
+    Supply chain and order fulfillment analytics. Key metrics: order revenue, supplier
+    on-time delivery rate, part fill rate. Main entities: customers, orders, line items,
+    parts, suppliers, nations, regions. Primary grain: one row per order line item.
+  bi_tools: none
+
+stopping_point_responses:
+  step_1_mode: "Guided"
+
+  # Phase 0 — SCAN: confirm databases/schemas to scan
+  phase_0_scan_scope: |
+    Include TPCH_SF1.PUBLIC. That covers all eight standard TPC-H tables.
+
+  # Phase 3 — DISCOVER: gap + conflict report review before resolution
+  phase_3_gap_conflict_review: |
+    The gap and conflict report looks correct. Accept all inferred FK relationships.
+    No additional business context to add at this stage.
+
+  # Phase 4 — RESOLVE: BI tool intake (none available — fall back to question library)
+  phase_4_bi_tool_intake: |
+    No Tableau, PowerBI, or dbt artifacts are available.
+  phase_4_question_answers: |
+    Revenue formula: L_EXTENDEDPRICE * (1 - L_DISCOUNT) * (1 - L_TAX).
+    Delivery lateness: DATEDIFF('day', L_COMMITDATE, L_RECEIPTDATE) > 0.
+    Customer segmentation in C_MKTSEGMENT (AUTOMOBILE, BUILDING, FURNITURE, HOUSEHOLD, MACHINERY).
+    Orders link to customers via O_CUSTKEY = C_CUSTKEY.
+    Line items link to orders via L_ORDERKEY = O_ORDERKEY.
+    Supplier delivery rate measured per S_SUPPKEY.
+
+  # Phase 5 — VALIDATE: hard gate — approve domain map before any pipeline runs
+  phase_5_domain_map_gate: "APPROVED"
+
+assertions:
+  skill_completed: true
+  output_contains_validated_domain_map: "contains: 'validated_domain_map'"
+  output_contains_approved: "contains: 'APPROVED'"
+  no_phase_errors: true
+  scan_scorecard_present: "contains: 'score'"
+  # Phase 6 should NOT have started — no kg-data-discovery or vqr invocation
+  phase_6_not_invoked: true
+
+cleanup:
+  drop_after_test: false

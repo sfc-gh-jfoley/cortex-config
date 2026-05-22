@@ -1,0 +1,33 @@
+skill: skill-timing
+scenario: skill_timing_single_skill
+connection: null
+requires_live_snowflake: false
+description: |
+  Time a single skill execution using timing-start, timing-checkpoint, and timing-end.
+  Tests: run_timing.sh start invocation, TIMING_RUN_ID tracking in working memory,
+  checkpoint recording at key phases, timing-end STDOUT parsing,
+  and duration/metadata embedding into the output file.
+  NOTE: This skill has no labeled stopping points — confirmations below are soft gates.
+
+inputs:
+  skill_name: rule-reviewer
+  model: claude-sonnet-4-6
+  review_mode: FULL
+  target_file: /tmp/skill_timing_test_output.md
+  timing_enabled: true
+
+# skill-timing has no explicit STOP gates. Responses below are soft confirmations.
+stopping_point_responses:
+  after_timing_start: "timer started, proceed"
+  after_skill_complete: "skill done, finalize timing"
+  after_timing_report: "accept"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  run_id_tracked: true
+  output_contains_timing_metadata: "contains: 'Timing'"
+  output_contains_duration: "contains: 'duration'"
+
+cleanup:
+  drop_after_test: false

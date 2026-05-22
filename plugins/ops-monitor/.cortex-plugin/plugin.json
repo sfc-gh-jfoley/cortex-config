@@ -1,0 +1,7 @@
+{
+  "name": "ops-monitor",
+  "description": "Operational monitoring: release changes, artifact drift detection, and self-healing pipelines",
+  "version": "1.0.0",
+  "author": { "name": "Joey Foley" },
+  "skills": ["./skills"]
+}

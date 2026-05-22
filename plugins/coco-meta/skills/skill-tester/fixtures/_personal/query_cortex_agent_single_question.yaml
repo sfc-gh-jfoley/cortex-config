@@ -1,0 +1,31 @@
+skill: query-cortex-agent
+scenario: query_cortex_agent_single_question
+connection: default
+requires_live_snowflake: true
+description: |
+  Ask a single question to a named Cortex Agent using DATA_AGENT_RUN.
+  Tests: SHOW AGENTS discovery, Step 1 agent/question selection STOP,
+  DATA_AGENT_RUN SQL with TRY_PARSE_JSON wrapper, content array text extraction,
+  and Step 4 follow-up prompt.
+
+inputs:
+  agent_fqn: "SNOWFLAKE_INTELLIGENCE.AGENTS.RAVEN_SALES_ASSISTANT"
+  question: "What are the top 5 accounts by pipeline value this quarter?"
+  sql_function: DATA_AGENT_RUN
+
+# Step 1: After SHOW AGENTS, ask user which agent and question — STOP
+# Step 4: After presenting response, ask if user wants a follow-up — STOP
+stopping_point_responses:
+  step_1_agent_and_question: "use SNOWFLAKE_INTELLIGENCE.AGENTS.RAVEN_SALES_ASSISTANT and ask: What are the top 5 accounts by pipeline value this quarter?"
+  step_4_followup_prompt: "no follow-up, that's all"
+
+assertions:
+  skill_completed: true
+  no_phase_errors: true
+  output_not_empty: true
+  uses_data_agent_run: "contains: 'DATA_AGENT_RUN'"
+  uses_try_parse_json: "contains: 'TRY_PARSE_JSON'"
+  timeout_seconds_set: "contains: 'timeout_seconds'"
+
+cleanup:
+  drop_after_test: false

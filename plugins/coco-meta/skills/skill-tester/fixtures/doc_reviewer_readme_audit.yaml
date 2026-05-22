@@ -1,0 +1,34 @@
+skill: doc-reviewer
+scenario: readme_full_audit
+description: |
+  FULL mode review of a project README.md using the 6-dimension, 100-point rubric.
+  Tests: Cross-Reference Verification table (Accuracy), Coverage Checklist (Completeness),
+  Link Validation table (Staleness), all 6 dimension scores, PLAN→ACT gate, and
+  review file write to reviews/doc-reviews/.
+
+inputs:
+  target_files:
+    - README.md
+  review_date: 2026-04-25
+  review_mode: FULL
+  model: claude-sonnet-4-6
+  review_scope: single
+  output_root: reviews/
+  overwrite: false
+  timing_enabled: false
+
+stopping_point_responses:
+  plan_to_act: "ACT"    # authorizes review file write to reviews/doc-reviews/
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  output_contains_dimension: "contains: 'dimension'"    # review references dimensions
+  output_contains_accuracy: "contains: 'Accuracy'"
+  output_contains_completeness: "contains: 'Completeness'"
+  output_contains_verdict: "contains: 'NEEDS_IMPROVEMENT'"   # loose — any verdict token
+  review_file_written: true
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # keep review file for inspection

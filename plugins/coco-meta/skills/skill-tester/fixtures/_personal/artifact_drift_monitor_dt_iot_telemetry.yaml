@@ -1,0 +1,45 @@
+skill: artifact-drift-monitor
+scenario: dt_iot_telemetry_schema_drift
+connection: default
+description: |
+  Tests DT schema drift detection against ATT_IOT_DEMO.NORMALIZED.DT_TELEMETRY_FLAT.
+  ACTIVE DT with explicit column list from ATT_IOT_DEMO.RAW.RAW_DEVICE_TELEMETRY.
+  Created Apr 2026. Tests: 30-day lookback default, source column diff,
+  new-column scoring (business vs audit), type drift detection, dropped column
+  detection, refresh health check, streaming/CDC DDL event detection,
+  and approval gate enforcement.
+
+inputs:
+  artifact_type: dynamic_table
+  artifact_name: ATT_IOT_DEMO.NORMALIZED.DT_TELEMETRY_FLAT
+  lookback_days: 30   # default for DT — confirm at Phase 1
+
+stopping_point_responses:
+  phase_1_lookback_confirm: "yes"           # accept 30-day default
+  phase_6_approval_gate: "approve all ADD"  # approve any ADD recommendations
+
+assertions:
+  # Core flow assertions
+  lookback_confirmed: true              # Phase 1 asked and got confirmation
+  source_columns_queried: true          # INFORMATION_SCHEMA.COLUMNS queried for RAW_DEVICE_TELEMETRY
+  dt_columns_queried: true              # INFORMATION_SCHEMA.COLUMNS queried for DT_TELEMETRY_FLAT
+  schema_diff_performed: true           # The new-columns diff SQL ran
+  refresh_history_checked: true         # Attempted — timeout is acceptable (WARN not FAIL)
+  manifest_presented: true              # Enhancement manifest block appeared
+  approval_gate_shown: true             # Approval Required block appeared
+  ddl_only_for_approved: true           # DDL generated only after approval
+
+  # DT-specific structure assertions
+  select_star_detection: true           # Checked whether DT uses SELECT * or explicit cols
+  dropped_column_check: true            # Ran the left-join query to find dropped source cols
+  type_drift_check: true               # Ran the precision/type comparison query
+
+  # Scoring assertions
+  new_column_scores_present: true       # Each new column has a numeric score + recommendation
+  add_skip_rationale: true             # Each column has both add_reason and skip_reason
+
+  # Lookback default check
+  lookback_default_dt: "== 30"         # Default for DT is 30 days
+
+cleanup:
+  drop_after_test: false   # Read-only — nothing created or dropped

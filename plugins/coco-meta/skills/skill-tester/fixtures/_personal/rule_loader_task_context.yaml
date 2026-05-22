@@ -1,0 +1,27 @@
+skill: rule-loader
+scenario: task_context_python_etl
+description: |
+  Load rules relevant to "writing a Python ETL pipeline" task.
+  Tests: domain identification from task description, rule discovery against RULES_INDEX.md,
+  user prompt with rule names (Step 2 stopping point), and rule file loading on confirmation.
+  No file writes occur — this skill is read-only.
+
+inputs:
+  task_description: "writing a Python ETL pipeline that loads CSV files into Snowflake"
+  # Expect skill to identify relevant rules from domain table:
+  #   200-python-core.md (Python Core)
+  #   108-snowflake-data-loading.md (Data Loading)
+  #   100-snowflake-core.md (Snowflake Core)
+  # Skill MUST prompt user before loading any rules (hard requirement)
+
+stopping_point_responses:
+  rules_prompt_confirm: "yes"    # user approves loading the identified rules
+
+assertions:
+  skill_completed: true
+  output_not_empty: true
+  output_contains_rule_loaded: "contains: 'python'"    # at least one Python rule mentioned
+  no_phase_errors: true
+
+cleanup:
+  drop_after_test: false    # no files written; nothing to clean up

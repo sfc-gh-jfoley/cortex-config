@@ -1,0 +1,100 @@
+# ============================================================
+# snowflake-gslides-config.yaml
+# Default configuration for Snowflake Google Slides builder
+# ============================================================
+# Place a copy in your project folder to override defaults.
+# Only include the keys you want to change (deep merge applied).
+# ============================================================
+
+config_version: 1
+
+# --- Template ---
+template_id: "17J0RNUWIHSyolEJ4dU6iOfmgyqmuEz-wYb2PI0UAzcU"  # Snowflake Slides template (auto-copied when gslides not specified)
+
+# --- Fonts ---
+fonts:
+  primary: "Arial"              # All text (titles, body, tables)
+  code: "Courier New"           # Code blocks and `backtick` text in table cells
+
+# --- Font Sizes (pt) ---
+sizes:
+  cover_title: 44               # Cover slide main title
+  cover_subtitle: 20            # Cover slide subtitle
+  cover_date: 14                # Cover slide date line
+  title: 24                     # Content slide title
+  title_min: 20                 # Minimum allowed title size (for long titles)
+  subtitle: 14                  # Content slide subtitle
+  body: 10                      # Body text
+  body_header: 11               # Body header lines (auto-detected by : or #)
+  agenda_title: 28              # "Agenda" heading text
+  agenda_items: 16              # Agenda list items (auto-shrunk for 11-15→14, 16-20→12)
+  divider: 36                   # Section divider title
+  table_body: 8                 # Table data row font size
+  table_header_increment: 1     # Header row = table_body + this value
+  code: 8                       # Code block font size
+
+# --- Colors (RGB, 0.0-1.0 float) ---
+colors:
+  snowflake_blue: [0.16, 0.71, 0.91]     # Table header background, SQL accent bar
+  accent: [0.831, 0.357, 0.565]          # Body **bold** emphasis color (#d45b90)
+  body_text: [0, 0, 0]                    # Body text color (black)
+  code_background: [0.051, 0.067, 0.09]  # Code block background (#0d1117)
+
+# --- Table ---
+table:
+  default_x: 450000             # Table X position (EMU)
+  default_w: 8200000            # Table width (EMU)
+  default_row_height: 330000    # Default row height (EMU)
+  min_column_width: 500000      # Minimum column width (EMU)
+  background_color: [0.92, 0.97, 1.0]      # Base row background (used for all rows when zebra off)
+  background_zebra_color: [0.86, 0.94, 0.99]  # Alternating row color (odd rows when zebra on)
+  border_color: [1, 1, 1]      # Table border color (white)
+
+# --- Code Block ---
+code_block:
+  accent_bar_width: 50000       # Left accent bar width (EMU)
+  padding: 80000                # Internal padding (EMU)
+  max_lines: 25                 # Maximum lines per code slide
+  accent_colors:                # Left bar color by language category
+    sql: [0.16, 0.71, 0.91]              # Snowflake Blue
+    programming: [0.494, 0.341, 0.761]    # Purple (python, java, js, ts, go, etc.)
+    config: [0.545, 0.580, 0.620]         # Gray (json, yaml, toml, xml)
+    other: [0.306, 0.667, 0.145]          # Green (bash, shell, text, etc.)
+
+# --- Layout (EMU) ---
+layout:
+  page_bottom_margin: 450000    # Bottom margin before content cutoff
+  body_start_y: 1080000         # Body Y start position (below subtitle)
+  body_table_gap: 60000         # Gap between body bottom and table/code top
+  content_x: 450000             # Default content X position
+  content_w: 8200000            # Default content width
+  body_line_spacing: 115        # Line spacing percentage (115 = 1.15x)
+
+# --- Rules (design constraints for CoCo) ---
+rules:
+  title_base_max_chars: 50      # Max display chars at default title size (24pt)
+  subtitle_max_chars: 70        # Max display chars for subtitle
+  agenda_max_items: 20          # Max agenda items (>20 not supported)
+
+# --- Features (on/off toggles) ---
+features:
+  cover_slide: true             # Generate Cover slide
+  agenda_slide: true            # Generate Agenda slide
+  section_dividers: true        # Generate section divider slides
+  thanks_slide: true            # Generate Thanks slide
+  title_section_prefix: true    # Enforce "Section — Title" format
+  table_zebra_stripes: true     # Apply alternating row background colors
+  jp_period_to_newline: true    # Convert Japanese 。 to newline in table cells
+  auto_link_snowflake_views: true   # Auto-link known Snowflake views/functions to docs
+  body_accent_emphasis: true    # Apply accent color to **bold** in body text
+  cover_date: true              # Include date line on Cover slide
+  subtitle_required: true       # Require subtitle on all content slides
+  diagram_slide: true            # Enable diagram slide type (icon + arrow diagrams)
+
+# --- Diagram ---
+diagram:
+  apps_script_url: "https://script.google.com/a/macros/snowflake.com/s/AKfycbyAet8HBRxZ3oBIkFe1hjZm_vGmib0eeFN_uQIl495tBifKbqotx07zXHTWGDHn-Oa1Xg/exec"
+  icons_folder_id: "16aFhs2tPoafbyl1e1JrWy71lnzGUU1kr"
+  default_icon_size: 40          # Default icon size (20, 30, or 40 pt)
+  default_edge_color: "dark_blue" # Default edge color when omitted in spec
+  default_edge_arrow: "arrow"     # Default endArrow when omitted in spec
