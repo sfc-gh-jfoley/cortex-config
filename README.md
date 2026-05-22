@@ -1,50 +1,106 @@
-# cortex-config
+# cortex-config — Shared Skill Vault
 
-Cortex Code skill vault — reusable skills and plugins for Snowflake Cortex AI workflows.
+A shared library of Cortex Code skills and plugins. Anyone on the team can publish skills here, pull in what's useful, and contribute fixes or improvements back.
 
-## Plugins
+---
 
-| Plugin | Skills | Purpose |
-|---|---|---|
-| **semantic-view-toolkit** | 9 | Full SV lifecycle: discovery, DDL, audit, eval, optimization, GEPA, watch, compose, VQR |
-| **cortex-agent-toolkit** | 7 | Full agent lifecycle: create, eval, flags, optimization, GEPA, query |
-| **ops-monitor** | 3 | Artifact drift, release changes, self-healing pipelines |
-| **rule-governance** | 5 | Rule loading, creation, review, bulk review, memory organization |
-| **coco-meta** | 5 | Doc review, plan review, skill testing, prompt determinism, timing |
+## How it works
 
-## Standalone Skills
+**This repo is a library, not a live environment.**
+Your local vault (`~/.snowflake/cortex/vault/`) is what Cortex Code actually runs. You selectively pull skills from this repo into your vault — you don't have to take everything.
 
-| Skill | Purpose |
-|---|---|
-| agent-architect | Multi-agent project framework (research → plan → build → gate → test) |
-| architecture-diagram | Generate architecture/system/flow diagrams (Mermaid → Excalidraw → PNG) |
-| coco-usage | CoCo token/credit consumption analysis |
-| google-doc-formatter | Format markdown as Google Doc |
-| lab-builder | Build HOL/workshop labs |
-| semantic-view-ddl | (legacy) Build/edit SVs — use sv-ddl from semantic-view-toolkit instead |
-| semantic-view-discovery | (legacy) Find SV candidates — use sv-discovery instead |
-| snowflake-gslides | Create Google Slides decks |
+```
+GitHub repo  ←→  your local clone  →  your vault  →  Cortex Code
+(shared)          (git working copy)    (what runs)
+```
 
-## Install
+---
+
+## One-time setup
 
 ```bash
-# Install a plugin (once Cortex Code plugin system supports it)
-cortex plugin install sfc-gh-jfoley/cortex-config/plugins/semantic-view-toolkit
+git clone git@github.com:sfc-gh-jfoley/cortex-config.git ~/src/github/cortex-config
 ```
 
-## Usage
+No further config needed. Pull in skills as you want them (see below).
+
+---
+
+## Pulling skills into your vault
+
+**One skill or plugin:**
+```bash
+# Single plugin
+rsync -a ~/src/github/cortex-config/plugins/semantic-view-toolkit/ \
+         ~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/
+
+# Single standalone skill
+rsync -a ~/src/github/cortex-config/skills/agent-architect/ \
+         ~/.snowflake/cortex/vault/skills/agent-architect/
+```
+
+**Everything at once** (skips anything you've marked personal with `.my_skill`):
+```bash
+for dir in ~/src/github/cortex-config/plugins/*/; do
+  name=$(basename "$dir")
+  dst=~/.snowflake/cortex/vault/plugins/$name
+  [ -f "$dst/.my_skill" ] && echo "SKIP $name (personal)" && continue
+  rsync -a --delete "$dir" "$dst/" && echo "PULLED $name"
+done
+```
+
+Always `git pull` the repo first to get latest changes before syncing to vault.
+
+---
+
+## Contributing a skill
+
+1. Branch from main: `git checkout -b feature/my-skill-name`
+2. Add your skill under `plugins/` (for toolkits) or `skills/` (for standalone skills)
+3. Update the skill-loader registry: `skill-loader/SKILL.md` — add an entry for your skill
+4. Push and open a PR against `main`
+
+**Registry entry is required.** Without it, skill-loader can't find the skill.
+
+---
+
+## Repo structure
 
 ```
-# Invoke the toolkit router
-$semantic-view-toolkit
-$cortex-agent-toolkit
+plugins/                  # Multi-skill toolkits
+  cortex-agent-toolkit/   #   Agent lifecycle: build → eval → optimize
+  semantic-view-toolkit/  #   SV lifecycle: discover → DDL → eval → optimize
+  ...
 
-# Or invoke individual skills directly
-$sv-evaluation
-$cortex-agent-optimization
-$sv-gepa-optimizer
+skills/                   # Standalone skills
+  agent-architect/
+  semantic-view-ddl/      # LEGACY — use semantic-view-toolkit/skills/sv-ddl
+  ...
+
+skill-loader/
+  SKILL.md                # Registry — all skills listed here with vault paths
 ```
 
-## License
+---
 
-MIT
+## Protecting personal customizations
+
+If you've customized a skill locally and don't want it overwritten when pulling updates, drop an empty marker file:
+
+```bash
+touch ~/.snowflake/cortex/vault/plugins/my-custom-skill/.my_skill
+```
+
+The bulk pull script skips any dir with this marker. Skills in the shared repo should **not** have `.my_skill` markers.
+
+---
+
+## Workflow summary
+
+| What you want to do | How |
+|---|---|
+| Get a coworker's new skill | `git pull` → rsync that plugin to vault |
+| Share a skill you built | Branch → add to `plugins/` or `skills/` + update registry → PR |
+| Fix a bug in a shared skill | Branch → edit → PR (everyone gets it on next pull) |
+| Keep a local customization safe | Mark with `.my_skill`, won't be overwritten |
+| Try a skill before committing | Work in vault directly, push to repo when satisfied |
