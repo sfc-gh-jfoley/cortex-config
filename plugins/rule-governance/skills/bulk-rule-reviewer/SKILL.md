@@ -35,7 +35,8 @@ Execute comprehensive agent-centric reviews on all rule files in `rules/` direct
 
 ### Outputs
 
-**Individual reviews:** `{output_root}/rule-reviews/<rule-name>-<model>-<date>.md` (up to 113 files)
+**Individual reviews:** `{output_root}/rule-reviews/<rule-name>-<date>.md` (up to 113 files)
+  - Each review file begins with YAML frontmatter containing `model:`, `alias:`, and `review_date:` fields.
 
 **Master summary:** `{output_root}/summaries/_bulk-review-<model>-<date>.md` with sections:
 

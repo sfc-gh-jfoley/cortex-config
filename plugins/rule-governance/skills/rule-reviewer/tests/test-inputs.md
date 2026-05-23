@@ -7,7 +7,7 @@
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -27,7 +27,7 @@ model: claude-sonnet-45
 ```
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -48,7 +48,7 @@ model: claude-sonnet-45
 ```
 target_file: rules/200-python-core.md
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -68,7 +68,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 12/15/2025
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -90,7 +90,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: PARTIAL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -112,7 +112,7 @@ model: claude-sonnet-45
 target_file: rules/999-nonexistent.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -134,7 +134,7 @@ model: claude-sonnet-45
 target_file: docs/README.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -155,7 +155,7 @@ model: claude-sonnet-45
 target_file: rules/some-script.py
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -179,14 +179,15 @@ model: Claude Sonnet 4.5
 ```
 
 **Expected Behavior:**
-- Model slug normalized to: claude-sonnet-45
+- Model slug normalized to: claude-sonnet-4-6
 - Review proceeds with normalized slug
 
 **Pass Criteria:**
 - [ ] Slug normalized correctly
 - [ ] Spaces removed
 - [ ] Case normalized
-- [ ] Output filename uses normalized slug
+- [ ] Normalized model slug written to review frontmatter
+- [ ] alias resolved from LLMs.md and written to frontmatter
 
 ---
 
@@ -197,7 +198,7 @@ model: Claude Sonnet 4.5
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FOCUSED
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -219,7 +220,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: full
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -240,7 +241,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 2030-01-01
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**
@@ -261,7 +262,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 2020-01-01
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Behavior:**

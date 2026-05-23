@@ -43,7 +43,7 @@ Input:
   target_file: rules/200-python-core.md
   review_date: 2025-12-15
   review_mode: FULL
-  model: claude-sonnet-45
+  model: claude-sonnet-4-6
   
 Expected:
   1. Input validation passes

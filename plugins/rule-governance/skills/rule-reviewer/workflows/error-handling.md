@@ -189,7 +189,7 @@ Error: Permission denied writing to reviews/
 
 **Fallback behavior:**
 ```
-OUTPUT_FILE: {output_root}rule-reviews/810-project-readme-claude-sonnet45-2025-12-15.md
+OUTPUT_FILE: {output_root}rule-reviews/810-project-readme-2025-12-15.md
 
 [Full Markdown review content follows...]
 

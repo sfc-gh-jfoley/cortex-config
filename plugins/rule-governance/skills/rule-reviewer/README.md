@@ -89,7 +89,7 @@ Use the rule-reviewer skill.
 target_file: rules/810-project-readme.md
 review_date: 2025-12-12
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Review a project file:**
@@ -99,14 +99,14 @@ Use the rule-reviewer skill.
 target_file: PROJECT.md
 review_date: 2025-12-12
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 ### Step 3: Verify Output
 
 Check the generated review file:
 ```bash
-ls reviews/810-project-readme-claude-sonnet-45-2025-12-12.md
+ls reviews/rule-reviews/810-project-readme-2025-12-12.md
 ```
 
 ## Execution Timing
@@ -119,7 +119,7 @@ Use the rule-reviewer skill.
 target_file: rules/810-project-readme.md
 review_date: 2025-12-12
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 timing_enabled: true
 ```
 
@@ -137,7 +137,7 @@ When enabled, the output includes:
 |--------|-------|
 | Run ID | `a1b2c3d4e5f67890` |
 | Duration | 3m 45s (225.5s) |
-| Model | claude-sonnet-45 |
+| Model | claude-sonnet-4-6 |
 | Tokens | 16,700 (12,500 in / 4,200 out) |
 | Cost | ~$0.04 |
 ```
@@ -191,14 +191,16 @@ skills/rule-reviewer/
 
 Reviews are written to:
 ```
-reviews/<rule-name>-<model>-<YYYY-MM-DD>.md
+reviews/rule-reviews/<rule-name>-<YYYY-MM-DD>.md
 ```
 
 **No-overwrite safety:** If file exists, uses suffixes:
 ```
-reviews/<rule-name>-<model>-<YYYY-MM-DD>-01.md
-reviews/<rule-name>-<model>-<YYYY-MM-DD>-02.md
+reviews/rule-reviews/<rule-name>-<YYYY-MM-DD>-01.md
+reviews/rule-reviews/<rule-name>-<YYYY-MM-DD>-02.md
 ```
+
+Note: Review files include YAML frontmatter with `model:`, `alias:`, and `review_date:` fields.
 
 ## Confirmation Message
 
@@ -206,10 +208,9 @@ On success:
 ```
 ✓ Review complete
 
-OUTPUT_FILE: reviews/810-project-readme-claude-sonnet-45-2025-12-12.md
+OUTPUT_FILE: reviews/rule-reviews/810-project-readme-2025-12-12.md
 Target: rules/810-project-readme.md
 Mode: FULL
-Model: claude-sonnet-45
 ```
 
 ## Integration with rule-creator

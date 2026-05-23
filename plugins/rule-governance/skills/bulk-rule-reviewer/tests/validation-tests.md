@@ -183,11 +183,11 @@ Expected one of: FULL, FOCUSED, STALENESS
 
 ### 1.3 model
 
-#### Test Case 1.3.1: Valid Model (claude-sonnet-45)
+#### Test Case 1.3.1: Valid Model (claude-sonnet-4-6)
 
 **Input:**
 ```
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Result:**  PASS
@@ -217,7 +217,7 @@ model: Claude-Sonnet-45
 **Error Message:**
 ```
 Invalid model: "Claude-Sonnet-45"
-Expected format: lowercase-hyphenated (e.g., claude-sonnet-45, gpt-4)
+Expected format: lowercase-hyphenated (e.g., claude-sonnet-4-6, gpt-4)
 ```
 
 ---
@@ -234,7 +234,7 @@ model: claude_sonnet_45
 **Error Message:**
 ```
 Invalid model: "claude_sonnet_45"
-Expected format: lowercase-hyphenated (e.g., claude-sonnet-45, gpt-4)
+Expected format: lowercase-hyphenated (e.g., claude-sonnet-4-6, gpt-4)
 ```
 
 ---
@@ -251,7 +251,7 @@ model: claude sonnet 45
 **Error Message:**
 ```
 Invalid model: "claude sonnet 45"
-Expected format: lowercase-hyphenated (e.g., claude-sonnet-45, gpt-4)
+Expected format: lowercase-hyphenated (e.g., claude-sonnet-4-6, gpt-4)
 ```
 
 ---
@@ -260,15 +260,15 @@ Expected format: lowercase-hyphenated (e.g., claude-sonnet-45, gpt-4)
 
 **Input:**
 ```
-model: claude-sonnet-45-
+model: claude-sonnet-4-6-
 ```
 
 **Expected Result:**  FAIL
 
 **Error Message:**
 ```
-Invalid model: "claude-sonnet-45-"
-Expected format: lowercase-hyphenated (e.g., claude-sonnet-45, gpt-4)
+Invalid model: "claude-sonnet-4-6-"
+Expected format: lowercase-hyphenated (e.g., claude-sonnet-4-6, gpt-4)
 ```
 
 ---
@@ -685,7 +685,7 @@ review_date: "2026-01-06 "
 
 **Input:**
 ```
-model: " claude-sonnet-45"
+model: " claude-sonnet-4-6"
 ```
 
 **Expected Result:**  FAIL (whitespace not trimmed)
@@ -733,7 +733,7 @@ review_date: 2023-12-31
 
 **Input:**
 ```
-model: claude-sonnet-45!
+model: claude-sonnet-4-6!
 ```
 
 **Expected Result:**  FAIL (special char not allowed)
@@ -766,8 +766,8 @@ def run_validation_tests():
     
     test_cases = [
         # Required parameters
-        {"name": "1.1.1", "params": {"review_date": "2026-01-06", "review_mode": "FULL", "model": "claude-sonnet-45"}, "expect": "PASS"},
-        {"name": "1.1.2", "params": {"review_date": "2026/01/06", "review_mode": "FULL", "model": "claude-sonnet-45"}, "expect": "FAIL"},
+        {"name": "1.1.1", "params": {"review_date": "2026-01-06", "review_mode": "FULL", "model": "claude-sonnet-4-6"}, "expect": "PASS"},
+        {"name": "1.1.2", "params": {"review_date": "2026/01/06", "review_mode": "FULL", "model": "claude-sonnet-4-6"}, "expect": "FAIL"},
         # ... (add all 53 test cases)
     ]
     

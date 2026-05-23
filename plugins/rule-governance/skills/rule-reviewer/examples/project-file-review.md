@@ -8,12 +8,12 @@ Use the rule-reviewer skill.
 target_file: PROJECT.md
 review_date: 2026-01-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 Expected output file:
 
-`reviews/rule-reviews/PROJECT-claude-sonnet-45-2026-01-15.md`
+`reviews/rule-reviews/PROJECT-2026-01-15.md`
 
 ---
 
@@ -125,7 +125,7 @@ echo "Schema validation skipped for project file"
 
 **Rule:** PROJECT.md  
 **File Type:** Project Configuration  
-**Reviewer:** claude-sonnet-45  
+**Reviewer:** claude-sonnet-4-6  
 **Review Date:** 2026-01-15  
 **Review Mode:** FULL  
 **Max Score:** 100 points

@@ -5,7 +5,19 @@
 - `target_file`: Path to rule file to review
 - `review_date`: Date of review (YYYY-MM-DD)
 - `review_mode`: FULL, FOCUSED, or STALENESS
-- `model_slug`: Model identifier for metadata
+- `model`: Model identifier (normalized slug)
+- `alias`: Model alias from LLMs.md (e.g., `current_sonnet`)
+
+## Phase 0: Resolve Model Alias (MANDATORY)
+
+Before loading rubrics, resolve the `alias` for the model:
+
+1. Read `~/.snowflake/cortex/vault/LLMs.md`
+2. Find the row where the Current Model column matches `{model}`
+3. Extract the Alias value from that row
+4. Store as `alias` — pass to file-write workflow alongside `model`
+
+---
 
 ## Phase 1: Load All Rubric Definitions (MANDATORY)
 

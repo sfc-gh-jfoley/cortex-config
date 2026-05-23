@@ -231,19 +231,18 @@ Provided: gpt-4-turbo
 Expected: Claude model slug
 
 Valid Claude slugs:
-- claude-opus-4
-- claude-sonnet-4
-- claude-sonnet-45
-- claude-haiku
+- claude-opus-4-7
+- claude-sonnet-4-6
+- claude-haiku-4-5
 
-For output filename, will normalize to provided slug:
-reviews/rule-reviews/810-project-readme-gpt-4-turbo-2025-12-15.md
+For the output filename, only the rule name and date are used:
+reviews/rule-reviews/810-project-readme-2025-12-15.md
 
 Note: The review will be performed by the current Claude model,
-regardless of the slug provided. The slug is for filename 
-identification only.
+regardless of the slug provided. The slug is recorded in the
+review file's YAML frontmatter (model: field).
 
-Proceed with slug "gpt-4-turbo"? (yes/no/use claude-sonnet-45)
+Proceed with slug "gpt-4-turbo"? (yes/no/use claude-sonnet-4-6)
 ```
 
 ---
@@ -255,9 +254,9 @@ Proceed with slug "gpt-4-turbo"? (yes/no/use claude-sonnet-45)
 **Example:**
 ```
 Existing files:
-- reviews/rule-reviews/810-project-readme-claude-sonnet45-2025-12-15.md
-- reviews/rule-reviews/810-project-readme-claude-sonnet45-2025-12-15-01.md
-- reviews/rule-reviews/810-project-readme-claude-sonnet45-2025-12-15-02.md
+- reviews/rule-reviews/810-project-readme-2025-12-15.md
+- reviews/rule-reviews/810-project-readme-2025-12-15-01.md
+- reviews/rule-reviews/810-project-readme-2025-12-15-02.md
 ... through -99.md
 ```
 
@@ -266,21 +265,17 @@ Existing files:
 Output filename exhausted:
 
 All suffix slots (01-99) are occupied for:
-reviews/rule-reviews/810-project-readme-claude-sonnet45-2025-12-15-XX.md
+reviews/rule-reviews/810-project-readme-2025-12-15-XX.md
 
 Options:
 A. Use different date (tomorrow's date)
-B. Use different model slug
-C. Archive old reviews and reuse base filename
-D. Use 3-digit suffix (-100.md)
+B. Archive old reviews and reuse base filename
+C. Use 3-digit suffix (-100.md)
 
-Recommendation: Option A or B
+Recommendation: Option A
 
 Alternative filename:
-reviews/rule-reviews/810-project-readme-claude-sonnet45-2025-12-16.md
-
-Or with different slug:
-reviews/rule-reviews/810-project-readme-claude-opus4-2025-12-15.md
+reviews/rule-reviews/810-project-readme-2025-12-16.md
 ```
 
 ---

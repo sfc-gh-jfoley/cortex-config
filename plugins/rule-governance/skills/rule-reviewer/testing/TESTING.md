@@ -36,7 +36,7 @@ Use the rule-reviewer skill.
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Verify:**
@@ -51,7 +51,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md
 review_date: 12/15/2025
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Verify:**
@@ -71,8 +71,8 @@ model: claude-sonnet-45
 
 **Verify:**
 ```bash
-ls reviews/200-python-core-claude-sonnet-45-2025-12-15.md
-head -30 reviews/200-python-core-claude-sonnet-45-2025-12-15.md
+ls reviews/rule-reviews/200-python-core-2025-12-15.md
+head -30 reviews/rule-reviews/200-python-core-2025-12-15.md
 ```
 
 - [ ] File created at expected path
@@ -86,7 +86,7 @@ head -30 reviews/200-python-core-claude-sonnet-45-2025-12-15.md
 
 **Verify:**
 ```bash
-ls reviews/200-python-core-claude-sonnet-45-2025-12-15*.md
+ls reviews/rule-reviews/200-python-core-2025-12-15*.md
 # Expected: Two files (base and -01)
 ```
 

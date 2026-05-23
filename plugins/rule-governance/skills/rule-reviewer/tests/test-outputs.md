@@ -9,21 +9,21 @@
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Pre-condition:**
-- `reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md` does NOT exist
+- `reviews/rule-reviews/200-python-core-2025-12-15.md` does NOT exist
 
 **Expected:**
-- File created: `reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md`
+- File created: `reviews/rule-reviews/200-python-core-2025-12-15.md`
 - Confirmation message shown
 - Full review NOT printed to chat
 
 **Verification:**
 ```bash
-ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md
-cat reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md | head -20
+ls reviews/rule-reviews/200-python-core-2025-12-15.md
+cat reviews/rule-reviews/200-python-core-2025-12-15.md | head -20
 ```
 
 **Pass Criteria:**
@@ -41,25 +41,25 @@ cat reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md | head -
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Pre-condition:**
-- `reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md` EXISTS
+- `reviews/rule-reviews/200-python-core-2025-12-15.md` EXISTS
 
 **Expected:**
-- New file: `reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15-01.md`
+- New file: `reviews/rule-reviews/200-python-core-2025-12-15-01.md`
 - Original file unchanged
 - Confirmation shows new filename
 
 **Verification:**
 ```bash
 # Both files should exist
-ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md
-ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15-01.md
+ls reviews/rule-reviews/200-python-core-2025-12-15.md
+ls reviews/rule-reviews/200-python-core-2025-12-15-01.md
 
 # Original unchanged
-diff reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md <original>
+diff reviews/rule-reviews/200-python-core-2025-12-15.md <original>
 ```
 
 **Pass Criteria:**
@@ -81,7 +81,7 @@ diff reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md <origin
 
 **Verification:**
 ```bash
-ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15*.md | wc -l
+ls reviews/rule-reviews/200-python-core-2025-12-15*.md | wc -l
 # Should be 4 (base + 01 + 02 + 03)
 ```
 
@@ -101,7 +101,7 @@ ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15*.md | wc -l
 - Fallback: Print to chat
 - Format:
   ```
-  OUTPUT_FILE: reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md
+  OUTPUT_FILE: reviews/rule-reviews/200-python-core-2025-12-15.md
   
   [Full review content]
   ```
@@ -139,10 +139,10 @@ ls reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15*.md | wc -l
 ```
  Review complete
 
-OUTPUT_FILE: reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md
+OUTPUT_FILE: reviews/rule-reviews/200-python-core-2025-12-15.md
 Target: rules/200-python-core.md
 Mode: FULL
-Model: claude-sonnet-45
+Model: claude-sonnet-4-6
 ```
 
 **Pass Criteria:**
@@ -160,12 +160,12 @@ Model: claude-sonnet-45
 ```
  Review complete
 
-OUTPUT_FILE: reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15-01.md
+OUTPUT_FILE: reviews/rule-reviews/200-python-core-2025-12-15-01.md
 Note: Base filename existed, using suffix -01
 
 Target: rules/200-python-core.md
 Mode: FULL
-Model: claude-sonnet-45
+Model: claude-sonnet-4-6
 ```
 
 **Pass Criteria:**
@@ -226,25 +226,25 @@ grep "## Recommendations" reviews/<file>.md
 ```
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Filename:**
 ```
-reviews/rule-reviews/200-python-core-claude-sonnet-45-2025-12-15.md
+reviews/rule-reviews/200-python-core-2025-12-15.md
 ```
 
 **Pattern:**
 ```
-reviews/<rule-name>-<model-slug>-<YYYY-MM-DD>.md
+reviews/<rule-name>-<YYYY-MM-DD>.md
 ```
 
 **Pass Criteria:**
 - [ ] Correct directory
 - [ ] Rule name extracted correctly
-- [ ] Model slug normalized
 - [ ] Date in correct format
 - [ ] .md extension
+- [ ] Model written to review frontmatter (model: + alias: fields)
 
 ---
 
@@ -258,7 +258,7 @@ model: claude-opus-4
 
 **Expected:**
 ```
-reviews/rule-reviews/115-snowflake-cortex-agents-core-claude-opus-4-2025-12-15.md
+reviews/rule-reviews/115-snowflake-cortex-agents-core-2025-12-15.md
 ```
 
 **Pass Criteria:**
@@ -268,11 +268,13 @@ reviews/rule-reviews/115-snowflake-cortex-agents-core-claude-opus-4-2025-12-15.m
 
 ---
 
-### Test FN.3: Model Slug Normalization in Filename
+### Test FN.3: Model Normalization to Frontmatter
+
+**Description:** Verifies that normalized model slug and alias are written to the review file's YAML frontmatter.
 
 **Input Variations:**
-- **`Claude Sonnet 4.5`** - `claude-sonnet-45`
-- **`claude-sonnet-45`** - `claude-sonnet-45`
+- **`Claude Sonnet 4.6`** - `claude-sonnet-4-6`
+- **`claude-sonnet-4-6`** - `claude-sonnet-4-6`
 - **`CLAUDE_OPUS_4`** - `claude-opus-4`
 - **`gpt-4-turbo`** - `gpt-4-turbo`
 
@@ -281,5 +283,5 @@ reviews/rule-reviews/115-snowflake-cortex-agents-core-claude-opus-4-2025-12-15.m
 - [ ] Underscores → hyphens
 - [ ] Lowercase
 - [ ] Dots removed from versions
-- [ ] Non-Claude slugs preserved
-
+- [ ] model: field in frontmatter matches normalized slug
+- [ ] alias: field resolved from LLMs.md

@@ -9,7 +9,7 @@
 target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Output Structure:**
@@ -19,7 +19,7 @@ model: claude-sonnet-45
 ## Review Metadata
 - Date: 2025-12-15
 - Mode: FULL
-- Model: claude-sonnet-45
+- Model: claude-sonnet-4-6
 - Reviewer: AI Agent
 
 ## Overall Score: X/100
@@ -91,7 +91,7 @@ target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FOCUSED
 focus_area: metadata
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Output Structure:**
@@ -143,7 +143,7 @@ target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FOCUSED
 focus_area: contract
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected:**
@@ -168,7 +168,7 @@ target_file: rules/200-python-core.md
 review_date: 2025-12-15
 review_mode: FOCUSED
 focus_area: examples
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected:**
@@ -194,7 +194,7 @@ model: claude-sonnet-45
 target_file: rules/200-python-core.md  # Recently updated
 review_date: 2025-12-15
 review_mode: STALENESS
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Output Structure:**

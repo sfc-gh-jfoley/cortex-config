@@ -21,7 +21,8 @@ This is how skill composition works in Claude Code - orchestrator skills load an
 - List of rule file paths (from discovery.md)
 - `review_date`: Date stamp for reviews (YYYY-MM-DD)
 - `review_mode`: FULL | FOCUSED | STALENESS
-- `model`: Model identifier (e.g., claude-sonnet-45)
+- `model`: Model identifier (e.g., claude-sonnet-4-6)
+- `alias`: Model alias (derived from LLMs.md — e.g., `current_sonnet`; resolved before file writes)
 - `skip_existing`: Boolean (default: true)
 - `max_parallel`: Integer 1-10 (default: 5) - Number of concurrent sub-agents
 - `output_root`: Root directory for output files (default: `reviews/`)
@@ -213,7 +214,7 @@ for rule_path in rule_file_paths:
     rule_name = extract_rule_name(rule_path)
     
     # Build expected review file path
-    expected_review_path = f"reviews/rule-reviews/{rule_name}-{model}-{review_date}.md"
+    expected_review_path = f"reviews/rule-reviews/{rule_name}-{review_date}.md"
     
     # Check if review already exists (resume capability)
     if skip_existing and file_exists(expected_review_path):
@@ -414,7 +415,7 @@ def extract_metadata_from_review(review_path):
 def parse_review_path(review_result_text):
     """Parse review file path from rule-reviewer output.
     
-    Expected format: "Review written to: reviews/100-snowflake-core-claude-sonnet-45-2026-01-06.md"
+    Expected format: "Review written to: reviews/100-snowflake-core-2026-01-06.md"
     """
     import re
     
@@ -481,7 +482,7 @@ def execute_rule_review_workflow(target_file, review_date, review_mode, model):
         target_file: Path to rule file (e.g., rules/100-snowflake-core.md)
         review_date: Date stamp (YYYY-MM-DD)
         review_mode: FULL | FOCUSED | STALENESS
-        model: Model identifier (e.g., claude-sonnet-45)
+        model: Model identifier (e.g., claude-sonnet-4-6)
     
     Returns:
         dict with keys: review_path, score, verdict, critical_issues
@@ -509,11 +510,18 @@ def execute_rule_review_workflow(target_file, review_date, review_mode, model):
         blocking_issues
     )
     
+    # Step 6.5: Resolve model alias from LLMs.md
+    # Read ~/.snowflake/cortex/vault/LLMs.md, find the row where Current Model matches
+    # `model`, extract the Alias value. Store as `alias`.
+    # Example: claude-sonnet-4-6 → current_sonnet
+    alias = resolve_model_alias(model)
+    
     # Step 7: Write review file
     review_path = write_review_file(
         target_file=target_file,
         review_date=review_date,
         model=model,
+        alias=alias,
         dimension_scores=dimension_scores,
         schema_results=schema_results,
         blocking_issues=blocking_issues,
@@ -616,7 +624,7 @@ Only show the minimal progress output below. Do NOT display:
 
 ```
 Starting bulk review: 113 rules
-Review mode: FULL | Model: claude-sonnet-45 | Date: 2026-01-06
+Review mode: FULL | Model: claude-sonnet-4-6 | Date: 2026-01-06
 Skip existing: true
 
 [1/113] Starting: 000-global-core.md

@@ -87,12 +87,12 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Expected Output:**
 - 113 individual review files in `reviews/` directory
-- 1 master summary report: `reviews/_bulk-review-claude-sonnet-45-2026-01-06.md`
+- 1 master summary report: `reviews/_bulk-review-claude-sonnet-4-6-2026-01-06.md`
 - Console progress: "Reviewing 45/113: rules/200-python-core.md"
 
 ---
@@ -106,7 +106,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 timing_enabled: true
 ```
 
@@ -124,7 +124,7 @@ When enabled, the output includes:
 |--------|-------|
 | Run ID | `a1b2c3d4e5f67890` |
 | Duration | 342m 15s (20535.5s) |
-| Model | claude-sonnet-45 |
+| Model | claude-sonnet-4-6 |
 | Tokens | 1,840,300 (1,250,000 in / 590,300 out) |
 | Cost | ~$12.60 |
 ```
@@ -150,7 +150,7 @@ When enabled, the output includes:
 |-----------|------|---------|-------------|---------|
 | `review_date` | YYYY-MM-DD | Today | Date stamp for review files | `2026-01-06` |
 | `review_mode` | Enum | FULL | Review depth | `FULL`, `FOCUSED`, `STALENESS` |
-| `model` | String | claude-sonnet-45 | Model identifier | `claude-sonnet-45`, `gpt-4` |
+| `model` | String | claude-sonnet-4-6 | Model identifier | `claude-sonnet-4-6`, `gpt-4` |
 
 ### Optional Parameters
 
@@ -175,12 +175,12 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Output:**
-- 113 individual reviews: `reviews/000-global-core-claude-sonnet-45-2026-01-06.md`, etc.
-- Master summary: `reviews/_bulk-review-claude-sonnet-45-2026-01-06.md`
+- 113 individual reviews: `reviews/000-global-core-2026-01-06.md`, etc.
+- Master summary: `reviews/_bulk-review-claude-sonnet-4-6-2026-01-06.md`
 
 **Expected Duration:** 1-2 hours (parallel with 5 workers)
 
@@ -196,13 +196,13 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 max_parallel: 1
 ```
 
 **Output:**
 - 113 individual reviews (processed one at a time)
-- Master summary: `reviews/_bulk-review-claude-sonnet-45-2026-01-06.md`
+- Master summary: `reviews/_bulk-review-claude-sonnet-4-6-2026-01-06.md`
 
 **Expected Duration:** 5.6-9.4 hours (sequential)
 
@@ -218,13 +218,13 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 filter_pattern: rules/100-*.md
 ```
 
 **Output:**
 - ~23 individual reviews for Snowflake rules (100-series)
-- Master summary: `reviews/_bulk-review-claude-sonnet-45-2026-01-06.md`
+- Master summary: `reviews/_bulk-review-claude-sonnet-4-6-2026-01-06.md`
 
 **Expected Duration:** ~1-2 hours
 
@@ -240,7 +240,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: STALENESS
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Output:**
@@ -261,7 +261,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 skip_existing: false
 ```
 
@@ -283,7 +283,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 skip_existing: true
 ```
 
@@ -300,7 +300,7 @@ skip_existing: true
 
 ### Individual Review Files
 
-**Location:** `reviews/<rule-name>-<model>-<date>.md`
+**Location:** `reviews/<rule-name>-<date>.md`
 
 **Format:** Standard rule-reviewer output with:
 - Overall score (0-100)
@@ -309,7 +309,7 @@ skip_existing: true
 - Critical issues list
 - Recommendations
 
-**Example:** `reviews/100-snowflake-core-claude-sonnet-45-2026-01-06.md`
+**Example:** `reviews/100-snowflake-core-2026-01-06.md`
 
 ---
 
@@ -356,7 +356,7 @@ skip_existing: true
 9. **Appendix: All Rules by Score**
    - Sortable table with links to individual reviews
 
-**Example:** `reviews/_bulk-review-claude-sonnet-45-2026-01-06.md`
+**Example:** `reviews/_bulk-review-claude-sonnet-4-6-2026-01-06.md`
 
 ---
 

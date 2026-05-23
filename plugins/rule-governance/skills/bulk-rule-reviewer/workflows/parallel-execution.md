@@ -256,12 +256,12 @@ See `workflows/subagent-prompt-template.md` for the complete prompt template tha
 **Direct writes to shared directory** - No conflicts because:
 
 1. Each sub-agent reviews *different* rules
-2. Filenames are unique: `{rule-name}-{model}-{date}.md`
+2. Filenames are unique: `{rule-name}-{date}.md`
 3. Different rules = different filenames = no conflicts
 
 ```
-Sub-Agent 1 writes: 000-global-core-claude-sonnet-45-2026-01-15.md
-Sub-Agent 2 writes: 100-snowflake-core-claude-sonnet-45-2026-01-15.md
+Sub-Agent 1 writes: 000-global-core-2026-01-15.md
+Sub-Agent 2 writes: 100-snowflake-core-2026-01-15.md
                     ↑ Different rules, different files
 ```
 

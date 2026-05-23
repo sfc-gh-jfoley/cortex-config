@@ -5,7 +5,7 @@
 - `target_file`: must end in `.md`
 - `review_date`: must match `YYYY-MM-DD`
 - `review_mode`: must be one of `FULL`, `FOCUSED`, `STALENESS`
-- `model`: slug preferred (example: `claude-sonnet45`) or raw model name
+- `model`: slug preferred (example: `claude-sonnet-4-6`) or raw model name
 
 ## Inputs (optional)
 
