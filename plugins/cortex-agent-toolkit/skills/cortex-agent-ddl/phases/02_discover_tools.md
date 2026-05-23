@@ -79,7 +79,7 @@ Store created UDF FQNs as `CUSTOM_TOOLS` — list of `{name: "Ask<AgentName>", t
 
 ### Step 2.0.4: Generate tool descriptions for sub-agent UDFs
 
-First, resolve `COMPLETE_MODEL` using the same probe sequence as Step 2.6a (try claude-haiku-4, then claude-haiku-3-5, then claude-sonnet-4-5, then llama3.3-70b). Use the first model that succeeds.
+First, resolve `COMPLETE_MODEL` by reading `~/.snowflake/cortex/vault/LLMs.md`. Try models in this order: `current_haiku` alias first, then `default_agent` alias. Use the first model from the Available Models table that succeeds.
 
 For each sub-agent UDF, generate a tool description using `SUB_AGENT_METADATA`:
 
@@ -238,15 +238,12 @@ For each selected SV, generate a tool description.
 Before running CORTEX.COMPLETE, find the fastest available Claude model with this probe sequence. Run each until one succeeds:
 
 ```sql
--- Try in order (fastest/cheapest first):
-SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-haiku-4', 'OK') AS r;    -- try first
-SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-haiku-3-5', 'OK') AS r;  -- try second
-SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-sonnet-4-5', 'OK') AS r; -- try third
-SELECT SNOWFLAKE.CORTEX.COMPLETE('llama3.3-70b', 'OK') AS r;      -- fallback
-SELECT SNOWFLAKE.CORTEX.COMPLETE('llama3.1-70b', 'OK') AS r;      -- last resort
+-- Read LLMs.md: try current_haiku (currently claude-haiku-4-5) first, then default_agent (currently claude-sonnet-4-6)
+SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-haiku-4-5', 'OK') AS r;   -- current_haiku
+SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-sonnet-4-6', 'OK') AS r;  -- default_agent (fallback)
 ```
 
-Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Do not hardcode `claude-haiku-3-5` — it may not be available on this account.
+Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Read LLMs.md for current alias values — do not hardcode version strings.
 
 **Step 2.6b: Generate the description**
 

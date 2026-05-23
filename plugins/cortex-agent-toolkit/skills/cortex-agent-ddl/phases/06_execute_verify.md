@@ -134,7 +134,7 @@ Parse the `agent_spec` column from the returned row and verify against `AGENT_SP
 Report:
 ```
 DESCRIBE verification:
-  ✓ Model: claude-sonnet-4-5
+  ✓ Model: <value of default_agent alias from LLMs.md — currently claude-sonnet-4-6>
   ✓ Tools: 2 — [SubscriberAnalytics, CustomerSupportSearch]
   ✓ EnableAgenticAnalyst: true
   ✓ Warehouse: COMPUTE_WH

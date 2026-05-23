@@ -88,6 +88,8 @@ VALUES
 - Review cases where large model was used for simple fixes (downgrade to save cost)
 - Adjust the complexity classification logic in SP_DIAGNOSE_FAILURE:
 
+> Model aliases: see `~/.snowflake/cortex/vault/LLMs.md` — `complete_quality`=`llama3.1-70b`.
+
 | Error Pattern | Current Model | Recommended |
 |--------------|--------------|-------------|
 | Simple object-not-found | llama3.1-8b | Keep |

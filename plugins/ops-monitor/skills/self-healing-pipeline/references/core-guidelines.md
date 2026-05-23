@@ -129,13 +129,15 @@ The user configures these during setup. As patterns are proven safe, they can pr
 
 **Runbook-first, LLM-fallback.** Deterministic matches before burning LLM credits.
 
+> Model aliases from `~/.snowflake/cortex/vault/LLMs.md`: `complete_fast`=`mistral-7b`, `complete_quality`=`llama3.1-70b`. Update LLMs.md aliases if these change.
+
 | Scenario | Model | Rationale |
 |----------|-------|-----------|
 | Known error in runbook | No LLM needed | Deterministic match → direct fix |
-| Simple object-not-found, typo | `llama3.1-8b` | Fast, cheap, sufficient for simple renames |
-| Schema mismatch, type errors | `llama3.1-70b` | Needs schema reasoning |
-| Complex multi-object failures | `llama3.1-405b` or `mistral-large2` | Deep reasoning required |
-| DT UPSTREAM_FAILED (cascade) | `llama3.1-70b` | Needs graph traversal + root cause reasoning |
+| Simple object-not-found, typo | `llama3.1-8b` *(no alias — faster than complete_fast)* | Fast, cheap, sufficient for simple renames |
+| Schema mismatch, type errors | `llama3.1-70b` (`complete_quality` alias) | Needs schema reasoning |
+| Complex multi-object failures | `llama3.1-405b` or `mistral-large2` (above `complete_quality`) | Deep reasoning required |
+| DT UPSTREAM_FAILED (cascade) | `llama3.1-70b` (`complete_quality` alias) | Needs graph traversal + root cause reasoning |
 
 ---
 

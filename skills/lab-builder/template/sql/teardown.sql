@@ -1,0 +1,11 @@
+-- teardown.sql — ROUTER
+-- This file is intentionally left empty as a safety measure.
+--
+-- Use the correct pattern-specific teardown file:
+--   teardown_pattern_a.sql  →  Pattern A (schema-per-user): drops participant schema only
+--   teardown_pattern_b.sql  →  Pattern B (database-per-user): drops participant database
+--
+-- Pattern A is the DEFAULT isolation model for most labs.
+--
+-- WARNING: Using teardown_pattern_b.sql on a Pattern A lab will drop
+-- the shared lab database and destroy all other participants' work.

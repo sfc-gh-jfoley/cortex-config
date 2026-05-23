@@ -74,7 +74,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "<USER_QUESTION>"}]
         }
       ],
-      "models": {"orchestration": "claude-4-sonnet"},
+      "models": {"orchestration": "claude-sonnet-4-6"},  // default_agent alias — see LLMs.md
       "stream": false
     }$$
   )

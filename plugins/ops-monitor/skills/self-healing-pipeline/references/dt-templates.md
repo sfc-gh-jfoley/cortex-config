@@ -152,6 +152,8 @@ BEGIN
             WHERE TABLE_SCHEMA = rec.OBJECT_SCHEMA
             LIMIT 200;
 
+            -- Model selection: see complete_fast/complete_quality aliases in ~/.snowflake/cortex/vault/LLMs.md
+            -- llama3.1-8b = fast simple-error model; llama3.1-70b = complete_quality alias (schema reasoning)
             llm_model := CASE
                 WHEN CONTAINS(rec.ERROR_MESSAGE, 'UPSTREAM_FAILED') THEN 'llama3.1-70b'
                 WHEN CONTAINS(rec.ERROR_MESSAGE, 'does not exist') THEN 'llama3.1-8b'

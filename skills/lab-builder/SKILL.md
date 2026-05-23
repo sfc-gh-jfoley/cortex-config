@@ -14,11 +14,11 @@ Output: all files needed to deliver a customer or SE workshop.
 
 ## Reference: Gold Standard Lab
 
-The canonical reference is `/Users/jfoley/src/demos/cai/`.
+Gold standard reference: search for an existing HOL lab in your current project's labs/ directory, or use the template/ directory in this skill folder as your structural guide.
 Before generating any file, read that lab to understand tone, data volume, and structure.
 
-Framework standard: `/Users/jfoley/src/demos/labs/FRAMEWORK.md`
-Template directory: `/Users/jfoley/src/demos/labs/_template/`
+Framework standard: ./FRAMEWORK.md (co-located in this skill directory)
+Template directory: `./template/`
 
 ---
 
@@ -205,7 +205,7 @@ This is the step where the SE decides whether to adapt an existing lab or build 
 
 ### Step 2 — Check existing labs first
 
-Before building from scratch, scan `labs/LABS_INDEX.md` for a lab that matches:
+If `labs/LABS_INDEX.md` exists in the current project, scan it for a lab that matches:
 - Same Snowflake feature(s)
 - Same or adaptable audience
 - Comparable duration
@@ -214,7 +214,7 @@ If a close match exists: **adapt it** — swap the data domain, update the hero 
 keep the module structure. This is faster than building from scratch and the module
 pacing has already been tested.
 
-If no match: build new from Phase 2 onward.
+If no match, or if `labs/LABS_INDEX.md` does not exist yet: build new from Phase 2 onward.
 
 ---
 
@@ -343,6 +343,16 @@ CREATE SCHEMA IF NOT EXISTS LAB;
 USE SCHEMA LAB;
 ```
 
+**Also generate `hol_teardown.sql`** — copy and adapt from the pattern-specific template:
+- **Pattern A:** use `template/sql/teardown_pattern_a.sql` — drops the participant's schema only; the shared database is never touched
+- **Pattern B:** use `template/sql/teardown_pattern_b.sql` — drops the participant's dedicated database
+
+Replace `$MY_SCHEMA` / `$MY_DB` placeholders with the actual variable names used in `hol_setup.sql`.
+
+> **Safety:** Never use Pattern B teardown on a Pattern A lab — it would drop the shared database and destroy all participants' work.
+
+---
+
 Data sizing guidelines:
 - Small lookup tables: 10-50 rows (explicit VALUES)
 - Medium tables: 100-500 rows (VALUES or GENERATOR)
@@ -390,7 +400,7 @@ SELECT ...;  -- expected: N rows / specific value
 **Failure moment rule:** One exercise must demonstrate a limitation before resolving it.
 - The failure is intentional — frame it as "This is expected. Let's diagnose it."
 - The fix demonstrates why the next feature/approach exists
-- See `labs/streamlit-sis/hol_prompts.md` for the `import requests` → `session.sql()` pattern
+- Pattern: structure hol_prompts.md with sections matching each module exercise — a prompt block, an expected outcome block, and a facilitator hint block. See this skill's template/ directory for the module structure.
 
 **hol_facilitator_guide.md** — SE's delivery script:
 - Agenda table with timing
@@ -412,7 +422,8 @@ UNION ALL pattern — one row per objective, no Python:
 -- ============================================================
 
 SELECT sort_key, check_name, status,
-    CASE status WHEN 'PASS' THEN '✓' ELSE '✗ FAIL — re-run the referenced module' END AS result
+    CASE status WHEN 'PASS' THEN '✓' ELSE '✗' END AS icon,
+    CASE status WHEN 'PASS' THEN 'OK' ELSE 'FAIL — re-run the referenced module' END AS result
 FROM (
     SELECT 1 AS sort_key,
         'Objective 1: <description>' AS check_name,
@@ -451,6 +462,7 @@ Before declaring the lab complete, verify:
 - [ ] `grant_audit.sql` covers all modules in the lab (check Section B)
 - [ ] `README.md` `**Isolation:**` field is filled in
 - [ ] `AGENTS.md` contains the hero question and full data model
+- Read ./TESTING_GUIDE.md and verify testing layers 0-3 are represented in the lab's validate.sql
 
 ---
 
@@ -459,7 +471,7 @@ Before declaring the lab complete, verify:
 Before any live CoCo-guided delivery, run the determinism tester:
 
 ```
-invoke skill prompt-determinism-tester
+Invoke skill prompt-determinism-tester from the coco-meta vault plugin (~/.snowflake/cortex/vault/plugins/coco-meta/skills/prompt-determinism-tester/). If coco-meta is not installed, skip this step and manually review 3 sample prompt runs for consistency.
 ```
 
 The skill runs each CoCo prompt 3 times independently and checks that ≥90% of runs
@@ -472,12 +484,12 @@ Any prompt below 90% must be rewritten before the workshop.
 
 ## Phase 8 — Register
 
-Update `labs/LABS_INDEX.md` with the new lab entry. Include:
+Update `labs/LABS_INDEX.md` with the new lab entry (create the file if it doesn't exist yet, using a markdown table with columns: Path, Topic, Interface, Duration, Audience, Maturity, Notes). Include:
 - Path, topic, interface, duration, audience, maturity (`complete`)
 - Isolation pattern in Notes field
 - Known Gaps if any (incomplete modules, untested prompts)
 
-Announce the lab in `labs/LAB_ROADMAP.md` Known Gaps table if there are follow-up items.
+If there are follow-up items, record them in `labs/LAB_ROADMAP.md` under a Known Gaps table (create the file if it doesn't exist yet, using format: `| Lab Name | Status | Feature Focus | Target Audience | Date | Notes |`).
 
 ---
 

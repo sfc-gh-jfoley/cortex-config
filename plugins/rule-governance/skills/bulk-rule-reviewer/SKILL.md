@@ -22,7 +22,7 @@ Execute comprehensive agent-centric reviews on all rule files in `rules/` direct
 **Required:**
 - **review_date**: `YYYY-MM-DD` (default: today)
 - **review_mode**: `FULL` | `FOCUSED` | `STALENESS` (default: FULL)
-- **model**: Lowercase-hyphenated slug (default: `claude-sonnet-45`)
+- **model**: Lowercase-hyphenated slug (default: `claude-sonnet-4-6` — `current_sonnet` alias from LLMs.md)
 
 **Optional:**
 - **filter_pattern**: Glob pattern (default: `rules/*.md`)
@@ -772,7 +772,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 ### Filtered Review (Snowflake Rules Only)
@@ -782,7 +782,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 filter_pattern: rules/100-*.md
 ```
 
@@ -793,7 +793,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 overwrite: true
 ```
 
@@ -806,7 +806,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 skip_existing: false
 overwrite: false
 ```
@@ -820,7 +820,7 @@ Use the bulk-rule-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: STALENESS
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 ## Success Criteria
@@ -865,7 +865,7 @@ model: claude-sonnet-45
 **Key Requirements:**
 - `review_date`: YYYY-MM-DD format (valid calendar date)
 - `review_mode`: FULL | FOCUSED | STALENESS (uppercase)
-- `model`: lowercase-hyphenated (e.g., claude-sonnet-45)
+- `model`: lowercase-hyphenated (e.g., claude-sonnet-4-6 — use `current_sonnet` alias from LLMs.md)
 - `filter_pattern`: rules/*.md glob (optional, must match ≥1 file)
 - `skip_existing`: boolean true/false (optional, default: true)
 - `max_parallel`: integer 1-10 (optional, default: 1)

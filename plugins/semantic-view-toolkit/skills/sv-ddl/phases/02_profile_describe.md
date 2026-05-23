@@ -181,11 +181,11 @@ They will be quoted automatically in the generated semantic view.
 
 For each column, build and execute a CORTEX.COMPLETE prompt.
 
-**Prompt template** (use `mistral-7b` for speed, `llama3.1-70b` for quality):
+**Prompt template** (use `complete_fast` alias for speed, `complete_quality` alias for quality — see `~/.snowflake/cortex/vault/LLMs.md`):
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',
+  'mistral-7b',  -- complete_fast alias from LLMs.md
   CONCAT(
     'You are a data documentation expert. Generate metadata for a database column.\n',
     'Respond ONLY with a JSON object — no explanation, no markdown fences.\n\n',
@@ -218,7 +218,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',
+  'mistral-7b',  -- complete_fast alias from LLMs.md
   CONCAT(
     'Generate JSON metadata for these ', <N>, ' columns from table <table_name>.\n',
     'Business context: <BUSINESS_CONTEXT>\n',

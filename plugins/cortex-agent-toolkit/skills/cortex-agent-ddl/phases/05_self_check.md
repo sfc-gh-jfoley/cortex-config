@@ -22,7 +22,7 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 
 | # | Rule | How to check | Auto-fix |
 |---|------|-------------|----------|
-| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to `claude-sonnet-4-5` |
+| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to value of `default_agent` alias from LLMs.md (currently `claude-sonnet-4-6`) |
 | 2 | `instructions.orchestration` is present and non-empty (>50 chars) | `spec.instructions.orchestration` exists and length > 50 | Prompt user — cannot auto-generate without context |
 | 3 | Each `cortex_analyst_text_to_sql` tool has `tool_resources[name].execution_environment.type = "warehouse"` and `tool_resources[name].execution_environment.warehouse` is non-empty | For each `cortex_analyst_text_to_sql` tool name T: `spec.tool_resources[T].execution_environment.type == "warehouse"` and `spec.tool_resources[T].execution_environment.warehouse` is non-empty string. Also check no top-level `execution_environment` exists — if found, it must be removed. | Add `execution_environment: {type: "warehouse", warehouse: AGENT_WAREHOUSE}` inside each offending tool_resources entry; remove any top-level `execution_environment` block |
 | 4 | `tools` array is non-empty | `spec.tools.length > 0` | Cannot auto-fix — return to Phase 2 |

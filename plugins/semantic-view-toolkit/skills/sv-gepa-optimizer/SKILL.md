@@ -110,8 +110,9 @@ Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
 Use the returned prompt with CORTEX.COMPLETE to generate the mutated DDL:
 
 ```sql
+-- Use default_agent alias from ~/.snowflake/cortex/vault/LLMs.md (currently claude-sonnet-4-6)
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'claude-3-5-sonnet',
+    'claude-sonnet-4-6',
     '<mutation_prompt_escaped>'
 ) AS mutated_ddl;
 ```

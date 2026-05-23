@@ -71,7 +71,7 @@ For ambiguous matches, use Cortex AI to classify:
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.AI_COMPLETE(
-  'llama3.1-70b',
+  'llama3.1-70b',  -- complete_quality alias from ~/.snowflake/cortex/vault/LLMs.md
   CONCAT(
     'Given this Snowflake behavior change: "', :change_description, '"\n',
     'And this SQL code: "', :sql_code, '"\n',
