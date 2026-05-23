@@ -226,7 +226,7 @@ When all tasks COMPLETE:
 4. **Write design-doc.md**: decisions, deviations, trade-offs
 5. **Run retrospective** (see `references/retrospective-protocol.md`)
 6. **Clean up**: `team_delete()`
-7. **Save memory**: `cortex memory remember "SHIP <project>: <summary>"`
+7. **Log ship**: append `SHIPPED` entry to manifest.log + `git add .agent-project/ && git commit -m "ship: <project-slug>"`
 
 ---
 
@@ -266,7 +266,7 @@ For autonomous execution without user interaction during the build phase.
 ```
 execution_mode: headless
 auto_approve_plan: false     # true only for well-understood repeatable projects
-escalation_channel: memory   # "memory" | "file" | "user"
+escalation_channel: git       # "git" | "file" | "user"
 max_parallel_workers: 4
 retry_budget: 2
 halt_on:
@@ -278,7 +278,7 @@ halt_on:
 **Headless behavior**:
 - Plan still requires user approval (unless `auto_approve_plan: true`)
 - After approval: Phases 3-6 run autonomously
-- Escalations → `cortex memory remember` (user reviews async)
+- Escalations → append to `.agent-project/escalation.md` + `git commit -m "ESCALATION: <task_id> — <summary>"` (review with `git log --grep=ESCALATION`)
 - SecArch + Tester gates still block — never bypassed
 - On `halt_on` conditions: write context to `.agent-project/escalation.md`, STOP
 - On completion: task notification reaches user's session

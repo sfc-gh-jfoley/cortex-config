@@ -1,0 +1,24 @@
+# Manifest Log — append-only completion tracking
+# Format: TIMESTAMP | AGENT | STATUS | DETAILS
+# 
+# This file is the SINGLE SOURCE OF TRUTH for project state.
+# Every entry is immediately committed to git after writing.
+#
+# Status values:
+#   INITIALIZED  — project created
+#   INTAKE_COMPLETE — Phase 0 done, moving to research
+#   RESEARCH_COMPLETE — Phase 1 done, all researchers returned
+#   PLAN_APPROVED — Phase 2 done, user confirmed plan
+#   STARTED — worker began a task
+#   COMMITTED — worker pushed code to branch
+#   DONE — task fully complete (worker shipped, or gate passed)
+#   BLOCKED — worker cannot proceed (dependency or build loop)
+#   REJECTED — SecArch rejected the task
+#   FAIL — Tester found failures
+#   ESCALATED — exceeded retry budget, user notified
+#   SHIPPED — Phase 6 complete, project delivered
+#
+# Recovery: If a session dies, read this log + git log to reconstruct state.
+# Rule: Never merge a branch whose worker has no DONE entry here.
+# Rule: Every write to this file is followed by: git add + git commit
+#

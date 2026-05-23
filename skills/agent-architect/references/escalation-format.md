@@ -48,8 +48,8 @@ In headless execution, escalations go to the configured channel:
 | `escalation_channel` | Behavior |
 |---|---|
 | `"user"` | `ask_user_question()` — blocks until response (interactive only) |
-| `"memory"` | `cortex memory remember "ESCALATION: <task_id> — <summary>"` — async review |
-| `"file"` | Write to `.agent-project/escalation.md` — user reads later |
+| `"git"` | Append to `.agent-project/escalation.md` + `git add .agent-project/escalation.md && git commit -m "ESCALATION: <task_id> — <reason>"`. Review with `git log --grep=ESCALATION`. Default. |
+| `"file"` | Write to `.agent-project/escalation.md` only — no commit (fallback when git not initialized) |
 
 In headless mode with `halt_on` conditions, CRITICAL escalations STOP the entire
 project. The Architect writes full context to `escalation.md` and exits.

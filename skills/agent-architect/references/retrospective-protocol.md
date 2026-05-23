@@ -102,9 +102,8 @@ If the user approves improvements:
 1. Edit the specific role file (e.g., `roles/worker.md`) with the proposed addition
 2. Edit `references/security-checklist.md` if new checks proposed
 3. Commit: `git commit -m "retro: apply improvements from <project-slug>"`
-4. Save to memory: `cortex memory remember "Retro <project>: <key lesson>"`
 
-If declined: save the retrospective to memory for reference, don't modify files.
+If declined: no file changes needed.
 
 ## Rules
 
@@ -112,4 +111,4 @@ If declined: save the retrospective to memory for reference, don't modify files.
 - Be specific in proposed improvements — "add X to line Y of file Z", not "improve error handling"
 - Never propose removing security gates even if they caused friction
 - Proposed improvements must reference a specific failure instance (evidence-based)
-- In headless mode: write retrospective.md + memory, skip the "apply?" question
+- In headless mode: write retrospective.md + `git commit -m "retro: <project-slug>"`, skip the "apply?" question
