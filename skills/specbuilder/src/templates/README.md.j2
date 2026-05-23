@@ -1,0 +1,45 @@
+{#- Spec index README for {{ project_name }}.
+     This is the entry point for navigating the spec tree. -#}
+# {{ project_name }} — Specification Index
+
+> Single source of truth for all behavioral specifications.
+
+---
+
+## Modules
+
+<!-- BEGIN_AUTO_MODULES -->
+| # | Module | Status | Description |
+|---|--------|--------|-------------|
+{#- Rows are added here as modules are created. -#}
+<!-- END_AUTO_MODULES -->
+
+---
+
+## Status Definitions
+
+| Status         | Meaning                                                  |
+|----------------|----------------------------------------------------------|
+| `draft`        | Initial write-up; not yet reviewed.                      |
+| `in-review`    | Under active review by stakeholders.                     |
+| `accepted`     | Approved and ready for implementation.                   |
+| `implemented`  | Fully implemented and verified against acceptance criteria. |
+
+---
+
+## Version History
+
+| Version | Date         | Author | Summary               |
+|---------|--------------|--------|-----------------------|
+| 0.1.0   | {{ date_today }} |        | Initial spec scaffold |
+
+---
+
+## Conventions
+
+1. **One module per file** — each spec module lives in `{{ spec_dir }}/modules/NN-slug.md`.
+2. **Matching AC files** — every module has a companion `{{ spec_dir }}/acceptance-criteria/NN-slug.md`.
+3. **Frontmatter required** — all spec files use YAML frontmatter (see `SCHEMA.md`).
+4. **Spec-first changes** — behavioral changes require a spec update *before* code changes.
+5. **Decisions are permanent** — ADRs are never deleted; they are `superseded` by newer ones.
+6. **Semver for modules** — module `version` follows semantic versioning.

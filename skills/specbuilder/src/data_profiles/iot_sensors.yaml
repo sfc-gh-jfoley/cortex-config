@@ -1,0 +1,99 @@
+profile: iot_sensors
+description: "IoT sensor network with device readings, alerts, and maintenance events"
+tables:
+  dim_device:
+    row_count: 50
+    columns:
+      device_id:
+        type: sequential
+        prefix: "DEV-"
+        start: 1
+        zero_pad: 4
+      device_type:
+        type: enum
+        values: ["temperature", "humidity", "pressure", "vibration", "flow_meter"]
+        weights: [0.30, 0.20, 0.20, 0.15, 0.15]
+      location_lat:
+        type: distribution
+        distribution: normal
+        mean: 40
+        stddev: 5
+        min: 25
+        max: 55
+        round_to: 6
+      location_lng:
+        type: distribution
+        distribution: normal
+        mean: -90
+        stddev: 15
+        min: -125
+        max: -65
+        round_to: 6
+      install_date:
+        type: time_series
+        start: "2022-01-01"
+        end: "2024-06-01"
+      status:
+        type: enum
+        values: ["online", "offline", "maintenance"]
+        weights: [0.80, 0.10, 0.10]
+
+  fact_reading:
+    row_count: 1000
+    columns:
+      reading_id:
+        type: uuid
+      device_id:
+        type: reference
+        source: dim_device
+        column: device_id
+      reading_value:
+        type: distribution
+        distribution: normal
+        mean: 50
+        stddev: 15
+        min: 0
+        max: 100
+        round_to: 2
+      unit:
+        type: enum
+        values: ["celsius", "percent", "kpa", "mm_s", "l_min"]
+        weights: [0.30, 0.20, 0.20, 0.15, 0.15]
+      recorded_at:
+        type: time_series
+        start: "2024-09-01"
+        end: "2025-01-01"
+      battery_pct:
+        type: distribution
+        distribution: normal
+        mean: 72
+        stddev: 20
+        min: 5
+        max: 100
+        round_to: 0
+
+  fact_alert:
+    row_count: 100
+    columns:
+      alert_id:
+        type: uuid
+      device_id:
+        type: reference
+        source: dim_device
+        column: device_id
+      severity:
+        type: enum
+        values: ["info", "warning", "critical"]
+        weights: [0.50, 0.35, 0.15]
+      alert_type:
+        type: enum
+        values: ["threshold_breach", "offline", "battery_low", "calibration_due"]
+        weights: [0.40, 0.25, 0.20, 0.15]
+      triggered_at:
+        type: time_series
+        start: "2024-09-01"
+        end: "2025-01-01"
+      acknowledged:
+        type: enum
+        values: ["true", "false"]
+        weights: [0.70, 0.30]

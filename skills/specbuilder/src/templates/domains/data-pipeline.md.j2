@@ -1,0 +1,144 @@
+{#- Domain template: Data Pipeline -#}
+---
+id: {{ mod_id }}
+title: "{{ title }}"
+status: draft
+version: "0.1.0"
+last_updated: {{ date }}
+template: data-pipeline
+---
+
+# Module {{ module_num_padded }}: {{ title }}
+
+---
+
+## Executive Summary
+
+{{ description | default("A data pipeline that ingests, transforms, and delivers data to a target table.") }}
+
+---
+
+## Inputs
+
+### Source Schema
+
+| Field | Type | Nullable | Description |
+|-------|------|----------|-------------|
+{% if source_fields is defined -%}
+{% for field in source_fields -%}
+| {{ field.name }} | {{ field.type }} | {{ field.nullable | default("No") }} | {{ field.description | default("") }} |
+{% endfor -%}
+{% else -%}
+| _field_name_ | _VARCHAR_ | _No_ | _TODO: Define source fields_ |
+{% endif -%}
+
+### Source Connection
+
+- **Database**: {{ source_database | default("TODO") }}
+- **Schema**: {{ source_schema | default("TODO") }}
+- **Table/View**: {{ source_table | default("TODO") }}
+- **Refresh frequency**: {{ refresh_frequency | default("Daily") }}
+- **Incremental key**: {{ incremental_key | default("None (full refresh)") }}
+
+---
+
+## Transformation Logic
+
+{{ transformation_description | default("TODO: Describe the transformation logic.") }}
+
+### Business Rules
+
+| # | Rule | Input Fields | Output |
+|---|------|-------------|--------|
+{% if business_rules is defined -%}
+{% for rule in business_rules -%}
+| {{ loop.index }} | {{ rule.description }} | {{ rule.inputs }} | {{ rule.output }} |
+{% endfor -%}
+{% else -%}
+| 1 | _TODO: Define business rule_ | _field_a, field_b_ | _computed_field_ |
+{% endif -%}
+
+---
+{% if data_profile is defined %}
+
+## Data Profile
+
+{{ data_profile | tojson(indent=2) }}
+
+{% endif %}
+---
+
+## Output
+
+### Target Schema
+
+| Field | Type | Source | Transform |
+|-------|------|--------|-----------|
+{% if target_fields is defined -%}
+{% for field in target_fields -%}
+| {{ field.name }} | {{ field.type }} | {{ field.source }} | {{ field.transform | default("Direct mapping") }} |
+{% endfor -%}
+{% else -%}
+| _field_name_ | _VARCHAR_ | _source.field_ | _Direct mapping_ |
+{% endif -%}
+
+### Delivery
+
+- **Target table**: `{{ target_table | default("DB.SCHEMA.TARGET_TABLE") }}`
+- **Write mode**: {{ write_mode | default("MERGE (upsert on primary key)") }}
+- **SLA**: {{ sla | default("Data available within 1 hour of source refresh") }}
+
+### Artifacts
+
+- `sql/01-create-target.sql` — Target table DDL
+- `sql/02-transform.sql` — Transformation logic (stored procedure or dynamic table)
+{% if needs_staging | default(false) -%}
+- `sql/03-staging.sql` — Staging table for incremental loads
+{% endif -%}
+
+---
+
+## Acceptance Criteria
+
+### AC-1: Data Completeness
+
+- [ ] All source rows matching filter criteria are present in target
+- [ ] Row count differential between source and target is < {{ threshold | default("0.1%") }}
+- [ ] No orphaned records in target after full refresh
+
+### AC-2: Transformation Correctness
+
+- [ ] Business rules produce expected output for sample inputs
+- [ ] NULL handling follows documented behavior for each field
+- [ ] Data types in target match schema definition
+
+### AC-3: Timeliness
+
+- [ ] Pipeline completes within SLA window
+- [ ] Late-arriving data is handled per documented edge case behavior
+- [ ] Monitoring/alerting is in place for SLA breaches
+
+### AC-4: Idempotency
+
+- [ ] Running the pipeline twice produces the same result
+- [ ] No duplicate rows after re-execution
+
+---
+
+## Edge Cases
+
+| Scenario | Expected Behavior |
+|----------|-------------------|
+| Source table is empty | Target remains unchanged; log warning |
+| Source has duplicate keys | Deduplicate using latest timestamp |
+| Schema drift (new column in source) | Ignore unknown columns; log for review |
+| Target table doesn't exist | Create it from DDL artifact |
+| Network timeout during load | Retry up to 3 times with backoff |
+
+---
+
+## Extension Points
+
+- **CoCo skills**: `sql-author`, `dynamic-tables`, `snowpipe-streaming`
+- **Monitoring**: Add Snowflake alert for SLA breaches
+- **Lineage**: Register in data catalog for downstream discovery

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+{#- Change-control gate hook for {{ project_name }}.
+     Blocks writes to protected directories unless a spec change is in progress. -#}
+# ── Change-Control Gate ──────────────────────────────────────────────
+# Enforces spec-first development: protected source directories cannot
+# be modified unless a spec file has been changed in the current session.
+#
+# Exit codes:
+#   0 — allow the tool call
+#   2 — block the tool call (CoCo shows the message to the user)
+# ─────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# Protected directory patterns (rendered from project config)
+PROTECTED_DIRS=(
+{%- for dir in protected_dirs %}
+  "{{ dir }}"
+{%- endfor %}
+)
+
+# ── Read tool input from stdin ───────────────────────────────────────
+INPUT="$(cat)"
+TOOL_NAME="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || echo "")"
+FILE_PATH="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))" 2>/dev/null || echo "")"
+
+# If we couldn't parse the input, allow the call
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# ── Check if file is in a protected directory ────────────────────────
+PROTECTED=false
+for pattern in "${PROTECTED_DIRS[@]}"; do
+  if [[ "$FILE_PATH" == *"$pattern"* ]]; then
+    PROTECTED=true
+    break
+  fi
+done
+
+# Not protected — allow
+if [ "$PROTECTED" = false ]; then
+  exit 0
+fi
+
+# ── Prototype mode bypass ────────────────────────────────────────────
+# Check env var first (fast path, no file I/O)
+if [ "${SPECBUILDER_PROTOTYPE:-}" = "1" ]; then
+  echo "⚠ PROTOTYPE MODE (env): Edit allowed without spec. Specs owed before merge." >&2
+  exit 0
+fi
+
+# Check sentinel file
+if [ -f "{{ spec_dir }}/.prototype" ]; then
+  EXPIRES="$(python3 -c "
+import json, sys
+from datetime import datetime, timezone
+try:
+    d = json.load(open('{{ spec_dir }}/.prototype'))
+    exp = datetime.fromisoformat(d['expires'])
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if now < exp:
+        print('active')
+    else:
+        print('expired')
+except Exception:
+    print('error')
+" 2>/dev/null || echo "error")"
+
+  if [ "$EXPIRES" = "active" ]; then
+    echo "⚠ PROTOTYPE MODE: Edit allowed without spec. Specs owed before merge." >&2
+    exit 0
+  elif [ "$EXPIRES" = "expired" ]; then
+    rm -f "{{ spec_dir }}/.prototype"
+    # Fall through to normal blocking
+  fi
+  # On error: ignore sentinel (fail-open to normal check)
+fi
+
+# ── Check for spec changes via git ──────────────────────────────────
+if command -v git &>/dev/null && git rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+  # Look for staged or unstaged changes to spec files
+  SPEC_CHANGES="$(git diff --name-only HEAD 2>/dev/null || true)"
+  SPEC_STAGED="$(git diff --name-only --cached 2>/dev/null || true)"
+  ALL_CHANGES="$SPEC_CHANGES"$'\n'"$SPEC_STAGED"
+
+  if echo "$ALL_CHANGES" | grep -qE '{{ spec_dir }}/modules/(0[1-9]|[1-9][0-9])-.*\.md|{{ spec_dir }}/acceptance-criteria/(0[1-9]|[1-9][0-9])-.*\.md'; then
+    # Spec file has been modified — allow the change
+    exit 0
+  fi
+else
+  # No git available — fallback: check if any spec files exist at all
+  if ls {{ spec_dir }}/modules/[0-9][1-9]-*.md &>/dev/null 2>&1 || \
+     ls {{ spec_dir }}/modules/[1-9][0-9]-*.md &>/dev/null 2>&1 || \
+     ls {{ spec_dir }}/acceptance-criteria/[0-9][1-9]-*.md &>/dev/null 2>&1 || \
+     ls {{ spec_dir }}/acceptance-criteria/[1-9][0-9]-*.md &>/dev/null 2>&1; then
+    # Spec files exist, assume spec-driven workflow is active
+    exit 0
+  fi
+fi
+
+# ── Block: no spec change detected ──────────────────────────────────
+cat >&2 <<'BLOCK_MSG'
+🛑 Change-Control Gate: blocked
+
+You are trying to modify a file in a protected directory, but no spec
+file has been updated in this session.
+
+Spec-driven workflow requires that you update the relevant spec module
+({{ spec_dir }}/modules/NN-slug.md) or acceptance-criteria file BEFORE changing
+protected source code.
+
+Steps to proceed:
+  1. Identify or create the spec module for this change
+  2. Update the spec with the planned behavioral change
+  3. Then retry your code change
+
+Run `specbuilder status` to see current spec modules.
+BLOCK_MSG
+
+exit 2

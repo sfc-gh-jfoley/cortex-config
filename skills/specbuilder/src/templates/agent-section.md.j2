@@ -1,0 +1,43 @@
+{#- Append this section to a project's existing agent.md to enable
+     spec-driven development workflow in CoCo. -#}
+
+## Spec-Driven Development Workflow
+
+This project uses **spec-driven development**. All behavioral changes must
+follow the workflow below.
+
+### New Module Workflow (5 Phases)
+
+1. **Intake** — Fill out `INTAKE.md` with requirements, inputs, outputs,
+   business rules, and known unknowns.
+2. **Draft** — Create the spec module (`{{ spec_dir }}/modules/NN-slug.md`) and its
+   companion acceptance-criteria file (`{{ spec_dir }}/acceptance-criteria/NN-slug.md`).
+   Set both to `draft` status.
+3. **Review** — Move spec and AC to `in-review`. Validate completeness:
+   every AC has a Given/When/Then table, edge cases are documented, and
+   the schema (`SCHEMA.md`) is satisfied.
+4. **Accept** — After review approval, set status to `accepted`. The spec
+   is now the contract for implementation.
+5. **Implement** — Write code against the accepted spec. When all AC criteria
+   pass, set the spec to `implemented` and the AC to `signed-off`.
+
+### Change Control Rules
+
+- **Spec-first for behavior changes**: before modifying code in protected
+  directories, update the relevant spec module or AC file. The change-control
+  hook enforces this — writes to protected directories are blocked unless a
+  spec file has been modified.
+- **Bug fixes** that don't change intended behavior can skip spec updates,
+  but should reference the relevant spec module in the commit message.
+- **Refactors** that preserve behavior can skip spec updates.
+- **New features** always require a new spec module or a proposal for an
+  existing one.
+
+### Reference
+
+- `SCHEMA.md` — required format for all spec artifacts
+- `{{ spec_dir }}/` — spec modules and acceptance criteria
+- `decisions/` — architecture decision records (ADRs)
+- `proposals/` — planned proposals and enhancements
+- The `specbuilder/` package provides tooling for scaffolding, validation,
+  and status reporting.

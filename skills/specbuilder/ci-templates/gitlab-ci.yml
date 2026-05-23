@@ -1,0 +1,25 @@
+# SpecBuilder CI — GitLab CI
+# Blocks MRs if implementation changes without corresponding spec updates.
+
+spec-drift:
+  stage: test
+  script:
+    - pip install -e .
+    - python3 -m specbuilder ci --check-drift --base=origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME --format=gitlab
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# Optional: add for post-merge promotion
+# spec-promote:
+#   stage: deploy
+#   script:
+#     - pip install -e .
+#     # Direct commit (simple):
+#     - python3 -m specbuilder ci --promote-merged --base=origin/$CI_COMMIT_BEFORE_SHA
+#     - git push "https://gitlab-ci-token:${CI_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:$CI_COMMIT_BRANCH
+#     # OR: Create an MR branch (respects branch protection):
+#     # - python3 -m specbuilder ci --promote-merged --branch --base=origin/$CI_COMMIT_BEFORE_SHA
+#     # - git push -u origin $(git branch --show-current)
+#     # - glab mr create --title "chore(spec): promote specs" --yes
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -21,7 +21,7 @@ triggers:
   - headless build
 ---
 
-# Agent Architect v3.0
+# Agent Architect v3.1
 
 ## What This Is
 
@@ -112,6 +112,18 @@ Ask the user:
 5. **What's the priority?** (ship fast vs. production quality)
 6. **Execution mode?** (interactive = gates ask you, headless = autonomous after plan approval)
 
+7. **Domain hints**: Based on the technology stack from step 3, append a `DOMAIN_HINTS` block
+   to manifest.log with domain-specific gotchas. Workers receive these hints injected into
+   their task prompt. Examples:
+   - Snowflake/SQL: `1. IF NOT EXISTS on all DDL; 2. Use IS NULL not =NULL; 3. GENERATOR() for seed data not row-by-row INSERT; 4. Qualify all column refs with alias`
+   - React/TypeScript: `1. key prop required on all list items; 2. loading + error states on every async component; 3. no hardcoded env values in components`
+   - Python API: `1. validate at system boundaries only; 2. timeout on all external calls; 3. no secrets in logs or error messages`
+   - Generic fallback: `1. no hardcoded credentials; 2. handle null/empty inputs; 3. log errors with context not raw exceptions`
+
+8. **Specbuilder check**: Run `ls spec/ .specbuilder.toml 2>/dev/null`
+   - Found → log `SPECBUILDER_PRESENT=true` in manifest.log
+   - Not found → log `SPECBUILDER_PRESENT=false` in manifest.log
+
 Record answers. Log `INTAKE_COMPLETE` to manifest.log. Commit. Proceed to Phase 1.
 
 ---
@@ -152,10 +164,34 @@ When all return → log `RESEARCH_COMPLETE`, commit, proceed to Phase 2.
    - `ownership_scope`: files this task creates/modifies (NO overlap)
    - Dependencies: which tasks must complete first
    - `is_major_change`: true/false
-   - `test_criteria`: what must pass
+   - `test_criteria`: numbered atomic criteria — each a single sentence stating condition + expected result.
+     Minimum 2 per task. Tester reads these before reading any code.
+     Example: `"1. POST /auth returns 401 when token absent; 2. Response body matches {error: string} schema; 3. No credentials appear in logs"`
 4. **Create CoCo tasks**: `task_create()` with `blocked_by` for dependencies
 5. **Present plan to user** — do NOT proceed until confirmed
 6. Log `PLAN_APPROVED` to manifest.log. Commit.
+
+**Optional specbuilder handoff**: If `SPECBUILDER_PRESENT=true`, ask:
+"Formalize this plan as tracked spec modules before execution? (y/n)"
+- YES → write `spec/INTAKE.md` summarizing approved tasks (one requirement per task), load
+  skill `specbuilder` → route to `spec-generate` → proceed to Phase 3 only after key tasks
+  reach `status: accepted` in specbuilder.
+- NO → proceed directly to Phase 3.
+
+**Multi-team charter decomposition** (when team count ≥ 2 AND execution_mode=headless):
+Decompose the full task list into N independent TEAM CHARTERS before launching. Each charter
+is an independent slice with no intra-charter cross-task dependencies (cross-charter deps are
+resolved by the Primary Architect via git polling).
+
+Charter format (write to manifest.log under `CHARTERS_DEFINED`):
+```
+team: 1
+name: <domain-label>
+tasks: [task_01, task_02, task_03]
+integration_branch: arch/<slug>/main
+depends_on_teams: []   # list team numbers this charter must wait for
+```
+Log all charters under `CHARTERS_DEFINED` in manifest.log. Commit. Then launch Team Architects.
 
 ### Team Sizing
 
@@ -171,14 +207,32 @@ When all return → log `RESEARCH_COMPLETE`, commit, proceed to Phase 2.
 
 For each ready task (no unmet deps), spawn a Worker (see `roles/worker.md`).
 
-**Sequential Drain Pattern** (prevents notification flooding):
+**Git-First Drain Loop** (replaces plain `agent_output(wait=true)`):
 ```
 for each batch of ready tasks:
     spawn all workers in batch (parallel, worktree_isolation=true)
     for each worker in batch:
-        agent_output(wait=true)    # drain one at a time
-        read manifest.log          # reconcile state
-        git commit log updates     # persist to git
+        elapsed_since_commit = 0
+        last_commit = $(git log <worker-branch> -1 --format="%ct" 2>/dev/null || echo "0")
+
+        loop:
+            result = agent_output(agent_id, wait=false)
+            if agent completed → break
+
+            current = $(git log <worker-branch> -1 --format="%ct" 2>/dev/null || echo "0")
+            if current != last_commit:
+                last_commit = current
+                elapsed_since_commit = 0      # reset timer on git activity
+            else:
+                elapsed_since_commit += 30
+
+            if elapsed_since_commit >= 120:
+                → STUCK (see Cleanup Protocol section)
+                break
+
+            sleep(30)
+
+        read manifest.log → reconcile state → git commit log updates
     check: did completions unblock new tasks? → next batch
 ```
 
@@ -258,43 +312,209 @@ If a session crashes, state is recoverable from `git log .agent-project/manifest
 
 ---
 
-## Headless / Offshore Mode
+## Headless / Multi-Team Mode
 
-For autonomous execution without user interaction during the build phase.
+**Default: always use multi-team (`num_teams: auto`), never single-team headless.**
+
+Single-team headless (`num_teams: 1`) is almost never the right choice:
+- It backgrounds one Opus session running Phases 0-6 in sequence — identical to interactive
+  mode except you can't watch it
+- No parallelism, no fresh contexts per team, no cost advantage
+- A long Opus session accumulates research + plan + worker results + SecArch verdicts across
+  all phases and hits context limits on any non-trivial project
+- If requirements are uncertain → use **interactive** so you can review Phase 2 before Phase 3
+- If requirements are clear and the project fits in a single context → also just use interactive,
+  it's faster to supervise than to diagnose a backgrounded failure via git log
+
+**Use headless multi-team when:**
+- Project is decomposable into ≥ 2 independent team charters
+- You want to run unattended (overnight, during meetings) after plan approval
+- You want parallel execution and bounded per-team context (Team Architects are Sonnet —
+  cheaper and each has a fresh context scoped to its charter, no context overflow)
+
+**What this actually is**: 1 Primary Architect (Opus) decomposes the project into N team
+charters then delegates to N Team Architects (Sonnet). Primary stays lean — it only holds
+charter definitions and polls git. All execution context lives inside each Team Architect.
+**Git is the only inter-team communication channel** — Primary does NOT rely on CoCo task
+notifications (too unreliable under load). User checks progress via `git log --oneline --all`.
+
+The Opus cost is bounded to Phase 0-2 synthesis and Phase 6 merge. Phases 3-5 run entirely
+on Sonnet inside Team Architects. This is the correct cost model.
 
 **Configuration** (set during Phase 0 intake or pre-populated):
 ```
 execution_mode: headless
+num_teams: auto              # "auto" uses team sizing table, or set explicitly 1-4
 auto_approve_plan: false     # true only for well-understood repeatable projects
-escalation_channel: git       # "git" | "file" | "user"
-max_parallel_workers: 4
+escalation_channel: git
 retry_budget: 2
+team_poll_interval_seconds: 90     # multi-team only: how often Primary checks team git activity
+team_stuck_threshold_seconds: 1800 # multi-team only: no team commits for 30 min = team stuck
 halt_on:
   - CRITICAL_security_finding
   - max_retries_exceeded
   - scope_creep_detected
 ```
 
-**Headless behavior**:
-- Plan still requires user approval (unless `auto_approve_plan: true`)
-- After approval: Phases 3-6 run autonomously
-- Escalations → append to `.agent-project/escalation.md` + `git commit -m "ESCALATION: <task_id> — <summary>"` (review with `git log --grep=ESCALATION`)
-- SecArch + Tester gates still block — never bypassed
-- On `halt_on` conditions: write context to `.agent-project/escalation.md`, STOP
-- On completion: task notification reaches user's session
+**Two distinct polling modes (do not conflate):**
+- **Single-team** (`num_teams: 1`): Primary runs the Phase 3 git-first drain loop directly
+  (30s poll, 120s stuck threshold). `team_poll_interval_seconds` is unused.
+- **Multi-team** (`num_teams: 2+`): Primary delegates worker-level drain to Team Architects.
+  Primary runs a separate team-health poll at `team_poll_interval_seconds` (default 90s).
+  Team-level stuck is a different threshold (`team_stuck_threshold_seconds`, default 30 min)
+  because a team doing Phase 1 research legitimately produces no commits for 15+ minutes.
 
-**Launching headless**:
+**Primary Architect behavior (multi-team headless)**:
+1. Phases 0-2 run normally (plan requires user approval unless `auto_approve_plan: true`)
+2. Decompose into team charters (see Phase 2 charter decomposition)
+3. Create integration branch: `git checkout -b arch/<slug>/main`
+4. Launch N Team Architects in one batch (see spawn pattern below)
+5. Poll loop every `team_poll_interval_seconds` (90s):
+   `git log --all --since="90 seconds ago" --oneline`
+   → append activity summary to manifest.log + commit
+   → check for ESCALATION commits: `git log --all --grep="ESCALATION" --since="90 seconds ago"`
+     → if found: read escalation, determine if halt_on condition triggered
+   → check for team stuck: any team with no commits for `team_stuck_threshold_seconds`
+     → if found: see `references/cleanup-protocol.md` Multi-Team Stuck-Team Escalation
+6. Cross-team dependency gate: before unblocking Team B that `depends_on_teams: [1]`, verify:
+   `git log --all --grep="\[SHIPPED\] team-1" --oneline` → must be non-empty
+7. When ALL teams have SHIPPED tag → proceed to Phase 6 merge + retrospective
+
+**Team Architect behavior** (per team, backgrounded Sonnet):
+- Receives: slug, team number, charter task list, integration branch, manifest path
+- Runs mini Phase 1 (team-scoped research) → Phase 2 (charter task decomp) → Phases 3-5
+- Branch namespace: `arch/<slug>/team-<N>/` (workers write `arch/<slug>/team-<N>/worker-<task_id>`)
+- Completion signal: `git tag arch/<slug>/team-<N>/SHIPPED -m "team <N> complete"`
+  + append `TEAM_SHIPPED | team-<N> | <timestamp>` to manifest.log + commit
+- Escalations: `git commit -m "ESCALATION: team-<N> <task_id> — <summary>"`
+
+**SecArch + Tester gates are never bypassed** — each Team Architect runs its own Phase 4-5 cycle.
+For `is_major_change` tasks: Primary Architect ALSO reviews after Team's SecArch approves.
+
+**Launching Team Architects (Primary spawns after charter decomposition)**:
+```python
+for each charter:
+    Task(
+        subagent_type="general-purpose",
+        model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+        run_in_background=True,
+        worktree_isolation=True,
+        team_name="arch-<slug>",
+        name="team-arch-<N>-<slug>",
+        prompt="""You are Team Architect <N> for project <slug>.
+Charter: <task list from manifest.log CHARTERS_DEFINED>
+Integration branch: arch/<slug>/main
+Your branch namespace: arch/<slug>/team-<N>/
+Manifest: .agent-project/manifest.log
+DOMAIN_HINTS: <inject from manifest.log DOMAIN_HINTS block>
+[inject full SKILL.md + all role files]
+Run Phases 1-5 for your charter only. On completion:
+  git tag arch/<slug>/team-<N>/SHIPPED -m "team <N> complete"
+  Append TEAM_SHIPPED entry to manifest.log and commit."""
+    )
+```
+
+**Self-launching Primary Architect (optional — for fully hands-off execution)**:
 ```python
 Task(
     subagent_type="general-purpose",
-    model="claude-opus-4-6",
+    model="claude-opus-4-7",  # current_opus alias — see ~/.snowflake/cortex/vault/LLMs.md
     run_in_background=True,
-    name="architect-<slug>",
-    prompt="You are the Project Architect for <slug>. [inject SKILL.md + role files]"
+    name="primary-arch-<slug>",
+    prompt="You are the Primary Architect for <slug>. [inject full SKILL.md + role files]. Run Phases 0-6."
 )
 ```
+Use this only after plan is approved. Primary then handles charter decomp + team spawning autonomously.
 
-The Architect then spawns its own sub-team and manages the lifecycle independently.
+**Headless behavior**:
+- Escalations → `git commit -m "ESCALATION: <team/task> — <summary>"` on relevant branch
+  Review across all teams: `git log --all --grep=ESCALATION`
+- SecArch + Tester gates still block — never bypassed
+- On `halt_on` conditions: write to `.agent-project/escalation.md` + commit, STOP all teams
+- See `references/cleanup-protocol.md` for stuck-team and crash-recovery procedures
+
+---
+
+## Git Coordination Protocol
+
+Git is the source of truth and the inter-team communication bus. Every meaningful state
+transition must be committed. Teams and workers signal via parseable commit message conventions.
+
+**Branch namespace:**
+```
+arch/<slug>/main                          # integration branch (Primary Architect)
+arch/<slug>/team-<N>/                     # team namespace (Team Architect)
+arch/<slug>/team-<N>/worker-<task_id>     # worker branches (Workers)
+```
+
+**Commit message conventions (machine-parseable):**
+| Signal | Format |
+|---|---|
+| Worker checkpoint | `[WORKER] <task_id>: <STEP> — <summary>` |
+| Task complete | `[DONE] <task_id> — <summary>` |
+| Team shipped | `[SHIPPED] team-<N> — <summary>` |
+| Escalation | `ESCALATION: <team/task> — <summary>` |
+| Stuck worker | `STUCK: <task_id> — no git activity 120s` |
+| Cleanup event | `CLEANUP: <what> — <reason>` |
+| Log/state | `log: <event>` |
+
+**Primary Architect polling (headless):**
+```bash
+# All activity across all teams (last 5 min):
+git log --all --since="5 minutes ago" --oneline --decorate
+
+# Check if a specific team shipped:
+git log --all --grep="\[SHIPPED\] team-<N>" --oneline
+
+# All escalations across all teams:
+git log --all --grep="ESCALATION" --oneline
+
+# Worker progress on a specific task:
+git log --all --grep="\[WORKER\] <task_id>" --oneline
+```
+
+**Cross-team dependency gate:**
+```bash
+# Before starting Team B that depends_on_teams: [1]:
+git log arch/<slug>/team-1 --grep="\[SHIPPED\]" --oneline
+# Empty → Team 1 not shipped yet → do not start Team B
+# Non-empty → Team 1 shipped → unblock Team B
+```
+
+---
+
+## Cleanup Protocol
+
+**Stuck worker (detected by drain loop — no git commits in 120s):**
+1. `kill_agent(agent_id)`
+2. `git worktree remove --force <worktree_path>`
+3. `git commit -m "STUCK: <task_id> — no git activity 120s"`
+4. Append `STUCK | <task_id> | <timestamp>` to manifest.log + commit
+5. If `retry_count < retry_budget` → re-spawn worker with same task spec + DOMAIN_HINTS
+6. Else → escalate (see `references/escalation-format.md`)
+
+**Session crash recovery:**
+1. `git log .agent-project/manifest.log --oneline` → find last committed state
+2. `git worktree list` → identify dangling worktrees from crashed session
+3. For each dangling worktree:
+   - `git log <branch> --grep="\[DONE\]"` non-empty → task finished, just remove: `git worktree remove --force <path>`
+   - Empty → worker was mid-task → re-spawn with same task spec
+4. Append `RECOVERY | <timestamp> | resumed from <last-commit>` to manifest.log + commit
+
+**End-of-project cleanup (Phase 6 additions after existing steps):**
+```bash
+# Remove remaining worktrees:
+git worktree list
+git worktree remove --force <any remaining paths>
+
+# Prune merged worker + team branches:
+git branch --merged arch/<slug>/main | grep "arch/<slug>/" | xargs git branch -d
+
+# Final audit:
+git branch -a | grep "arch/<slug>/"   # should only show main after pruning
+```
+
+See `references/cleanup-protocol.md` for full recovery procedures and multi-team stuck-team escalation.
 
 ---
 
@@ -304,23 +524,29 @@ Every agent spawn MUST include the `model` parameter from `roles/model-map.md`:
 
 ```python
 # Researcher
-Task(subagent_type="Explore", model="claude-sonnet-4-6", run_in_background=True,
+Task(subagent_type="Explore", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+     run_in_background=True,
      team_name="arch-<slug>", name="researcher-<topic>", prompt="...")
 
 # Worker
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",
+Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, worktree_isolation=True,
      team_name="arch-<slug>", name="worker-<task_id>", prompt="...")
 
 # SecArch
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",
+Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="secarch-<task_id>", prompt="...")
 
 # Tester
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",
+Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="tester-<task_id>", prompt="...")
+
+# Team Architect (multi-team headless only — spawned by Primary Architect)
+Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+     run_in_background=True, worktree_isolation=True,
+     team_name="arch-<slug>", name="team-arch-<N>-<slug>", prompt="...")
 ```
 
 ---

@@ -1,0 +1,121 @@
+{#- Intake form template for {{ project_name }}.
+     Users fill this out to request a new spec module. -#}
+# New Module Intake Form
+
+> Fill out as much as you can. Leave sections blank if unknown — they become
+> "Known Unknowns" to resolve during spec drafting.
+
+---
+
+## Module Title
+
+<!-- A short, descriptive name for this module (e.g., "User Authentication Flow"). -->
+
+
+
+---
+
+## Description
+
+<!-- 2-3 sentences explaining what this module does and why it exists. -->
+
+
+
+---
+
+## Input Data
+
+<!-- What data, events, or triggers feed into this module?
+     List formats, sources, and any constraints (e.g., "JSON payload from /api/orders"). -->
+
+
+
+---
+
+## Existing Environment
+
+<!-- Snowflake objects that already exist and this project depends on.
+     Only list objects the project USES, not objects it CREATES.
+     Leave blank if starting from scratch. -->
+
+### Pre-existing Objects
+
+| Object | Type | Purpose |
+|--------|------|---------|
+| | database | |
+| | schema | |
+| | table/view | |
+| | warehouse | |
+| | role | |
+
+### Connection Details (optional)
+
+- **Target database**: <!-- Where new objects will be created -->
+- **Target schema**: <!-- Where new tables/views land -->
+- **Execution role**: <!-- Role used to run the artifacts -->
+- **Warehouse**: <!-- Compute for execution -->
+
+---
+
+## Desired Output
+
+<!-- What should this module produce? Include data formats, side-effects, UI changes, etc. -->
+
+
+
+---
+
+## Business Rules & Constraints
+
+<!-- List the rules that govern behavior. Be specific.
+     Example: "Discounts cannot exceed 50% of the item price." -->
+
+1.
+
+---
+
+## Reference Examples
+
+<!-- Links to existing code, mockups, docs, or similar systems that illustrate the goal. -->
+
+-
+
+---
+
+## Priority Items
+
+### Must-Have
+
+<!-- Non-negotiable requirements for the first version. -->
+
+1.
+
+### Nice-to-Have
+
+<!-- Desired but deferrable to a later version. -->
+
+1.
+
+---
+
+## Known Unknowns
+
+<!-- Questions that need answers before the spec can be finalized.
+     Example: "Do we support partial refunds?" -->
+
+1.
+
+---
+
+## Relevant Skills / Tools
+
+<!-- Any technologies, libraries, APIs, or CoCo skills relevant to this module. -->
+
+-
+
+---
+
+> **What happens next?**
+> Once submitted, this intake form is used to draft a spec module (`{{ spec_dir }}/modules/NN-slug.md`)
+> and a matching acceptance-criteria file (`{{ spec_dir }}/acceptance-criteria/NN-slug.md`).
+> You will review both before they move to `in-review` status.

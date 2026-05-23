@@ -1,0 +1,42 @@
+# SpecBuilder CI — GitHub Actions
+# Blocks PRs if implementation changes without corresponding spec updates.
+# Promotes draft specs to accepted after merge to main.
+
+name: Spec Drift Check
+on: [pull_request]
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install specbuilder
+        run: pip install -e .
+      - name: Check for spec drift
+        run: python3 -m specbuilder ci --check-drift --base=origin/${{ github.base_ref }} --format=github
+
+---
+# Optional: add to a separate workflow for post-merge promotion
+# name: Promote Specs
+# on:
+#   push:
+#     branches: [main]
+# jobs:
+#   promote:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#         with:
+#           token: ${{ secrets.GITHUB_TOKEN }}
+#       - run: pip install -e .
+#       # Direct commit to main (simple, requires push permission):
+#       - run: |
+#           python3 -m specbuilder ci --promote-merged --base=origin/main~1
+#           git push || true
+#       # OR: Create a PR branch (respects branch protection):
+#       - run: |
+#           python3 -m specbuilder ci --promote-merged --branch --base=origin/main~1
+#           git push -u origin $(git branch --show-current)
+#           gh pr create --title "chore(spec): promote specs after merge" --body "Auto-promoted by SpecBuilder CI"

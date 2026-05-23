@@ -1,0 +1,152 @@
+{#- Domain template: Streamlit App -#}
+---
+id: {{ mod_id }}
+title: "{{ title }}"
+status: draft
+version: "0.1.0"
+last_updated: {{ date }}
+template: streamlit-app
+---
+
+# Module {{ module_num_padded }}: {{ title }}
+
+---
+
+## Executive Summary
+
+{{ description | default("A Streamlit application providing interactive data exploration and visualization.") }}
+
+---
+
+## Inputs
+
+### Data Sources
+
+| Source | Type | Access Pattern | Description |
+|--------|------|---------------|-------------|
+{% if data_sources is defined -%}
+{% for src in data_sources -%}
+| {{ src.name }} | {{ src.type }} | {{ src.access }} | {{ src.description | default("") }} |
+{% endfor -%}
+{% else -%}
+| _source_table_ | _Snowflake table_ | _Direct query_ | _TODO: Define data sources_ |
+{% endif -%}
+
+### User Inputs
+
+- **Authentication**: {{ auth_method | default("Snowflake session (SiS)") }}
+- **User roles**: {{ user_roles | default("viewer, editor, admin") }}
+- **Filters/parameters**: {{ user_params | default("Date range, category selector") }}
+
+---
+
+## Page Layout
+
+### Pages
+
+{% if pages is defined -%}
+{% for page in pages -%}
+#### {{ page.name }}
+
+{{ page.description | default("TODO: Describe page purpose") }}
+
+**Components:**
+{% for comp in page.components | default([]) -%}
+- {{ comp }}
+{% endfor -%}
+
+{% endfor -%}
+{% else -%}
+#### Main Dashboard
+
+TODO: Describe the main page layout and purpose.
+
+**Components:**
+- Header with filters
+- Key metrics row
+- Primary chart/visualization
+- Data table with export
+
+{% endif -%}
+
+---
+
+## Session State
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+{% if session_state is defined -%}
+{% for item in session_state -%}
+| {{ item.key }} | {{ item.type }} | {{ item.default }} | {{ item.purpose }} |
+{% endfor -%}
+{% else -%}
+| selected_date_range | tuple | (30 days ago, today) | Filter date bounds |
+| current_page | str | "dashboard" | Active navigation page |
+{% endif -%}
+
+---
+
+## Output
+
+### Deployment
+
+- **Platform**: {{ platform | default("Streamlit in Snowflake (SiS)") }}
+- **Warehouse**: {{ warehouse | default("TODO: Specify compute warehouse") }}
+- **URL pattern**: {{ url_pattern | default("Auto-assigned by Snowflake") }}
+
+### Artifacts
+
+- `src/app.py` — Main Streamlit application entry point
+{% if multi_page | default(false) -%}
+- `src/pages/` — Additional page modules
+{% endif -%}
+- `src/utils.py` — Shared helper functions (queries, formatters)
+- `environment.yml` — Package dependencies
+
+---
+
+## Acceptance Criteria
+
+### AC-1: Functionality
+
+- [ ] All pages render without errors
+- [ ] Filters update visualizations correctly
+- [ ] Data displays accurately match source queries
+
+### AC-2: Performance
+
+- [ ] Page loads in under {{ load_time | default("3 seconds") }} on target warehouse
+- [ ] Large dataset queries use appropriate caching
+- [ ] No unnecessary re-runs on filter changes (session state management)
+
+### AC-3: User Experience
+
+- [ ] Responsive layout works on standard screen sizes
+- [ ] Error states show user-friendly messages (not stack traces)
+- [ ] Loading indicators appear during long queries
+
+### AC-4: Security
+
+- [ ] User can only access data permitted by their role
+- [ ] No sensitive data exposed in URL parameters or session state
+- [ ] SQL injection is prevented (parameterized queries)
+
+---
+
+## Edge Cases
+
+| Scenario | Expected Behavior |
+|----------|-------------------|
+| No data for selected filters | Show empty state message, not blank page |
+| Query timeout | Show timeout message with retry button |
+| User has no role assigned | Show access denied page with contact info |
+| Concurrent users (>10) | App scales via warehouse; no session conflicts |
+| Browser back/forward | Session state handles navigation gracefully |
+
+---
+
+## Extension Points
+
+- **CoCo skills**: `developing-with-streamlit-in-snowflake`, `snowpark-python`
+- **Theming**: Custom CSS via st.markdown for brand alignment
+- **Export**: Add download buttons for CSV/PDF report generation

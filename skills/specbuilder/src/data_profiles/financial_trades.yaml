@@ -1,0 +1,111 @@
+profile: financial_trades
+description: "Financial trading data with instruments, orders, and executions"
+tables:
+  dim_instrument:
+    row_count: 30
+    columns:
+      instrument_id:
+        type: sequential
+        prefix: "INS-"
+        start: 1
+        zero_pad: 4
+      ticker:
+        type: enum
+        values: ["ACME", "GLBX", "NTCH", "VRDT", "ZPHR", "CRSTL"]
+        weights: [0.20, 0.20, 0.15, 0.15, 0.15, 0.15]
+      asset_class:
+        type: enum
+        values: ["equity", "fixed_income", "commodity", "fx"]
+        weights: [0.40, 0.25, 0.20, 0.15]
+      currency:
+        type: enum
+        values: ["USD", "EUR", "GBP", "JPY"]
+        weights: [0.50, 0.25, 0.15, 0.10]
+      listed_exchange:
+        type: enum
+        values: ["XNYS", "XNAS", "XLON", "XTKS"]
+        weights: [0.35, 0.30, 0.20, 0.15]
+
+  fact_order:
+    row_count: 500
+    columns:
+      order_id:
+        type: uuid
+      instrument_id:
+        type: reference
+        source: dim_instrument
+        column: instrument_id
+      order_type:
+        type: enum
+        values: ["market", "limit", "stop", "stop_limit"]
+        weights: [0.40, 0.30, 0.20, 0.10]
+      side:
+        type: enum
+        values: ["buy", "sell"]
+        weights: [0.55, 0.45]
+      quantity:
+        type: distribution
+        distribution: lognormal
+        mean: 100
+        stddev: 150
+        min: 1
+        max: 10000
+        round_to: 0
+      limit_price:
+        type: distribution
+        distribution: normal
+        mean: 150
+        stddev: 50
+        min: 1
+        max: 500
+        round_to: 2
+      submitted_at:
+        type: time_series
+        start: "2024-10-01"
+        end: "2025-01-01"
+      status:
+        type: enum
+        values: ["filled", "partially_filled", "cancelled", "rejected", "pending"]
+        weights: [0.50, 0.15, 0.15, 0.10, 0.10]
+
+  fact_execution:
+    row_count: 700
+    columns:
+      execution_id:
+        type: uuid
+      order_id:
+        type: reference
+        source: fact_order
+        column: order_id
+      exec_price:
+        type: distribution
+        distribution: normal
+        mean: 150
+        stddev: 50
+        min: 1
+        max: 500
+        round_to: 4
+      exec_quantity:
+        type: distribution
+        distribution: lognormal
+        mean: 50
+        stddev: 80
+        min: 1
+        max: 5000
+        round_to: 0
+      exec_timestamp:
+        type: time_series
+        start: "2024-10-01"
+        end: "2025-01-01"
+      venue:
+        type: enum
+        values: ["primary", "dark_pool", "otc", "auction"]
+        weights: [0.50, 0.25, 0.15, 0.10]
+      fees:
+        type: distribution
+        distribution: normal
+        mean: 5
+        stddev: 3
+        min: 0
+        max: 50
+        round_to: 2

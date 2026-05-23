@@ -1,0 +1,152 @@
+{#- Schema definition for {{ project_name }} spec projects.
+     This file defines the required structure for all spec artifacts. -#}
+# {{ project_name }} — Spec Schema
+
+> This document defines the **required format** for every artifact in the spec tree.
+> Automated validators and CoCo hooks enforce these rules.
+
+---
+
+## 1. Decision Records (`decisions/NNN-slug.md`)
+
+### Frontmatter (YAML)
+
+```yaml
+---
+id: ADR-NNN          # unique, zero-padded 3-digit number
+title: "<title>"     # concise imperative sentence
+date: YYYY-MM-DD     # ISO 8601
+status: <status>     # see valid statuses below
+---
+```
+
+**Valid statuses:** `proposed` | `accepted` | `deprecated` | `superseded`
+
+### Required Sections
+
+| Section         | Description                                      |
+|-----------------|--------------------------------------------------|
+| **Context**     | Why is this decision needed? What forces are at play? |
+| **Decision**    | What was decided and why this option was chosen.  |
+| **Consequences**| Trade-offs, follow-up work, risks introduced.     |
+
+---
+
+## 2. Proposal Files (`proposals/NNN-slug.md`)
+
+### Frontmatter (YAML)
+
+```yaml
+---
+id: EXT-NNN          # unique, zero-padded 3-digit number
+title: "<title>"
+phase: <phase>       # integer phase number (1, 2, 3, ...)
+status: <status>     # see valid statuses below
+depends_on: []       # list of EXT-NNN or ADR-NNN ids
+promoted_to: MOD-NN  # optional — set when this proposal becomes a module
+---
+```
+
+**Valid statuses:** `planned` | `in-progress` | `implemented` | `cancelled` | `parked`
+
+### Required Sections
+
+| Section               | Description                                    |
+|-----------------------|------------------------------------------------|
+| **Problem Statement** | What's broken or missing, and why it matters.  |
+| **Summary**           | What this proposal adds or changes.            |
+| **Prerequisites**     | What must be true before work begins.          |
+| **Scope**             | Explicit in-scope / out-of-scope boundaries.   |
+
+### Batch Cleanup Proposals
+
+For non-behavioral changes that batch 3+ small items (test coverage, dead code removal, typo fixes), a reduced format is acceptable:
+
+**Qualifying criteria (all must be true):**
+- Non-behavioral: no change to inputs, outputs, or observable behavior
+- No `impacts_modules` entries (or empty list)
+- 3 or more distinct items batched together
+- No new dependencies or infrastructure changes
+
+**Reduced format:**
+- **Problem Statement**: Single sentence summarizing the category of cleanup
+- **Scope**: Bulleted list of items (no in-scope/out-of-scope separation needed)
+- **Acceptance Criteria**: Checklist style (numbered items, each verifiable by inspection or test run)
+
+**Omitted sections:** Prerequisites, Summary (scope IS the summary for batch cleanups)
+
+**Canonical example:** EXT-034 ("Code health cleanup")
+
+Regular proposals remain the default. Batch format is opt-in — use only when all qualifying criteria are met.
+
+---
+
+## 3. Spec Modules (`{{ spec_dir }}/modules/NN-slug.md`)
+
+### Frontmatter (YAML)
+
+```yaml
+---
+id: NN               # unique, zero-padded 2-digit number
+title: "<title>"
+status: <status>     # see valid statuses below
+version: "X.Y.Z"    # semver
+last_updated: YYYY-MM-DD
+depends_on: []       # optional — list of MOD-NN IDs this module requires
+origin: EXT-NNN     # optional — proposal ID this module was promoted from
+---
+```
+
+**Valid statuses:** `draft` | `in-review` | `accepted` | `implemented`
+
+### Required Sections
+
+| Section                | Description                                         |
+|------------------------|-----------------------------------------------------|
+| **Executive Summary**  | One-paragraph overview of the module's purpose.     |
+| **Inputs**             | Data, events, or triggers that feed this module.    |
+| **Output**             | What this module produces (data, side-effects, UI). |
+| **Acceptance Criteria**| Link to the companion AC file or inline criteria.   |
+| **Edge Cases**         | Known edge cases and how each is handled.           |
+
+---
+
+## 4. Acceptance-Criteria Files (`{{ spec_dir }}/acceptance-criteria/NN-slug.md`)
+
+### Format Rules
+
+- Each criterion is a section headed `## AC-NN.XX` (module number + criterion number).
+- Every AC section **must** contain a table with columns: **#**, **Criterion**, **Pass**, **Notes**.
+- Do NOT use Given/When/Then (BDD) format.
+- The file **must** end with a `## Sign-Off` section.
+
+### Example
+
+```markdown
+## AC-01.01 — Validates required fields
+
+| # | Criterion | Pass | Notes |
+|---|-----------|------|-------|
+| 1.1 | All required fields present → submission succeeds | ☐ | |
+| 1.2 | Missing "name" field → error shown for "name" | ☐ | |
+
+## Sign-Off
+
+| Role       | Name | Date | Status   |
+|------------|------|------|----------|
+| Author     |      |      | draft    |
+| Reviewer   |      |      |          |
+```
+
+**Valid statuses:** `draft` | `in-review` | `accepted` | `signed-off`
+
+---
+
+## Status Lifecycle Summary
+
+| Artifact   | Draft/Proposed → | Review       → | Approved      → | Final          |
+|------------|------------------|----------------|-----------------|----------------|
+| Decision   | `proposed`       | —              | `accepted`      | `deprecated` / `superseded` |
+| Proposal   | `planned`        | `in-progress`  | `implemented`   | `cancelled`    |
+| Spec       | `draft`          | `in-review`    | `accepted`      | `implemented`  |
+| AC         | `draft`          | `in-review`    | `accepted`      | `signed-off`   |

@@ -1,0 +1,147 @@
+{#- Domain template: Security Policy -#}
+---
+id: {{ mod_id }}
+title: "{{ title }}"
+status: draft
+version: "0.1.0"
+last_updated: {{ date }}
+template: security-policy
+---
+
+# Module {{ module_num_padded }}: {{ title }}
+
+---
+
+## Executive Summary
+
+{{ description | default("A security policy defining access controls, data protection rules, and compliance requirements.") }}
+
+---
+
+## Inputs
+
+### Policy Scope
+
+- **Policy type**: {{ policy_type | default("TODO: masking-policy | row-access-policy | RBAC | network-rule") }}
+- **Target objects**: {{ target_objects | default("TODO: List tables/views/schemas affected") }}
+- **Governed data**: {{ governed_data | default("TODO: PII fields, sensitive columns, restricted datasets") }}
+
+### Role Hierarchy
+
+| Role | Inherits From | Access Level | Description |
+|------|---------------|-------------|-------------|
+{% if roles is defined -%}
+{% for role in roles -%}
+| {{ role.name }} | {{ role.inherits | default("—") }} | {{ role.access }} | {{ role.description | default("") }} |
+{% endfor -%}
+{% else -%}
+| DATA_ADMIN | SYSADMIN | Full | Manages all governed data |
+| DATA_ANALYST | PUBLIC | Read (masked) | Sees masked PII fields |
+| DATA_ENGINEER | PUBLIC | Read (unmasked) | Sees raw data for pipeline development |
+{% endif -%}
+
+### Compliance Requirements
+
+{% if compliance is defined -%}
+{% for req in compliance -%}
+- {{ req }}
+{% endfor -%}
+{% else -%}
+- TODO: List applicable regulations (GDPR, HIPAA, SOC2, internal policy)
+{% endif -%}
+
+---
+
+## Policy Rules
+
+### Masking Rules
+
+| Field Pattern | Condition | Mask Function | Roles Exempt |
+|---------------|-----------|---------------|-------------|
+{% if masking_rules is defined -%}
+{% for rule in masking_rules -%}
+| {{ rule.field }} | {{ rule.condition | default("Always") }} | {{ rule.function }} | {{ rule.exempt_roles | default("DATA_ADMIN") }} |
+{% endfor -%}
+{% else -%}
+| `*_EMAIL` | Always | `SHA2(val)` | DATA_ADMIN, DATA_ENGINEER |
+| `*_SSN` | Always | `'XXX-XX-' \|\| RIGHT(val, 4)` | DATA_ADMIN |
+| `*_PHONE` | Always | `REGEXP_REPLACE(val, '.', '*', 1, 7)` | DATA_ADMIN |
+{% endif -%}
+
+### Row Access Rules
+
+| Table/View | Filter Condition | Enforced Via |
+|------------|-----------------|--------------|
+{% if row_access_rules is defined -%}
+{% for rule in row_access_rules -%}
+| {{ rule.object }} | {{ rule.condition }} | {{ rule.mechanism | default("Row Access Policy") }} |
+{% endfor -%}
+{% else -%}
+| _TODO_ | `CURRENT_ROLE() IN (...)` | Row Access Policy |
+{% endif -%}
+
+---
+
+## Output
+
+### Artifacts
+
+- `sql/01-roles.sql` — Role creation and hierarchy (GRANT ROLE)
+- `sql/02-masking-policies.sql` — Masking policy DDL (CREATE MASKING POLICY)
+{% if has_row_access | default(false) -%}
+- `sql/03-row-access-policies.sql` — Row access policy DDL
+{% endif -%}
+- `sql/04-apply-policies.sql` — ALTER TABLE ... SET MASKING POLICY
+- `sql/05-grants.sql` — Object-level GRANT statements
+
+### Execution Order
+
+Artifacts must be executed in numbered order (roles before policies before grants).
+
+---
+
+## Acceptance Criteria
+
+### AC-1: Access Control
+
+- [ ] Each role sees only the data permitted by policy rules
+- [ ] Masked fields show masked values for non-exempt roles
+- [ ] Unmasked access is restricted to documented exempt roles
+
+### AC-2: Policy Enforcement
+
+- [ ] Policies are applied to all documented target objects
+- [ ] New tables matching governed patterns are flagged for policy attachment
+- [ ] Policy changes require approval (change control applies)
+
+### AC-3: Audit Trail
+
+- [ ] Policy creation/modification is logged in ACCESS_HISTORY
+- [ ] Role grants are traceable to approver
+- [ ] Compliance report can enumerate all governed objects and their policies
+
+### AC-4: Operational Safety
+
+- [ ] Policies fail-closed (deny access on error, not allow)
+- [ ] Removing a policy requires explicit confirmation (not silent)
+- [ ] Testing policy changes in non-production before applying to production
+
+---
+
+## Edge Cases
+
+| Scenario | Expected Behavior |
+|----------|-------------------|
+| User has multiple roles | Most permissive policy applies (Snowflake default) |
+| New column added to governed table | Column is unmasked until policy is updated — flag in drift detection |
+| Policy function errors at runtime | Query fails (fail-closed); alert ops team |
+| Role dropped while policy references it | Policy continues to function; clean up stale references |
+| Cross-database query | Policies follow the data (applied at column level, not query level) |
+
+---
+
+## Extension Points
+
+- **CoCo skills**: `data-governance`, `network-security`, `access-troubleshooter`
+- **Tag-based governance**: Use object tags to auto-apply policies to new objects
+- **Compliance reporting**: Generate periodic audit reports from ACCESS_HISTORY

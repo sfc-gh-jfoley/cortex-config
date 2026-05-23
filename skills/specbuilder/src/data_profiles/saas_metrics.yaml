@@ -1,0 +1,80 @@
+profile: saas_metrics
+description: "SaaS platform with users, subscriptions, and usage events"
+tables:
+  dim_customer:
+    row_count: 200
+    columns:
+      customer_id:
+        type: sequential
+        prefix: "C-"
+        start: 1000
+        zero_pad: 5
+      company_name:
+        type: pattern
+        format: "{adjective} {noun} {suffix}"
+        adjectives: ["Apex", "Iron", "Blue", "Nova", "Peak"]
+        nouns: ["Systems", "Analytics", "Cloud", "Data", "Logic"]
+        suffixes: ["Inc", "Corp", "LLC", "Ltd", "Group"]
+      plan:
+        type: enum
+        values: ["free", "starter", "pro", "enterprise"]
+        weights: [0.40, 0.30, 0.20, 0.10]
+      signed_up_at:
+        type: time_series
+        start: "2023-01-01"
+        end: "2025-01-01"
+      region:
+        type: enum
+        values: ["us-east", "us-west", "eu-central", "ap-southeast"]
+        weights: [0.35, 0.25, 0.25, 0.15]
+
+  fact_subscription:
+    row_count: 300
+    columns:
+      subscription_id:
+        type: uuid
+      customer_id:
+        type: reference
+        source: dim_customer
+        column: customer_id
+      mrr:
+        type: distribution
+        distribution: lognormal
+        mean: 150
+        stddev: 200
+        min: 0
+        max: 5000
+        round_to: 2
+      status:
+        type: enum
+        values: ["active", "cancelled", "past_due"]
+        weights: [0.75, 0.15, 0.10]
+      start_date:
+        type: time_series
+        start: "2023-06-01"
+        end: "2025-01-01"
+
+  fact_usage_event:
+    row_count: 1000
+    columns:
+      event_id:
+        type: uuid
+      customer_id:
+        type: reference
+        source: dim_customer
+        column: customer_id
+      event_type:
+        type: enum
+        values: ["login", "api_call", "report_view", "export", "admin_action"]
+        weights: [0.30, 0.35, 0.20, 0.10, 0.05]
+      event_timestamp:
+        type: time_series
+        start: "2024-06-01"
+        end: "2025-01-01"
+      duration_seconds:
+        type: distribution
+        distribution: normal
+        mean: 45
+        stddev: 30
+        min: 1
+        round_to: 0

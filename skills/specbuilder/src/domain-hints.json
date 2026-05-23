@@ -1,0 +1,43 @@
+{
+  "_description": "Domain inference rules for skill discovery. Maps keywords found in skill names/descriptions to domain tags. No skill names or descriptions are stored here.",
+  "_version": "1.0.0",
+  "domain_rules": {
+    "data": [
+      "snowflake", "dbt", "pipeline", "etl", "table", "warehouse", "sql",
+      "iceberg", "streaming", "ingestion", "data", "schema", "column",
+      "transformation", "materialization", "incremental", "dag", "airflow",
+      "orchestration", "cosmos", "profiling", "lineage", "semantic"
+    ],
+    "ai-ml": [
+      "cortex", "ai", "ml", "llm", "model", "embedding", "sentiment",
+      "summarize", "translate", "extract", "complete", "inference",
+      "machine learning", "agent", "conversational"
+    ],
+    "app-dev": [
+      "streamlit", "native-app", "spcs", "container", "react", "app",
+      "frontend", "ui", "deploy", "provider", "consumer", "application"
+    ],
+    "security": [
+      "governance", "access", "network", "security", "key", "secret",
+      "trust", "policy", "masking", "tag", "permission", "rbac",
+      "encryption", "audit", "compliance", "investigation"
+    ],
+    "ops": [
+      "cost", "billing", "warehouse", "performance", "alert",
+      "notification", "event", "monitoring", "optimization", "credit",
+      "usage", "workload", "observability"
+    ],
+    "migration": [
+      "migration", "migrate", "spark", "postgres", "airflow",
+      "convert", "upgrade", "snowconvert", "legacy"
+    ],
+    "meta": [
+      "cortex-code", "skill", "coco", "guide", "development",
+      "lineage", "cli", "help"
+    ]
+  },
+  "keyword_stop_words": [
+    "the", "and", "for", "with", "from", "that", "this", "are", "was",
+    "will", "can", "has", "have", "been", "being", "use", "using", "used"
+  ]
+}

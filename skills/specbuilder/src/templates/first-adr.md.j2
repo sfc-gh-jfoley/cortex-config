@@ -1,0 +1,50 @@
+{#- Initial architecture decision record for {{ project_name }}. -#}
+---
+id: ADR-001
+title: "Adopt Spec-Driven Development"
+date: {{ date_today }}
+status: accepted
+---
+
+# ADR-001 — Adopt Spec-Driven Development
+
+## Context
+
+As {{ project_name }} grows, ad-hoc changes without written specifications
+lead to:
+
+- **Ambiguous requirements** — developers interpret intent differently.
+- **Regression risk** — without acceptance criteria, changes silently break
+  existing behavior.
+- **Lost context** — decisions made in chat or meetings are forgotten; new
+  contributors have no way to understand *why* things work the way they do.
+
+We need a lightweight process that captures intent *before* implementation
+without becoming bureaucratic overhead.
+
+## Decision
+
+All behavioral changes to {{ project_name }} require a **spec update first**.
+
+Specifically:
+
+1. Every discrete behavior is captured in a **spec module** (`{{ spec_dir }}/modules/NN-slug.md`).
+2. Every spec module has a matching **acceptance-criteria file**
+   (`{{ spec_dir }}/acceptance-criteria/NN-slug.md`).
+3. Code changes to protected directories are **gated** by a change-control
+   hook that verifies a spec file has been modified in the same session.
+4. Architectural decisions are recorded as **ADRs** (`decisions/NNN-slug.md`)
+   and are never deleted — only superseded.
+
+## Consequences
+
+- **Slower initial velocity** — writing specs before code adds upfront effort.
+  This is an intentional trade-off for long-term clarity.
+- **Better long-term quality** — acceptance criteria make testing deterministic
+  and reviewable.
+- **Specs become living documentation** — the spec tree always reflects the
+  current intended behavior of the system.
+- **Onboarding improves** — new contributors read specs to understand what the
+  system *should* do, not just what it *currently* does.
+- **Change-control hooks enforce the process** — the workflow is automated, not
+  honor-system.

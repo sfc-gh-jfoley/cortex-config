@@ -1,0 +1,113 @@
+profile: retail_transactions
+description: "Retail e-commerce with orders, line items, products, and customers"
+tables:
+  dim_product:
+    row_count: 100
+    columns:
+      product_id:
+        type: sequential
+        prefix: "SKU-"
+        start: 1000
+        zero_pad: 6
+      product_name:
+        type: pattern
+        format: "{adjective} {noun}"
+        adjectives: ["Premium", "Standard", "Compact", "Deluxe", "Essential"]
+        nouns: ["Widget", "Gadget", "Module", "Unit", "Component"]
+      category:
+        type: enum
+        values: ["electronics", "home_goods", "office", "outdoor", "accessories"]
+        weights: [0.25, 0.20, 0.20, 0.20, 0.15]
+      unit_price:
+        type: distribution
+        distribution: lognormal
+        mean: 45
+        stddev: 30
+        min: 5
+        max: 500
+        round_to: 2
+      is_active:
+        type: enum
+        values: ["true", "false"]
+        weights: [0.85, 0.15]
+
+  dim_customer:
+    row_count: 300
+    columns:
+      customer_id:
+        type: sequential
+        prefix: "CUST-"
+        start: 10000
+        zero_pad: 7
+      customer_tier:
+        type: enum
+        values: ["bronze", "silver", "gold", "platinum"]
+        weights: [0.50, 0.25, 0.15, 0.10]
+      signup_date:
+        type: time_series
+        start: "2022-01-01"
+        end: "2025-01-01"
+      region:
+        type: enum
+        values: ["northeast", "southeast", "midwest", "west", "international"]
+        weights: [0.25, 0.20, 0.25, 0.20, 0.10]
+
+  fact_order:
+    row_count: 800
+    columns:
+      order_id:
+        type: uuid
+      customer_id:
+        type: reference
+        source: dim_customer
+        column: customer_id
+      order_date:
+        type: time_series
+        start: "2024-06-01"
+        end: "2025-01-01"
+      order_status:
+        type: enum
+        values: ["completed", "shipped", "processing", "cancelled", "returned"]
+        weights: [0.55, 0.20, 0.10, 0.10, 0.05]
+      total_amount:
+        type: distribution
+        distribution: lognormal
+        mean: 85
+        stddev: 60
+        min: 10
+        max: 2000
+        round_to: 2
+      payment_method:
+        type: enum
+        values: ["credit_card", "debit_card", "digital_wallet", "bank_transfer"]
+        weights: [0.45, 0.25, 0.20, 0.10]
+
+  fact_order_line:
+    row_count: 1000
+    columns:
+      line_id:
+        type: uuid
+      order_id:
+        type: reference
+        source: fact_order
+        column: order_id
+      product_id:
+        type: reference
+        source: dim_product
+        column: product_id
+      quantity:
+        type: distribution
+        distribution: normal
+        mean: 2
+        stddev: 1
+        min: 1
+        max: 10
+        round_to: 0
+      line_total:
+        type: distribution
+        distribution: lognormal
+        mean: 40
+        stddev: 30
+        min: 5
+        max: 500
+        round_to: 2

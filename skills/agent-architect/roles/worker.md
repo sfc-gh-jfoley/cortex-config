@@ -113,6 +113,30 @@ TEST_RESULTS: <pass/fail summary>
 BLOCKERS: <if any — what you need that doesn't exist yet>
 ```
 
+## Git Commit Protocol
+
+Workers MUST commit at these checkpoints during task execution — not only at completion.
+This allows the Architect to detect stuck workers via git activity monitoring and enables
+crash recovery by restoring from the last known checkpoint.
+
+**Checkpoint commits (in order):**
+
+| Step | When | Commit message format |
+|---|---|---|
+| `STUB` | After creating initial file stubs / directory structure | `[WORKER] <task_id>: STUB — <files created>` |
+| `TEST_WRITTEN` | After writing tests (TDD step 1, before implementation) | `[WORKER] <task_id>: TEST_WRITTEN — <N> tests` |
+| `IMPL_COMPLETE` | After implementation compiles/runs, before tests pass | `[WORKER] <task_id>: IMPL_COMPLETE — <summary>` |
+| `TESTS_PASSING` | After all tests pass | `[WORKER] <task_id>: TESTS_PASSING — <N> pass` |
+| `DONE` | Final commit — task fully complete | `[DONE] <task_id> — <one-line summary>` |
+
+**Rules:**
+- Commit at EACH checkpoint — do not batch all commits at the end of the task
+- `[DONE]` commit is the canonical signal to the Architect that this task is complete
+- The Architect monitors `git log <branch> -1 --format="%ct"` to detect stuck workers — no commits for 120s triggers stuck detection
+- Never commit secrets, credentials, `.env` files, or tokens
+- Commit message format is machine-parseable — follow it exactly, do not vary the brackets or capitalization
+- If you cannot commit (e.g., git conflict), log the issue and notify the Architect via task_update
+
 ## Rules
 
 **Always:**

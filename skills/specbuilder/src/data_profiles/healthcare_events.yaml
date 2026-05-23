@@ -1,0 +1,109 @@
+profile: healthcare_events
+description: "Healthcare encounters with patients, providers, and diagnosis events (fully de-identified)"
+tables:
+  dim_patient:
+    row_count: 500
+    columns:
+      patient_id:
+        type: sequential
+        prefix: "PAT-"
+        start: 100000
+        zero_pad: 8
+      age_group:
+        type: enum
+        values: ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
+        weights: [0.10, 0.15, 0.20, 0.20, 0.20, 0.15]
+      gender_code:
+        type: enum
+        values: ["M", "F", "X"]
+        weights: [0.48, 0.48, 0.04]
+      insurance_type:
+        type: enum
+        values: ["commercial", "medicare", "medicaid", "self_pay", "other"]
+        weights: [0.40, 0.25, 0.15, 0.10, 0.10]
+      enrollment_date:
+        type: time_series
+        start: "2020-01-01"
+        end: "2024-12-01"
+
+  dim_provider:
+    row_count: 50
+    columns:
+      provider_id:
+        type: sequential
+        prefix: "PRV-"
+        start: 500
+        zero_pad: 5
+      specialty:
+        type: enum
+        values: ["general_practice", "cardiology", "orthopedics", "neurology", "oncology", "pediatrics"]
+        weights: [0.30, 0.15, 0.15, 0.15, 0.15, 0.10]
+      facility_code:
+        type: sequential
+        prefix: "FAC-"
+        start: 1
+        zero_pad: 3
+
+  fact_encounter:
+    row_count: 1000
+    columns:
+      encounter_id:
+        type: uuid
+      patient_id:
+        type: reference
+        source: dim_patient
+        column: patient_id
+      provider_id:
+        type: reference
+        source: dim_provider
+        column: provider_id
+      encounter_type:
+        type: enum
+        values: ["outpatient", "inpatient", "emergency", "telehealth"]
+        weights: [0.50, 0.20, 0.10, 0.20]
+      encounter_date:
+        type: time_series
+        start: "2024-01-01"
+        end: "2025-01-01"
+      primary_dx_code:
+        type: enum
+        values: ["Z00.0", "Z99.0", "Z99.1", "Z99.2", "Z99.3", "Z99.4"]
+        weights: [0.25, 0.20, 0.15, 0.15, 0.15, 0.10]
+      los_days:
+        type: distribution
+        distribution: lognormal
+        mean: 3
+        stddev: 2
+        min: 0
+        max: 30
+        round_to: 0
+      disposition:
+        type: enum
+        values: ["discharged_home", "transferred", "admitted", "left_ama"]
+        weights: [0.65, 0.15, 0.15, 0.05]
+
+  fact_diagnosis:
+    row_count: 800
+    columns:
+      diagnosis_id:
+        type: uuid
+      encounter_id:
+        type: reference
+        source: fact_encounter
+        column: encounter_id
+      dx_code:
+        type: enum
+        values: ["Z00.0", "Z99.0", "Z99.1", "Z99.2", "Z99.3", "Z99.4"]
+        weights: [0.20, 0.20, 0.15, 0.15, 0.15, 0.15]
+      dx_rank:
+        type: distribution
+        distribution: normal
+        mean: 1
+        stddev: 1
+        min: 1
+        max: 5
+        round_to: 0
+      is_primary:
+        type: enum
+        values: ["true", "false"]
+        weights: [0.40, 0.60]

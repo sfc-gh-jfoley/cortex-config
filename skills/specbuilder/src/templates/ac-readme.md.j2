@@ -1,0 +1,61 @@
+{#- README for the acceptance-criteria directory. -#}
+# Acceptance Criteria
+
+> This directory contains acceptance-criteria (AC) files that mirror
+> spec modules 1:1.
+
+---
+
+## Purpose
+
+Each spec module in `{{ spec_dir }}/` has a companion AC file here. While the
+spec module describes *what* a feature does, the AC file defines *how we
+verify* it works correctly.
+
+AC files are the contract between specification and implementation — they
+tell developers exactly what "done" means.
+
+## Structure
+
+- Files are named to match their parent spec module: `NN-slug.md`.
+- For spec module `{{ spec_dir }}/01-authentication.md`, the AC file is
+  `{{ spec_dir }}/acceptance-criteria/01-authentication.md`.
+
+## Format Requirements
+
+Every AC file must follow these rules (enforced by `SCHEMA.md`):
+
+1. **Section headings** use the format `## AC-NN.XX` where `NN` is the
+   module number and `XX` is the criterion number (e.g., `## AC-01.03`).
+
+2. **Each AC section must contain a table** with these columns:
+
+   | Given | When | Then |
+   |-------|------|------|
+   | *precondition* | *action* | *expected result* |
+
+3. **The file must end with a `## Sign-Off` section** containing:
+
+   | Role     | Name | Date | Status |
+   |----------|------|------|--------|
+   | Author   |      |      |        |
+   | Reviewer |      |      |        |
+
+## Sign-Off Process
+
+1. **Author** writes AC criteria and sets status to `draft`.
+2. **Reviewer** evaluates completeness and correctness → status moves to
+   `in-review`, then `accepted`.
+3. Once implementation passes all criteria → status moves to `signed-off`.
+
+A `signed-off` AC file means the feature has been verified against every
+criterion in the table.
+
+---
+
+## Status Tracker
+
+<!-- BEGIN_AUTO_AC_STATUS -->
+| Module | AC Status | Last Reviewed |
+|--------|-----------|---------------|
+<!-- END_AUTO_AC_STATUS -->
