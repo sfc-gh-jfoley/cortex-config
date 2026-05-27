@@ -207,7 +207,21 @@ Log all charters under `CHARTERS_DEFINED` in manifest.log. Commit. Then launch T
 
 For each ready task (no unmet deps), spawn a Worker (see `roles/worker.md`).
 
-**Git-First Drain Loop** (replaces plain `agent_output(wait=true)`):
+⛔ **DRAIN GATE — mandatory before Phase 4:**
+After spawning a batch of workers, drain EVERY worker before proceeding.
+Do NOT check task_list for new work, do NOT spawn the next batch, do NOT
+begin Phase 4 until every agent in the current batch has returned.
+
+**Shared-pool workers** (`team_mode="shared_pool"`, no worktree_isolation):
+```
+spawn all workers in batch
+for each worker in batch:
+    agent_output(agent_id=<id>, wait=true)   ← blocking wait; no polling loop
+task_list → check for newly unblocked tasks → spawn next batch if any
+```
+
+**Worktree-isolated workers** (`worktree_isolation=True`):
+Git-First Drain Loop (120s stuck threshold):
 ```
 for each batch of ready tasks:
     spawn all workers in batch (parallel, worktree_isolation=true)
@@ -539,7 +553,7 @@ Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonn
      name="secarch-<task_id>", prompt="...")
 
 # Tester
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="openai-gpt-5.2",  # tester_model alias — see ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="tester-<task_id>", prompt="...")
 
