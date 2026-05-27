@@ -19,12 +19,13 @@ updated_by: update-llms.sh
 | `heavy_agent`      | `claude-opus-4-7`  | Max accuracy agents                                   |
 | `fast_agent`       | `claude-haiku-4-5` | Low-latency agents / demos                            |
 | `current_opus`     | `claude-opus-4-7`  | Complex reasoning; Architect role in CoCo Task spawns |
-| `current_sonnet`   | `claude-sonnet-4-6`| Balanced: code gen, worker/tester CoCo Task spawns    |
+| `current_sonnet`   | `claude-sonnet-4-6`| Balanced: code gen, worker CoCo Task spawns           |
 | `current_haiku`    | `claude-haiku-4-5` | Fast: model probing, simple completions               |
 | `complete_fast`    | `mistral-7b`       | Quick `CORTEX.COMPLETE()` calls (profiling, trivial)  |
 | `complete_quality` | `llama3.1-70b`     | Higher-quality open-weight `CORTEX.COMPLETE()` calls  |
 | `openai_heavy`     | `openai-gpt-5.2`   | Max accuracy OpenAI agent                             |
 | `openai_fast`      | `openai-gpt-5-mini`| Fast OpenAI agent                                     |
+| `tester_model`     | `openai-gpt-5.2`   | Cross-model verification (Tester role) — GPT catches Claude Worker blind spots |
 
 ---
 

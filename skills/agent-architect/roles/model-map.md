@@ -12,7 +12,7 @@ Right-size models per role. Not everything needs Opus.
 | **Researcher** | `claude-sonnet-4-6` (`current_sonnet`) | Fast read-only exploration. Doesn't need deep reasoning — gathers facts, reports structure |
 | **Security Architect** | `claude-sonnet-4-6` (`current_sonnet`) | Checklist-driven structured output. Security patterns are well-defined — Sonnet handles them correctly |
 | **Worker** | `claude-sonnet-4-6` (`current_sonnet`) | Code generation + TDD loop. Sonnet is strong at implementation given clear specs |
-| **Tester** | `claude-sonnet-4-6` (`current_sonnet`) | Spec verification with structured output. Doesn't need creative reasoning |
+| **Tester** | `openai-gpt-5.2` (`tester_model`) | Cross-model independence: GPT catches Claude Worker blind spots. Checklist-driven structured output — different training = different failure modes caught |
 | **Team Architect** | `claude-sonnet-4-6` (`current_sonnet`) | Executes a pre-defined charter from the Primary Architect. Charter scope is bounded — Primary already did cross-team synthesis and decomposition |
 
 ## When to Override
@@ -50,8 +50,8 @@ Spawned teammates get their model explicitly set.
 | Researchers | 3-5 | Sonnet | 0.1x each |
 | Workers | 5-15 | Sonnet | 0.1x each |
 | SecArch | 5-15 | Sonnet | 0.1x each |
-| Testers | 5-15 | Sonnet | 0.1x each |
+| Testers | 5-15 | GPT (`tester_model`) | ~0.1x each (similar to Sonnet) |
 | Team Architects | 1-4 (multi-team headless) | Sonnet | 0.1x each |
 
-A typical 10-task project: 1 Opus session + ~40 Sonnet spawns.
+A typical 10-task project: 1 Opus session + ~30 Sonnet spawns + ~15 GPT Tester spawns.
 Without right-sizing (all Opus): 10x+ cost increase with marginal quality gain.
