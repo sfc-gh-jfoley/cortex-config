@@ -45,3 +45,9 @@ PLAN_APPROVED: 2026-05-27
   teams: 1 team, 3 parallel workers + 1 integration pass
 
 EXECUTING: 2026-05-27
+
+SHIP_COMPLETE: 2026-05-27
+  commits: cf3bba4→dde6164→985a265→b8e0ee7→6399985
+  files: 19 (router, 10 sub-skills, 5 refs, 3 meta)
+  skill-loader: ML & MLOps section at line 65
+  verified: event_table discovery, NOT-MLflow warning, alias-promotion, binary/regression-only monitor
