@@ -62,6 +62,22 @@ If unsure which skill matches, ask the user.
 | release-change-monitor | Monitor Snowflake release changes | `plugins/ops-monitor/skills/release-change-monitor/` |
 | self-healing-pipeline | Auto-fix pipeline failures | `plugins/ops-monitor/skills/self-healing-pipeline/` |
 
+### ML & MLOps
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| ml-pipeline-toolkit | Full ML lifecycle router (feature store → train → experiments → registry → deploy → observe → lifecycle) | `plugins/ml-pipeline-toolkit/` |
+| ml-feature-store | Define entities, feature views (Dynamic Table-backed), point-in-time retrieval | `plugins/ml-pipeline-toolkit/skills/ml-feature-store/` |
+| ml-pipeline-build | Scaffold training pipelines (Snowpark ML, Container Runtime, stored procs) | `plugins/ml-pipeline-toolkit/skills/ml-pipeline-build/` |
+| ml-experiments | Track experiments, log runs, compare metrics (Snowflake-native, NOT MLflow) | `plugins/ml-pipeline-toolkit/skills/ml-experiments/` |
+| ml-registry | Register models, manage versions, metadata, RBAC | `plugins/ml-pipeline-toolkit/skills/ml-registry/` |
+| ml-deploy | Deploy to warehouse inference, SPCS service, or REST endpoint | `plugins/ml-pipeline-toolkit/skills/ml-deploy/` |
+| ml-observability | Create model monitors, query drift/performance/stat metrics | `plugins/ml-pipeline-toolkit/skills/ml-observability/` |
+| ml-log-inspector | Diagnose ML pipeline and model monitor failures (5-surface triage) | `plugins/ml-pipeline-toolkit/skills/ml-log-inspector/` |
+| ml-lifecycle | Promote via aliases, rollback, deprecate, govern model versions | `plugins/ml-pipeline-toolkit/skills/ml-lifecycle/` |
+| ml-functions | AutoML in SQL: FORECAST, ANOMALY_DETECTION, CLASSIFICATION, TOP_INSIGHTS | `plugins/ml-pipeline-toolkit/skills/ml-functions/` |
+| ml-watch | Scheduled retraining, data freshness SLAs, drift alert tasks | `plugins/ml-pipeline-toolkit/skills/ml-watch/` |
+
 ### Rules & Governance
 
 | Skill | When to use | Path |
