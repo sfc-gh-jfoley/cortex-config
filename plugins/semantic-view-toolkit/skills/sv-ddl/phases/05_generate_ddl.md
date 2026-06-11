@@ -12,31 +12,11 @@ Build the complete `CREATE OR REPLACE SEMANTIC VIEW` statement from the classifi
 
 ---
 
-## Step 5.0.5: FILTER label feature probe
+## Step 5.0.5: FILTER label feature check
 
 `LABELS = (FILTER)` went GA on May 5, 2026. Accounts on older deployments may not support it yet.
 
-**Before generating DDL**, if any `filter_candidate: true` columns exist in `COLUMN_CLASSES`, run this probe:
-
-```sql
--- Feature probe: test if LABELS = (FILTER) syntax is supported
-CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.__FILTER_PROBE
-  TABLES ( <first_source_object> PRIMARY KEY (<any_pk_col>) )
-  FACTS ( <table_alias>.probe_filter LABELS = (FILTER) AS TRUE )
-  COMMENT = 'Feature probe — will be dropped immediately';
-```
-
-- **If CREATE succeeds**: Set `FILTER_SUPPORTED = true`. Drop the probe immediately:
-  ```sql
-  DROP SEMANTIC VIEW IF EXISTS <SV_DB>.<SV_SCHEMA>.__FILTER_PROBE;
-  ```
-- **If CREATE fails** (syntax error on LABELS): Set `FILTER_SUPPORTED = false`. Emit a note to the user:
-  ```
-  ℹ️  LABELS = (FILTER) is not yet available on this account.
-      Boolean filter expressions will be emitted as plain facts/dimensions instead.
-      They still work — Cortex Analyst can use boolean columns in WHERE clauses.
-      This feature will become available when your account receives the May 2026 release.
-  ```
+> ⚠️ **Moved to Phase 6**: Creating a probe semantic view is a mutating DDL operation. This step has been moved to Phase 6 (Execute & Validate), after the user has approved the DDL and a rollback clone has been offered. In Phase 5, validate FILTER label usage by inspection: confirm the `AS` expression for any `LABELS = (FILTER)` column resolves to a BOOLEAN type.
 
 If no `filter_candidate: true` columns exist, skip this step entirely.
 
@@ -350,14 +330,7 @@ before presenting to the user:
 
 ```sql
 -- Validate the DDL compiles without executing
--- Use only_compile=true via sql_execute, or run sv_validator.py if available
-```
-
-Alternatively, if the `scripts/sv_validator.py` script is available in this skill directory,
-run it against the generated DDL file for a doc-backed second pass:
-
-```bash
-uv run python scripts/sv_validator.py <ddl_file.sql>
+-- Use only_compile=true via sql_execute
 ```
 
 - **FAIL** → fix the issues reported, re-run Step 5.8 self-check, then re-run validation

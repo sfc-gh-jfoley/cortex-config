@@ -3,8 +3,8 @@
 ## Purpose
 
 Compare multiple Cortex Agent variants side-by-side using the same eval dataset.
-Typical use case: testing feature flags (EnableAgenticAnalyst, DisableFastPath, etc.)
-across agent clones to measure the impact of each flag on correctness and consistency.
+Typical use case: comparing model variants (Claude vs OpenAI, heavy vs fast) and
+conditional feature flags across agent clones to measure impact on correctness and latency.
 
 This sub-skill can be invoked standalone OR as part of the feedback loop with
 the optimize workflow (see "Re-validation After Instruction Changes" below).
@@ -32,13 +32,25 @@ COMPUTE_METRICS tasks will fail with "Cortex Agent does not exist."
 
 Ask the user (or read from a config) which flags to compare. Default matrix:
 
-| Variant Name | EnableAgenticAnalyst | DisableFastPath |
-|---|---|---|
-| BASE | false | (default) |
-| AGENTIC | true | (default) |
-| FASTPATH_OFF | true | true |
+**Default sweep: Model comparison (always applicable)**
 
-The user can select a subset (e.g., AGENTIC + FASTPATH_OFF only) or define custom variants.
+| Variant Suffix | Spec change | Description |
+|---|---|---|
+| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — current recommended default |
+| `_MODEL_B` | `models.orchestration: openai-gpt-5` | Cross-family comparison (OpenAI vs Claude) |
+| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized option |
+
+**Conditional sweep: Flags (only if applicable to agent)**
+
+| Variant Suffix | When to use | Flags |
+|---|---|---|
+| `_VQR` | Agent has VQRs defined in semantic views | `EnableVQRFastPath: true` vs baseline |
+| `_CHART` | Agent has `data_to_chart` tool | `EnableUnrestrictedChartTool: true` vs baseline |
+| `_BUDGET_HIGH` | Latency is a concern | `orchestration.budget.seconds` increased |
+
+For a first sweep, always run the model comparison (3 variants). Add conditional flag variants only if the agent uses the relevant features. Skip flag variants if the feature isn't configured on the agent.
+
+The user can select a subset or define custom variants.
 
 **STOP GATE:** Confirm the variant matrix with the user before proceeding.
 
@@ -160,8 +172,8 @@ Handle "Dataset version already exists" per `references/eval-setup.md` lock trou
 Report progress:
 ```
 Eval Runs: {COMPLETED}/{TOTAL} complete
-  BASE_DEV:  r1 done  r2 done  r3 done
-  BASE_TEST: r1 done  r2 running  r3 done
+  MODEL_A_DEV:  r1 done  r2 done  r3 done
+  MODEL_A_TEST: r1 done  r2 running  r3 done
   ...
 ```
 
@@ -235,9 +247,9 @@ Present a summary table:
 
 | Variant | answer_correctness DEV | answer_correctness TEST | logical_consistency DEV | logical_consistency TEST |
 |---|---|---|---|---|
-| BASE | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
-| AGENTIC | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
-| FASTPATH_OFF | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
+| {VARIANT_1} | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
+| {VARIANT_2} | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
+| {VARIANT_N} | X% +/- S% | X% +/- S% | X% +/- S% | X% +/- S% |
 
 Bold the **winner per metric** (highest TEST mean).
 
@@ -270,8 +282,8 @@ still holds under the updated instructions.
 5. Compare new scores to the **initial sweep baseline** (stored in `optimization_log.md`)
 6. If the winner changes:
    - **HARD STOP** — present the shift to the user
-   - Apply new winning flags to the original agent
-   - Resume optimization with the new flag config
+   - Apply new winning variant config (model or flags) to the original agent
+   - Resume optimization with the new variant config
 7. If the winner holds: log confirmation and continue optimization
 
 **Detecting flag/instruction interaction:**
@@ -280,9 +292,7 @@ still holds under the updated instructions.
 
 ## Key Learnings from Flag Sweep Testing
 
-- EnableAgenticAnalyst=true improves correctness but can reduce logical consistency
-- DisableFastPath=true (with agentic) gives the highest correctness by forcing full reasoning
-- The BASE (non-agentic) agent is often most logically consistent because it follows a simpler path
+- As of April 2026, EnableAgenticAnalyst is now the default — model comparison (Claude vs OpenAI, heavy vs fast) is the primary sweep axis
 - Multi-hop questions (spanning 2+ semantic views) show the biggest divergence between variants
 - EXECUTE_AI_EVALUATION requires YAML config on a stage — no inline metric specification
 - Agent and eval dataset MUST be in the same schema (task DAG resolves names relative to schema)

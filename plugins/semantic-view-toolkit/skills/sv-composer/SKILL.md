@@ -31,6 +31,16 @@ Use this skill when:
 
 ### Pattern 1: Nested SVs
 
+> ⚠️ **Not yet GA — do not recommend to customers**
+> Semantic views referencing other semantic views ("composable SVs") are not supported
+> in production accounts. The sv-ddl reference confirms: "Semantic views referencing
+> other semantic views are not yet GA."
+>
+> **Default to multi-SV Agent composition instead**: configure multiple
+> `cortex_analyst_text_to_sql` tools on the Cortex Agent, one per semantic view.
+> Each SV handles its domain; the agent routes between them. This pattern is fully GA
+> and works for all accounts today.
+
 One SV references columns/tables from another SV. Enables layered semantic models:
 
 ```

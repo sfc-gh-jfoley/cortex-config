@@ -128,7 +128,6 @@ Parse the `agent_spec` column from the returned row and verify against `AGENT_SP
 | Model | `<AGENT_MODEL>` | `agent_spec.models.orchestration` |
 | Tool count | `<N>` | `agent_spec.tools.length` |
 | Tool names | `<list>` | each `agent_spec.tools[i].tool_spec.name` |
-| EnableAgenticAnalyst | `true` | `agent_spec.experimental.EnableAgenticAnalyst` |
 | Warehouse (per tool) | `<AGENT_WAREHOUSE>` | `agent_spec.tool_resources.<tool_name>.execution_environment.warehouse` |
 
 Report:
@@ -136,7 +135,6 @@ Report:
 DESCRIBE verification:
   ✓ Model: <value of default_agent alias from LLMs.md — currently claude-sonnet-4-6>
   ✓ Tools: 2 — [SubscriberAnalytics, CustomerSupportSearch]
-  ✓ EnableAgenticAnalyst: true
   ✓ Warehouse: COMPUTE_WH
   ✓ Profile: "Customer Analytics 360" / robot / #0057B8
 ```

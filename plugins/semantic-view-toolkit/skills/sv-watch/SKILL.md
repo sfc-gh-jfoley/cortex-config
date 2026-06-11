@@ -164,13 +164,12 @@ CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.WATCH_LOG (
 
 ## Cron Integration
 
-```python
-# Example cron setup (weekly Monday 6am)
-cron_create(
-    schedule="0 6 * * 1",
-    prompt="Run sv-watch on all semantic views in ANALYTICS_DB. Report findings."
-)
-```
+To schedule recurring SV health checks, use the `cron_create` tool:
+
+- **Schedule**: `0 9 * * 1` (every Monday at 9am local time)
+- **Prompt**: `"Run sv-watch health check on <SV_FQN>. Load the sv-ddl skill and go to Phase 8 (drift monitor). Connection: <CONNECTION>."`
+
+Alternatively, tell the user to type `/loop` in Cortex Code to set up an interactive monitoring schedule.
 
 ---
 

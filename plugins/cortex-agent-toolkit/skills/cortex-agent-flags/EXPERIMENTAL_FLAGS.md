@@ -21,24 +21,16 @@ These go in the agent spec JSON under `"experimental"`:
 
 ### EnableAgenticAnalyst
 
-**Status:** Widely deployed, most commonly used flag
+**Status:** OBSOLETE — now default behavior (Apr 13, 2026)
 
 **What it does:**
-Enables "Agentic Analyst" mode for Cortex Analyst (text-to-SQL) tool calls.
-Provides significantly lower latency and improved quality compared to the default
-routing mode. The default mode favors semantic SQL routing; Agentic Analyst provides
-a faster, more accurate path.
+This behavior is now the default for all Cortex Agents. Direct SQL generation is
+standard. Setting this flag has no documented effect. The flag name itself is not
+publicly documented by Snowflake.
 
-**When to use:**
-- Any agent with `cortex_analyst_text_to_sql` tools
-- Recommended as a default for all new agents with structured data tools
-
-**Tradeoffs:**
-- Generally improves both latency and accuracy -- minimal downside
-- Behavioral differences from default mode in edge cases
-
-**Source:** Christopher Pelky (Cortex team): "lower latency than the default mode
-with higher accuracy"
+> **Breaking change:** Response blocks changed from `cortex_analyst_text_to_sql`
+> to `system_execute_sql` as of April 13, 2026. Any eval ground truth or monitoring
+> code that checks for `cortex_analyst_text_to_sql` tool calls needs migration.
 
 ---
 
@@ -109,7 +101,7 @@ ALTER ACCOUNT <<ACCOUNT_ID>> SET COPILOT_ORCHESTRATOR_PARAM_157 = 'true'
 
 ### EnableSkillBasedPromptNoExtendedThinking
 
-**Status:** Private Preview (requires Agent Skills signup)
+**Status:** GA (Agent Skills are generally available; no preview signup required)
 
 **What it does:**
 Disables extended thinking (longer internal chain-of-thought reasoning) when the
@@ -126,7 +118,6 @@ includes skill discovery, selection, and execution logic.
 - Complex multi-skill agents where careful reasoning about skill selection matters
 
 **Prerequisites:**
-- Agent Skills Private Preview access (signup form required)
 - Skills configured in the agent specification
 
 **Tradeoffs:**
@@ -383,14 +374,11 @@ viz_policies:
 
 ## Quick Copy-Paste Spec Templates
 
-### Minimal agent with recommended flags
+### Minimal agent (no flags needed)
 
 ```json
 {
   "models": {"orchestration": "auto"},
-  "experimental": {
-    "EnableAgenticAnalyst": true
-  },
   "tools": [...],
   "tool_resources": {...}
 }
@@ -402,7 +390,6 @@ viz_policies:
 {
   "models": {"orchestration": "auto"},
   "experimental": {
-    "EnableAgenticAnalyst": true,
     "EnableVQRFastPath": true,
     "EnableUnrestrictedChartTool": true
   },
@@ -423,7 +410,7 @@ viz_policies:
 
 <!-- Used by SKILL.md Step 0 to detect staleness. Update after each verification pass. -->
 
-**last_verified:** 2026-05-21
+**last_verified:** 2026-06-11
 
 **Sources consulted:**
 - Snowflake public docs (ALTER AGENT, CREATE AGENT, Cortex Agents overview)
@@ -436,3 +423,4 @@ viz_policies:
 **Change log:**
 - 2026-04-09: Initial inventory. 4 agent-level flags, 4 account-level params, chart customization documented.
 - 2026-04-17: (from public docs fetch) Added Font Compatibility section (CSS generic families, config property table, Vega Editor validation tip). Added `_color` transform pattern for exact color mapping + pinned-values-with-palette-fallback alternative. Updated Placement table: `module_custom_instructions.sql_generation` is now the preferred SV field (supersedes legacy `custom_instructions`); added merge precedence note. Added internal-only warning to `viz_policies` section (absent from public docs).
+- 2026-06-11: `EnableAgenticAnalyst` marked OBSOLETE — now default behavior as of Apr 13, 2026; direct SQL generation is standard; response blocks changed from `cortex_analyst_text_to_sql` to `system_execute_sql`. `EnableSkillBasedPromptNoExtendedThinking` updated to GA (Agent Skills no longer Private Preview). Quick Copy-Paste templates updated to remove obsolete experimental flags.

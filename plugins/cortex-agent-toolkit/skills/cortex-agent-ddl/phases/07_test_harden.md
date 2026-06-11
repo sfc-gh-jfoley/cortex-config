@@ -171,9 +171,10 @@ Present the next-steps menu:
 What would you like to do next?
 
   [1] agent-flag-tester
-      Compare BASE / AGENTIC / FASTPATH_OFF flag variants.
-      Best when: you want to know which experimental flag combination
-      performs best before committing to a final configuration.
+      Compare model variants (claude-sonnet vs openai-gpt-5 vs haiku)
+      and conditional flag variants (VQR, unrestricted chart) side-by-side.
+      Best when: you want to find the right model/config tradeoff
+      before committing to a final configuration.
       → Invoke: paste agent-flag-tester skill prompt
         handoff.json will be auto-detected in current directory.
 

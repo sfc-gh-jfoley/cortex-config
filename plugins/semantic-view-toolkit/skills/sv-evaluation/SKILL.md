@@ -284,6 +284,11 @@ E) Done for now
 
 If `_SV_TOOLKIT_META` schema exists, persist for future regression tracking:
 
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
+
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_HISTORY (
     run_name VARCHAR,
@@ -305,6 +310,11 @@ VALUES
 ```
 
 Also persist per-VQR results:
+
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_RESULTS (

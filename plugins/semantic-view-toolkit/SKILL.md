@@ -124,6 +124,11 @@ Step-by-step walkthrough. Explains each step, asks for approval at gates.
 
 This toolkit persists state in a `_SV_TOOLKIT_META` schema (created on first use in the user's target database):
 
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
+
 ```sql
 -- Created automatically when needed:
 CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;

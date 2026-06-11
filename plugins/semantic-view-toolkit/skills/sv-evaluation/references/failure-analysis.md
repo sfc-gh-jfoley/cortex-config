@@ -399,28 +399,9 @@ If NO: The question is genuinely out of scope (not a failure).
 Teach Analyst by adding a verified query with the correct SQL:
 
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ADD VERIFIED QUERY
-    QUESTION = 'What is our customer churn rate?'
-    SQL = $$
-      WITH active_last_month AS (
-          SELECT DISTINCT customer_id
-          FROM orders
-          WHERE order_date >= DATEADD('MONTH', -2, CURRENT_DATE())
-            AND order_date < DATEADD('MONTH', -1, CURRENT_DATE())
-      ),
-      active_this_month AS (
-          SELECT DISTINCT customer_id
-          FROM orders
-          WHERE order_date >= DATEADD('MONTH', -1, CURRENT_DATE())
-      )
-      SELECT
-          COUNT(CASE WHEN b.customer_id IS NULL THEN 1 END)::FLOAT
-          / NULLIF(COUNT(*), 0) AS churn_rate
-      FROM active_last_month a
-      LEFT JOIN active_this_month b ON a.customer_id = b.customer_id
-    $$
-    VERIFIED = TRUE;
+-- ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY is not supported (syntax error).
+-- Use CREATE OR REPLACE with AI_VERIFIED_QUERIES appended as final clause.
+-- See vqr-generator/SKILL.md Phase 5 for the correct apply workflow.
 ```
 
 ---

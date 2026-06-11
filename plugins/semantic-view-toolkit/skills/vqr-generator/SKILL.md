@@ -127,16 +127,16 @@ For each pattern type, generate 2-3 VQR candidates:
 
 ```sql
 -- VQR must use LOGICAL column names from the SV, not physical names
--- Prefix table references with double underscore: __table_alias
+-- Use table aliases as defined in the SV TABLES clause (e.g., orders, not __orders)
 SELECT SUM(revenue) AS total_revenue
-FROM __orders
+FROM orders
 WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01';
 ```
 
 ### Generation rules
 
 1. **Use logical names**: Column names as defined in the SV (the `AS` alias), not physical column names
-2. **Use SV table aliases**: Prefix with `__` (double underscore) + the logical table name from the SV
+2. **Use SV table aliases**: Use the logical table alias directly as defined in the SV TABLES clause (e.g., `FROM orders`, not `FROM __orders`). Do not add any prefix to table names.
 3. **Use absolute dates**: Never `CURRENT_DATE` or relative dates — always fixed dates for reproducibility
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
 5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
@@ -182,11 +182,38 @@ Mark each candidate: VALID / INVALID / NEEDS_FIX
 For approved candidates, add VQRs to the SV:
 
 ```sql
-ALTER SEMANTIC VIEW <SV_FQN>
-  ADD VERIFIED QUERY <vqr_name>
-    QUESTION '<natural language question>'
-    SQL '<the verified SQL using logical names>';
+-- ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY is not supported — returns syntax error.
+-- The only working path is CREATE OR REPLACE with the full DDL + new VQRs appended.
+
+-- Step 1: Get current DDL
+DESCRIBE SEMANTIC VIEW <SV_FQN>;
+-- Copy the DDL from the DESCRIBE output (or use the file saved during sv-ddl Phase 7)
+
+-- Step 2: Add new VQRs to the AI_VERIFIED_QUERIES block and rebuild:
+CREATE OR REPLACE SEMANTIC VIEW <SV_FQN>
+  TABLES ( ... )          -- unchanged from current DDL
+  RELATIONSHIPS ( ... )   -- unchanged
+  FACTS ( ... )           -- unchanged
+  DIMENSIONS ( ... )      -- unchanged
+  METRICS ( ... )         -- unchanged
+  COMMENT = '...'         -- unchanged
+  AI_SQL_GENERATION '...' -- unchanged if present
+  AI_VERIFIED_QUERIES (
+    -- existing VQRs preserved here
+    existing_vqr_1 AS (
+      QUESTION '...'
+      SQL '...'
+    ),
+    -- new VQRs appended:
+    <vqr_name> AS (
+      QUESTION '<natural language question>'
+      ONBOARDING_QUESTION TRUE
+      SQL '<the verified SQL using logical table alias names>'
+    )
+  );
 ```
+
+> **Note:** Always preserve existing `AI_VERIFIED_QUERIES` entries when adding new ones — `CREATE OR REPLACE` replaces the entire object. Fetch the current DDL from `DESCRIBE SEMANTIC VIEW` first, then append new entries to the existing `AI_VERIFIED_QUERIES` block.
 
 After adding, verify:
 ```sql

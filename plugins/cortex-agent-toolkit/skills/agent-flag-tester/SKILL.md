@@ -1,15 +1,15 @@
 ---
 name: agent-flag-tester
 description: >
-  Standalone Cortex Agent flag comparison testing. Creates 3 agent variants
-  (BASE, AGENTIC, FASTPATH_OFF), builds/validates eval dataset with ground truth
-  verification, runs DEV/TEST evaluations using EXECUTE_AI_EVALUATION, and
-  compares results across variants with statistical rigor.
-  Use when: flag comparison, A/B test agents, compare EnableAgenticAnalyst,
-  compare feature flags, 3-way agent comparison, test agent variants,
-  agent flag sweep, evaluate agent flags, which flag config is best.
+  Standalone Cortex Agent variant comparison testing. Creates model comparison variants
+  (_MODEL_A/B/C) and optional conditional flag variants, builds/validates eval dataset
+  with ground truth verification, runs DEV/TEST evaluations using EXECUTE_AI_EVALUATION,
+  and compares results across variants with statistical rigor.
+  Use when: model comparison, A/B test agents, compare orchestration models, flag comparison,
+  compare feature flags, agent variant testing, agent flag sweep, evaluate agent variants,
+  which model or config is best.
   Produces flag_sweep_baseline.json — consumed by cortex-agent-optimization
-  for automatic FLAG REVALIDATION after optimization iterations.
+  for automatic VARIANT REVALIDATION after optimization iterations.
 ---
 
 ## Prerequisites
@@ -98,18 +98,18 @@ Load `references/variant-matrix.md` for the default matrix.
 Present the default matrix and ask:
 
 > "Which variants do you want to test?"
-> 1. **All 3** — BASE, AGENTIC, FASTPATH_OFF (recommended for first sweep)
-> 2. **AGENTIC + FASTPATH_OFF only** — skip BASE if you already know non-agentic is not an option
+> 1. **Model comparison** — _MODEL_A, _MODEL_B, _MODEL_C (recommended for first sweep; works for any agent)
+> 2. **Conditional flag variants** — add _VQR, _CHART, or _BUDGET_HIGH only if the agent uses the relevant feature
 > 3. **Custom selection** — pick from the matrix or define custom variants
 
-Store the selected variants as `<VARIANTS>` list. All subsequent phases iterate over only the selected variants — not hardcoded to 3.
+Store the selected variants as `<VARIANTS>` list. All subsequent phases iterate over only the selected variants.
 
 ### Step 2.1: Generate Variant Specs
 
 For each selected variant:
 1. Start with the original agent spec
-2. Modify the `experimental` section per the matrix
-3. Keep everything else identical (instructions, tools, tool_resources, model, budget)
+2. **Model variants** (`_MODEL_A/B/C`): Change `models.orchestration` to the target model. Keep everything else identical.
+3. **Conditional flag variants** (`_VQR`, `_CHART`, etc.): Modify the `experimental` section per the matrix. Keep everything else identical.
 
 ### Step 2.2: Generate CREATE AGENT SQL
 
@@ -123,7 +123,7 @@ $$;
 
 Use `CHR(39)` escaping if the spec contains literal `$$` in instruction text.
 
-**Critical:** All 3 variants MUST be in the same schema as the eval dataset. The eval task DAG resolves agent names relative to the task's schema, ignoring FQN.
+**Critical:** All variants MUST be in the same schema as the eval dataset. The eval task DAG resolves agent names relative to the task's schema, ignoring FQN.
 
 **STOP GATE:** Present the CREATE SQL for all 3 variants. Ask user: "Want me to create a rollback clone first so we can undo this?" Then execute upon confirmation.
 
@@ -134,7 +134,7 @@ For each variant:
 DESCRIBE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>_{SUFFIX};
 ```
 
-Confirm all 3 are deployed with correct flags.
+Confirm all selected variants are deployed with correct spec changes.
 
 ---
 
@@ -446,9 +446,9 @@ If a run reports `PARTIALLY_COMPLETED`: check `STATUS_DETAILS` array for error m
 All runs must reach `COMPLETED` before proceeding. Report:
 ```
 Eval Runs: {COMPLETED}/{TOTAL} complete
-  BASE_DEV:  r1 ✓  r2 ✓  r3 ✓
-  BASE_TEST: r1 ✓  r2 ✓  r3 ✓
-  AGENTIC_DEV:  r1 ✓  r2 ✓  r3 ✓
+  MODEL_A_DEV:  r1 ✓  r2 ✓  r3 ✓
+  MODEL_A_TEST: r1 ✓  r2 ✓  r3 ✓
+  MODEL_B_DEV:  r1 ✓  r2 ✓  r3 ✓
   ...
 ```
 
@@ -487,9 +487,9 @@ Present a summary table:
 
 | Variant | answer_correctness DEV | answer_correctness TEST | logical_consistency DEV | logical_consistency TEST | tool_selection DEV | tool_selection TEST |
 |---|---|---|---|---|---|---|
-| BASE | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
-| AGENTIC | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
-| FASTPATH_OFF | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
+| {VARIANT_1} | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
+| {VARIANT_2} | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
+| {VARIANT_N} | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% | X% ± S% |
 
 Bold the **winner per metric** (highest TEST mean).
 
@@ -509,8 +509,10 @@ Present the top 10 most-divergent questions with per-variant scores.
 Scoring logic:
 1. **Primary:** Highest `answer_correctness` on TEST (mean across runs)
 2. **Tiebreaker 1:** Highest `logical_consistency` on TEST
-3. **Tiebreaker 2:** Highest `tool_selection_accuracy` on TEST
+3. **Tiebreaker 2:** For model comparison — factor in latency (lower `DURATION_MS` is better if accuracy is equivalent)
 4. **Tiebreaker 3:** Lowest stddev (most consistent)
+
+For model comparison sweeps, present the accuracy-latency tradeoff explicitly (e.g., "MODEL_C is 5% lower accuracy but 40% faster — worth it for latency-sensitive use cases?").
 
 Present recommendation with reasoning.
 
@@ -547,15 +549,14 @@ If **Yes:**
      "sweep_date": "<TIMESTAMP>",
      "winning_variant": "<VARIANT_SUFFIX>",
      "winning_flags": {
-       "EnableAgenticAnalyst": true,
-       "DisableFastPath": true
+       "<winning_variant_flags>": {}
      },
      "baseline_scores": {
        "answer_correctness": { "dev_mean": 0.XX, "test_mean": 0.XX },
        "logical_consistency": { "dev_mean": 0.XX, "test_mean": 0.XX },
        "tool_selection_accuracy": { "dev_mean": 0.XX, "test_mean": 0.XX }
      },
-     "variant_agents_kept": ["<AGENT_NAME>_BASE", "<AGENT_NAME>_AGENTIC", "<AGENT_NAME>_FASTPATH_OFF"],
+     "variant_agents_kept": ["<AGENT_NAME>_{VARIANT_1}", "<AGENT_NAME>_{VARIANT_2}"],
      "revalidation_interval": 3,
      "eval_table": "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL",
      "stage": "<DATABASE>.<SCHEMA>.AGENT_FLAG_TESTER_CONFIGS"
@@ -578,10 +579,8 @@ If **No:** Proceed to Cleanup (drop variants, clean stage).
 After the test is complete (and user chose NOT to optimize):
 
 ```sql
--- Drop variant agents
-DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<AGENT_NAME>_BASE;
-DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<AGENT_NAME>_AGENTIC;
-DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<AGENT_NAME>_FASTPATH_OFF;
+-- Drop whichever variant suffixes were created in Phase 2
+-- e.g., DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<AGENT_NAME>_{SUFFIX};
 
 -- Optionally remove stage configs
 REMOVE @<DATABASE>.<SCHEMA>.AGENT_FLAG_TESTER_CONFIGS/;
@@ -597,9 +596,7 @@ configs are needed for flag re-validation during the optimization loop.
 
 ## Key Learnings
 
-- `EnableAgenticAnalyst=true` improves correctness but can reduce logical consistency
-- `DisableFastPath=true` forces full reasoning — highest correctness, more latency
-- BASE (non-agentic) often wins logical consistency due to simpler reasoning path
+- As of April 2026, `EnableAgenticAnalyst` is now the default behavior — model choice is the primary lever for accuracy/latency tradeoffs
 - Multi-hop questions (spanning 2+ semantic views) show biggest divergence between variants
 - `EXECUTE_AI_EVALUATION` requires YAML config on a stage — no inline metric specification
 - Agent and eval dataset MUST be in the same schema (task DAG resolves names relative to schema)

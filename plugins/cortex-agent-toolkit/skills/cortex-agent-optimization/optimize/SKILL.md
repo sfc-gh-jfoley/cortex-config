@@ -143,11 +143,75 @@ Classify each high-confidence failure using this ordered decision tree. Evaluate
 
 4. **Compare answer content to ground truth output.** If facts are wrong, missing, or incomplete despite correct tool calls → **Content error.** Fix: add domain-specific rules or corrected examples to `response_instructions.md`.
 
+4b. **SV data quality / schema gap**
+
+   Trigger: `tool_selection_accuracy` is high (right tool called) but `tool_execution_accuracy`
+   is low, OR Content errors cluster on the same TEST_CATEGORY across 2+ iterations.
+
+   Before editing instructions, run the SV diagnostic:
+   ```bash
+   cortex analyst query "<failing_question>" --view=<SEMANTIC_VIEW_FQN>
+   ```
+
+   | SV result | Classification | Fix |
+   |---|---|---|
+   | Empty result or error | SV gap — SV doesn't have this data | Route to `sv-ddl` — add missing metrics/dimensions/tables |
+   | Returns data but wrong/partial | SV quality issue — ambiguous descriptions or incorrect metric definitions | Route to `sv-optimization` |
+   | Returns correct data | Not an SV problem — this IS a Content error (category 4) | Proceed to Step 5 |
+
+   **If routing to sv-toolkit: pause the optimization loop.** SV must be fixed and redeployed before instruction changes have effect. After SV fix, resume at Step 2 (re-run DEV eval baseline) — do not continue from the current iteration's scores.
+
+4c. **Non-deterministic SQL**
+
+   Trigger: Tool is called correctly, SQL executes without error, but the same question
+   produces different answers across the `<RUNS_PER_SPLIT>` eval runs (high score variance
+   on a single question). The agent isn't wrong — it's inconsistent.
+
+   This is SQL generation variance, not an instruction problem. Instruction edits will not fix it.
+
+   Fix: Route to `vqr-generator` with the affected questions as seeds. VQRs lock in the
+   correct SQL for known patterns, bypassing generation variance entirely.
+
+   Present to user:
+   > "Questions [list] are generating valid but variable SQL across runs. This is non-determinism
+   > in SQL generation, not a fixable instruction problem. Recommend adding Verified Query
+   > Representations (VQRs) for these patterns — the agent will use the pre-verified SQL
+   > directly instead of generating new SQL each time."
+
 5. **Re-read the current instructions that should govern this behavior.** If the instructions can reasonably be interpreted to produce the agent's (wrong) behavior → **Instruction ambiguity.** Fix: rewrite the ambiguous rule with a concrete example showing expected behavior.
 
 6. **Check the optimization log for this failure pattern.** If the same failure has persisted across 2+ prior iterations despite targeted fixes → **Model behavior limit.** Fix: consider architectural changes (tool guardrails, workflow restructuring) or document as a known limitation.
 
 For questions that failed in only 1 of `<RUNS_PER_SPLIT>` runs: classify as **Intermittent** — noise that should not drive instruction changes unless a clear cross-question pattern emerges.
+
+### Step 4.2: SV Escape Valve (check before escalating to GEPA)
+
+If this is the **2nd consecutive rejection** and the same question cluster (3+ questions)
+is classified as Content errors or SV gap across both rejected iterations:
+
+Run `cortex analyst query` on those specific questions if not already done in 4b above.
+
+Present the fork — do NOT route to GEPA until the user chooses:
+
+```
+Same questions have failed across 2 optimization iterations:
+  [list the questions]
+
+Before escalating to evolutionary optimization (GEPA), confirm these
+questions are actually fixable at the instruction level.
+
+SV diagnostic result: [PASS / FAIL / PARTIAL]
+
+Options:
+  (A) Fix the semantic view first → sv-ddl or sv-optimization
+      Then resume optimization — do not run GEPA on an SV problem
+  (B) Add VQRs for the consistent patterns → vqr-generator
+  (C) Remove these questions from the eval set (out of agent scope)
+  (D) Confirmed SV is fine — escalate to GEPA
+```
+
+GEPA searches the instruction space. If the root cause is the SV, GEPA will exhaust
+its budget finding no improvement. This gate prevents that.
 
 **⚠️ STOP (supervised mode):** Present failure analysis with classifications and proposed instruction changes to the user. In autonomous mode: proceed if all failures have a single unambiguous classification; stop and ask if any failure has multiple plausible classifications or if the proposed change touches 3+ files.
 

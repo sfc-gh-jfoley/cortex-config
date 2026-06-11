@@ -34,10 +34,11 @@ Default flags for all new agents:
 
 ```json
 "experimental": {
-  "EnableAgenticAnalyst": true,
   "EnableVQRFastPath": true
 }
 ```
+
+> **Note:** `EnableAgenticAnalyst` was removed — it is now the default behavior as of April 2026. Setting it has no documented effect. See `../reference/agent_spec_syntax.md` for current valid flags.
 
 > **Router agents**: If `AGENT_TYPE == "router"`, default `EnableVQRFastPath` to `false`. The fast path skips full orchestration, which defeats routing logic.
 
@@ -117,6 +118,34 @@ For each generic tool:
   "function": "<DB>.<SCHEMA>.<FUNCTION_NAME>"
 }
 ```
+
+---
+
+## Step 4.5.1: MCP Connector Tools
+
+### MCP Connector Tools
+
+For `web_search`, `data_to_chart`, and `code_execution` tools discovered in Phase 2:
+- These tools have **no `tool_resources` entry** — include them in the `tools` array only
+- Format: `{"tool_spec": {"type": "<tool_type>", "name": "<tool_name>"}}`
+
+For MCP connectors (stored in `MCP_SERVERS` from Phase 2):
+- MCP connectors are NOT in the `tools` array — they use a separate `mcp_servers` section
+- Format in spec:
+```json
+"mcp_servers": [
+  {
+    "server_name": "<DATABASE>.<SCHEMA>.<MCP_SERVER_NAME>"
+  }
+]
+```
+- One entry per External MCP Server object. The agent discovers available MCP tools automatically at runtime from the referenced server.
+
+**Prerequisite check**: Before assembling an MCP spec, confirm the External MCP Server object exists:
+```sql
+DESCRIBE EXTERNAL MCP SERVER <DATABASE>.<SCHEMA>.<MCP_SERVER_NAME>;
+```
+If this fails, the agent spec will deploy but MCP tools will be unavailable at runtime.
 
 ---
 

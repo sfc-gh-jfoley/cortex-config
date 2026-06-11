@@ -1,58 +1,83 @@
 # Variant Matrix
 
-## Default 3-Variant Flag Sweep
+## Default Sweep: Model Comparison
 
-| Variant Suffix | `EnableAgenticAnalyst` | `DisableFastPath` | Description |
-|---|---|---|---|
-| `_BASE` | `false` | _(default)_ | Baseline — no agentic features. Simplest reasoning path. Often highest logical consistency. |
-| `_AGENTIC` | `true` | _(default)_ | Agentic analyst enabled with fast-path optimization. Typically improves correctness for complex queries. |
-| `_FASTPATH_OFF` | `true` | `true` | Agentic analyst with fast-path disabled — forces full reasoning chain on every query. Usually highest correctness but may reduce consistency or increase latency. |
+Always applicable — run for any agent regardless of features configured.
+
+| Variant Suffix | Spec change | Description |
+|---|---|---|
+| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — current recommended default |
+| `_MODEL_B` | `models.orchestration: openai-gpt-5` | Cross-family comparison (OpenAI vs Claude) |
+| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized option |
+
+## Conditional Sweep: Flags
+
+Add these variants only if the agent uses the relevant feature.
+
+| Variant Suffix | When to use | Flags |
+|---|---|---|
+| `_VQR` | Agent has VQRs defined in semantic views | `EnableVQRFastPath: true` vs baseline |
+| `_CHART` | Agent has `data_to_chart` tool | `EnableUnrestrictedChartTool: true` vs baseline |
+| `_BUDGET_HIGH` | Latency is a concern | `orchestration.budget.seconds` increased |
+
+## How to Select Variants
+
+For a first sweep, always run the model comparison (3 variants). Add conditional flag variants only if the agent uses the relevant features. Skip flag variants if the feature isn't configured on the agent.
 
 ## Agent Naming Convention
 
 Given a source agent `{DATABASE}.{SCHEMA}.{AGENT}`, variants are named:
 
-- `{DATABASE}.{SCHEMA}.{AGENT}_BASE`
-- `{DATABASE}.{SCHEMA}.{AGENT}_AGENTIC`
-- `{DATABASE}.{SCHEMA}.{AGENT}_FASTPATH_OFF`
+- `{DATABASE}.{SCHEMA}.{AGENT}_MODEL_A`
+- `{DATABASE}.{SCHEMA}.{AGENT}_MODEL_B`
+- `{DATABASE}.{SCHEMA}.{AGENT}_MODEL_C`
+- `{DATABASE}.{SCHEMA}.{AGENT}_{SUFFIX}` (for conditional flag variants)
 
 All variants **must** be in the same schema as the eval dataset (co-location constraint).
 
 ## Variant Creation SQL
 
-For each variant, clone the original agent spec and modify the `experimental` section:
+For model comparison variants, clone the original agent spec and change `models.orchestration`:
 
 ```sql
--- BASE: disable agentic analyst
-CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_BASE
+-- MODEL_A: current recommended default
+CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_A
 FROM SPECIFICATION $$
 {
   ... original spec ...,
-  "experimental": {
-    "EnableAgenticAnalyst": false
-  }
+  "models": {"orchestration": "claude-sonnet-4-6"}
 }
 $$;
 
--- AGENTIC: enable agentic analyst (default fast-path)
-CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_AGENTIC
+-- MODEL_B: cross-family comparison
+CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_B
 FROM SPECIFICATION $$
 {
   ... original spec ...,
-  "experimental": {
-    "EnableAgenticAnalyst": true
-  }
+  "models": {"orchestration": "openai-gpt-5"}
 }
 $$;
 
--- FASTPATH_OFF: enable agentic, disable fast-path
-CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_FASTPATH_OFF
+-- MODEL_C: latency-optimized
+CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_C
+FROM SPECIFICATION $$
+{
+  ... original spec ...,
+  "models": {"orchestration": "claude-haiku-4-5"}
+}
+$$;
+```
+
+For conditional flag variants, modify the `experimental` section instead:
+
+```sql
+-- _VQR: VQR fast path enabled
+CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_VQR
 FROM SPECIFICATION $$
 {
   ... original spec ...,
   "experimental": {
-    "EnableAgenticAnalyst": true,
-    "DisableFastPath": true
+    "EnableVQRFastPath": true
   }
 }
 $$;
@@ -76,10 +101,11 @@ Examples of custom variants:
 After the sweep is complete and a variant is promoted:
 
 ```sql
--- Drop non-promoted variants
-DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_BASE;
-DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_AGENTIC;
-DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_FASTPATH_OFF;
+-- Drop whichever variant suffixes were created for the sweep
+-- e.g., for model comparison:
+DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_MODEL_A;
+DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_MODEL_B;
+DROP AGENT IF EXISTS {DATABASE}.{SCHEMA}.{AGENT}_MODEL_C;
 
--- Apply winning flags to the original agent via ALTER or CREATE OR REPLACE
+-- Apply winning model/config to the original agent via ALTER or CREATE OR REPLACE
 ```

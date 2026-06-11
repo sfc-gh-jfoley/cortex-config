@@ -44,7 +44,7 @@ The toolkit will:
 - Score confidence based on evidence strength
 - Present recommendations for your approval
 
-**Time:** 2-5 minutes depending on database size.
+**Time:** scales with table count and column cardinality.
 
 ### Step 2: Create (sv-ddl)
 
@@ -59,7 +59,7 @@ The toolkit will:
 - Generate DDL with 23 self-checks
 - Execute and validate with sample questions
 
-**Time:** 5-10 minutes per SV.
+**Time:** depends on warehouse size and number of questions.
 
 ### Step 3: Bootstrap VQRs (vqr-generator)
 
@@ -73,7 +73,7 @@ The toolkit will:
 - Validate each candidate executes correctly
 - Present for your approval before adding to the SV
 
-**Time:** 3-5 minutes.
+**Time:** time varies by warehouse size and data volume.
 
 ### Step 4: Evaluate (sv-evaluation)
 
@@ -87,7 +87,7 @@ The toolkit will:
 - Report accuracy %, regressions, and per-query results
 - Identify which VQRs fail and suggest why
 
-**Time:** 2-10 minutes depending on VQR count.
+**Time:** depends on warehouse size and number of questions.
 
 ### Step 5: Optimize (sv-optimization)
 
@@ -101,7 +101,7 @@ The toolkit will:
 - Accept/reject gate — only keep changes that improve accuracy without regressions
 - Repeat until accuracy goal reached or plateau detected
 
-**Time:** 10-30 minutes for a full optimization cycle.
+**Time:** depends on VQR count and eval dataset size.
 
 ---
 

@@ -11,6 +11,30 @@ Usage:
 Run with: uvx --with pyyaml python scripts/build_sv_ddl.py
 """
 
+# =============================================================================
+# DEPRECATED — DO NOT USE
+# =============================================================================
+# This script generates DDL using an outdated grammar that does not match
+# current Snowflake semantic view syntax. Specifically:
+#
+#   - RELATIONSHIPS emitted as "name: table.col -> table.col (JOIN_TYPE)"
+#     Correct syntax: "rel_name AS left_alias (fk_col) REFERENCES right_alias"
+#
+#   - Columns emitted with KIND / DESCRIPTION / EXPR keywords
+#     Correct syntax: "table.col AS expr COMMENT = '...' WITH SYNONYMS = (...)"
+#
+#   - VQRs emitted as VERIFIED_QUERIES with "QUESTION:" colon syntax
+#     Correct syntax: AI_VERIFIED_QUERIES ( name AS ( QUESTION '...' SQL '...' ) )
+#
+#   - No support for AI_SQL_GENERATION, AI_QUESTION_CATEGORIZATION, LABELS, PRIVATE/PUBLIC
+#
+# This script is orphaned — no skill in the toolkit calls it.
+# The GEPA optimizer uses mutate.py (text-level SQL mutations) instead.
+#
+# This file is retained for reference only. A rewrite aligned to current DDL
+# grammar is planned. See skills/sv-ddl/reference/ddl_syntax.md for correct syntax.
+# =============================================================================
+
 import argparse
 import json
 import sys

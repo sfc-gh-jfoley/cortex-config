@@ -14,7 +14,7 @@ last_verified: 2026-05-21
     "orchestration": "<model_name>"
   },
   "experimental": {
-    "EnableAgenticAnalyst": true
+    "EnableVQRFastPath": true
   },
   "orchestration": {
     "budget": {
@@ -239,14 +239,14 @@ These go inside `"experimental": {}`.
 
 | Flag | Type | Effect |
 |------|------|--------|
-| `EnableAgenticAnalyst` | `true`/`false` | Enables multi-step reasoning, tool chaining, and chart generation. **Always set true for new agents.** |
+| `EnableAgenticAnalyst` | ~~obsolete~~ | **Default behavior as of April 2026** — this flag is now the standard. Setting it has no documented effect. Remove from new agent specs. |
 | `EnableVQRFastPath` | `true`/`false` | Skips full orchestration for simple single-tool questions — faster but less nuanced. Default `true` |
 | `EnableUnrestrictedChartTool` | `true`/`false` | Allows chart generation without account-level policy restrictions. Use with care. |
 
 ```json
 "experimental": {
-  "EnableAgenticAnalyst": true,
   "EnableVQRFastPath": true
+  // Add flags here only if recommended by Snowflake — see cortex-agent-flags/EXPERIMENTAL_FLAGS.md
 }
 ```
 

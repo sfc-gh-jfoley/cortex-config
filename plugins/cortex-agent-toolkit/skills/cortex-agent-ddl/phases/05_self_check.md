@@ -27,6 +27,9 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 | 3 | Each `cortex_analyst_text_to_sql` tool has `tool_resources[name].execution_environment.type = "warehouse"` and `tool_resources[name].execution_environment.warehouse` is non-empty | For each `cortex_analyst_text_to_sql` tool name T: `spec.tool_resources[T].execution_environment.type == "warehouse"` and `spec.tool_resources[T].execution_environment.warehouse` is non-empty string. Also check no top-level `execution_environment` exists — if found, it must be removed. | Add `execution_environment: {type: "warehouse", warehouse: AGENT_WAREHOUSE}` inside each offending tool_resources entry; remove any top-level `execution_environment` block |
 | 4 | `tools` array is non-empty | `spec.tools.length > 0` | Cannot auto-fix — return to Phase 2 |
 | 5 | Every `tools[i].tool_spec.name` has a matching key in `tool_resources` | For each tool name T: `spec.tool_resources[T]` exists | Add empty `{}` entry for each missing key (Phase 2 mismatch) |
+| | **Exception — no-resource tools**: `web_search`, `data_to_chart`, and `code_execution` tools do NOT require a `tool_resources` entry. If these tool types appear in the `tools` array without a matching `tool_resources` key, this is correct — do not flag as an error. | | |
+| | **Exception — MCP tools**: MCP connectors do not appear in the `tools` array at all. They appear in the `mcp_servers` section instead. Validate that each entry in `mcp_servers` references an `EXTERNAL MCP SERVER` object that exists in Snowflake: `DESCRIBE EXTERNAL MCP SERVER <DATABASE>.<SCHEMA>.<SERVER_NAME>;` | | |
+| MCP server objects exist | For each entry in `mcp_servers`, verify the EXTERNAL MCP SERVER object exists via DESCRIBE | Deploy-time failure if missing |
 | 6 | No duplicate `tool_spec.name` values across `tools[]` | Collect all names → check for duplicates | Rename duplicate by appending `_2`, `_3`, etc. |
 | 7 | `cortex_analyst_text_to_sql` tools: `tool_resources[name].semantic_view` is a 3-part FQN matching `X.Y.Z` | Regex: `\w+\.\w+\.\w+` on the value | Cannot auto-fix — surface to user with SHOW SEMANTIC VIEWS |
 | 8 | `cortex_search` tools: `tool_resources[name].name` is a 3-part FQN | Regex: `\w+\.\w+\.\w+` | Cannot auto-fix — surface to user |
@@ -41,7 +44,7 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 |---|------|-------------|----------------|
 | 11 | Each tool description contains boundary language | Description contains "not use" OR "do not" OR "only for" OR "avoid" | WARN — offer to add boundary section |
 | 12 | `orchestration.budget.seconds` AND `orchestration.budget.tokens` are both set | Both keys exist under `orchestration.budget` | WARN — add defaults: seconds=120, tokens=200000 |
-| 13 | `experimental.EnableAgenticAnalyst` is present and `true` | Check key + value | WARN — offer to add |
+| 13 | `experimental` block does not contain `EnableAgenticAnalyst` (now obsolete — behavior is default as of Apr 2026) | If found: WARN — remove it from the spec to avoid confusion. Setting it has no documented effect. | Remove the key from the experimental block |
 | 14 | `profile.display_name` note exists (checked against `AGENT_PROFILE` from Phase 4) | `AGENT_PROFILE.display_name` non-empty | WARN — remind that ALTER SET PROFILE must be run in Phase 6 |
 | 15 | Tool count ≤ 10 | `spec.tools.length <= 10` | WARN if >10 — inform of best-practices guidance; user must explicitly accept |
 | 16 | Router agents must not self-answer | If `AGENT_TYPE == "router"`: `instructions.orchestration` contains "do not attempt to answer" or "must invoke" or "never answer yourself" | WARN — router instructions should explicitly prohibit self-answering. Add: "Do NOT attempt to answer yourself. You MUST invoke a tool." |
@@ -74,7 +77,7 @@ Spec summary:
   Model:       <AGENT_MODEL>
   Tools:       <N> — <list of tool names>
   Budget:      <seconds>s / <tokens> tokens
-  Flags:       EnableAgenticAnalyst=<true/false>, EnableVQRFastPath=<true/false>
+  Flags:       EnableVQRFastPath=<true/false>
   Instructions: <char count> chars
 
 Warnings:

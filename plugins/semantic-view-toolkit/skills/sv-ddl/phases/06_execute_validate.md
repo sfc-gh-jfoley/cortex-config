@@ -130,9 +130,23 @@ For each question, capture:
 
 ---
 
-## Step 6.4.1: Direct semantic view query validation (optional)
+## Step 6.4.1: Direct semantic view query validation (mandatory)
 
-After confirming the physical-layer SQL works, optionally validate the SV's semantic query interface directly:
+**Mandatory semantic validation** — before marking Phase 6 complete, run at least one query
+through the semantic view for each entity that has metrics defined:
+
+```sql
+-- Verify each metric entity is queryable
+SELECT <metric_name>
+FROM <SV_DATABASE>.<SV_SCHEMA>.<SV_NAME>
+LIMIT 5;
+```
+
+Physical SQL passing (source table queries) does not guarantee the semantic view is correctly
+configured. Granularity constraints, relationship accessibility, and AGG() behavior can only
+be validated by querying through the semantic view layer. This step is not optional.
+
+After confirming the physical-layer SQL works, validate the SV's semantic query interface directly:
 
 ```sql
 SELECT * FROM SEMANTIC_VIEW(

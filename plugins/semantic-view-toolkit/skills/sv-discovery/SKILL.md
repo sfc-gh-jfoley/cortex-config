@@ -198,6 +198,11 @@ Existing SV Coverage: None (these tables are not in any existing SV)
 
 After discovery completes, offer to persist the relationship graph and domain groupings:
 
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
+
 ```sql
 CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.DISCOVERY_STATE (

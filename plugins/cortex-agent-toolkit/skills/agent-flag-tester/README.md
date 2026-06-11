@@ -2,7 +2,7 @@
 
 Standalone Cortex Code skill for A/B/C testing Cortex Agent feature flags.
 
-Creates 3 agent variants (BASE, AGENTIC, FASTPATH_OFF), builds and validates an eval dataset with ground truth verification, runs DEV/TEST evaluations using the `EXECUTE_AI_EVALUATION` API, and compares results across variants.
+Creates model comparison variants (_MODEL_A/B/C) and optional conditional flag variants (_VQR, _CHART), builds and validates an eval dataset with ground truth verification, runs DEV/TEST evaluations using the `EXECUTE_AI_EVALUATION` API, and compares results across variants with statistical rigor.
 
 ## What It Does
 

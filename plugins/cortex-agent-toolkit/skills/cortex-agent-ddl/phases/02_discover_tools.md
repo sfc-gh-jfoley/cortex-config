@@ -162,6 +162,32 @@ Select which ones to include as tools (e.g. "1,3" or "all"):
 Also list any custom UDFs/procedures you want as generic tools.
 ```
 
+Additional tool types (configure manually if needed):
+
+```
+  web_search      — Real-time web search. No setup required beyond account param.
+                    Requires: ENABLE_CORTEX_WEBSEARCH enabled by account admin.
+                    Ask: "Does this agent need to search the internet for current information?"
+
+  data_to_chart   — Generates Vega-Lite charts from query results.
+                    No setup required. Pair with EnableUnrestrictedChartTool flag for
+                    extended chart types (area, dual-axis, boxplots, etc.).
+                    Ask: "Should this agent produce charts/visualizations?"
+
+  code_execution  — Python sandbox for calculations and data processing.
+                    No setup required. Required if Agent Skills include code files.
+                    Ask: "Does this agent need to run Python code or use Skills with scripts?"
+
+  MCP connector   — Connect to an external MCP server (e.g., GitHub, Jira, Salesforce).
+                    Requires an EXTERNAL MCP SERVER object in Snowflake.
+                    Configured in spec under mcp_servers[], not in tools[].
+                    Ask: "Does this agent need to connect to external tools via MCP?"
+```
+
+For each new tool type selected:
+- `web_search` / `data_to_chart` / `code_execution`: add to `CUSTOM_TOOLS` list with `{type: "<tool_type>", name: "<name>", tool_resources: null}`. These go in the `tools` array with no `tool_resources` entry.
+- MCP: store separately as `MCP_SERVERS` list — handled in Phase 4 spec assembly, not in `tool_resources`.
+
 Store selected SVs as `SELECTED_SVS`, selected CSS as `SELECTED_CSS`, custom functions as `CUSTOM_TOOLS`.
 
 **Tool count check**: if total selected > 10, warn:
@@ -171,6 +197,7 @@ More tools = harder routing decisions for the agent.
 Consider splitting into multiple specialized agents.
 Continue anyway? (yes/no)
 ```
+Note: `web_search`, `data_to_chart`, and `code_execution` each count as 1 tool toward this limit even though they need no tool_resources.
 
 ---
 
@@ -201,6 +228,35 @@ Skip this tool for now? (yes/no)
 ```
 
 Remove inaccessible tools from the selection unless the user explicitly keeps them.
+
+---
+
+## Step 2.4a: New tool type prerequisite checks
+
+For each new tool type selected, run the relevant check:
+
+**`web_search`:**
+```sql
+-- Check if web search is enabled at account level
+SHOW PARAMETERS LIKE 'ENABLE_CORTEX_WEBSEARCH' IN ACCOUNT;
+```
+If not enabled: warn the user that they need an account admin to run `ALTER ACCOUNT SET ENABLE_CORTEX_WEBSEARCH = TRUE` before this tool will function. Do not block — user can enable it after deployment.
+
+**`code_execution`:** No prerequisite check needed — available by default.
+
+**`data_to_chart`:** No prerequisite check needed — available by default.
+
+**MCP:**
+```sql
+SHOW EXTERNAL MCP SERVERS IN SCHEMA <AGENT_SCHEMA>;
+```
+If none found: warn that an `EXTERNAL MCP SERVER` object is required before the agent can use MCP tools. Provide the DDL skeleton:
+```sql
+CREATE EXTERNAL MCP SERVER <DATABASE>.<SCHEMA>.<MCP_SERVER_NAME>
+  URL = '<mcp_server_url>'
+  ...;
+-- Full syntax: see Snowflake docs on Cortex Agent MCP Connectors
+```
 
 ---
 
@@ -368,7 +424,8 @@ Wait for user approval before loading Phase 3.
 |----------|----------|
 | `SELECTED_SVS` | List of approved SV FQNs |
 | `SELECTED_CSS` | List of approved CSS FQNs |
-| `CUSTOM_TOOLS` | List of generic tool specs |
+| `CUSTOM_TOOLS` | List of generic tool specs (includes web_search/data_to_chart/code_execution entries) |
+| `MCP_SERVERS` | List of MCP connector specs (handled separately in Phase 4 spec assembly) |
 | `TOOL_NAMES` | Dict: FQN → tool name |
 | `TOOL_DESCRIPTIONS` | Dict: tool name → approved description |
 | `SV_METADATA` | Dict: SV FQN → {tables, facts, dimensions, metrics} from DESCRIBE |

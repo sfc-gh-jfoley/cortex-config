@@ -101,6 +101,11 @@ Each iteration applies ONE mutation from `references/mutation-operators.md`:
 
 ## State Persistence
 
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
+
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG (
     ITERATION_ID VARCHAR,
