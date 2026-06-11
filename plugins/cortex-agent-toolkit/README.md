@@ -14,7 +14,7 @@ cortex plugin install sfc-gh-jfoley/cortex-agent-toolkit
 |---|---|---|
 | `cortex-agent-ddl` | Create or edit Cortex Agents using SQL DDL with auto-generated tool descriptions, 17-rule spec validation, tenant isolation (Phase 4b), and CI/CD deployment (Phase 8) | Building a new agent from a semantic view, editing an existing agent's spec, or deploying agents via CI/CD pipelines |
 | `agent-evaluation` | Run native Snowflake agent evaluations with ground-truth datasets | Measuring agent quality: answer correctness, tool selection accuracy, logical consistency |
-| `agent-flag-tester` | Compare 3 agent variants (BASE / AGENTIC / FASTPATH_OFF) side-by-side | Testing which experimental flag combination works best for your agent |
+| `agent-flag-tester` | Compare model variants (_MODEL_A/B/C: claude-sonnet vs openai-gpt-5 vs haiku) and conditional flag variants (_VQR, _CHART) side-by-side with statistical rigor | Finding the best model/config combination before committing to a final agent configuration |
 | `cortex-agent-optimization` | Iterative improvement loop with dev/test eval splits and accept/reject gates | Systematically improving an existing agent's accuracy over multiple iterations |
 | `cortex-agent-flags` | Reference for experimental flags and chart customization options | Looking up available flags, understanding what each flag does, adding flags to a spec |
 | `query-cortex-agent` | Invoke agents programmatically via SQL (DATA_AGENT_RUN / AGENT_RUN) | Quick agent testing, scripted invocations, multi-turn conversations |

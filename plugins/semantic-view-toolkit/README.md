@@ -19,7 +19,7 @@ cortex plugin install sfc-gh-jfoley/semantic-view-toolkit
 | `sv-optimization` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
 | `sv-gepa-optimizer` | Population-based evolutionary optimization via tournament selection | Sequential optimizer hit a plateau — explore broadly |
 | `sv-watch` | Drift detection, schema change monitoring, coverage decay alerts | Ongoing production maintenance |
-| `sv-composer` | Nested SV references + multi-SV agent composition patterns | Multiple domains that need to work together |
+| `sv-composer` | Multi-SV agent composition patterns (note: nested SVs referencing other SVs are not yet GA — use multi-tool Agent composition instead) | Multiple domains that need to work together in a single agent |
 | `vqr-generator` | Auto-generate verified query candidates from query history | Need more VQRs for eval coverage |
 
 ## Entry Point
