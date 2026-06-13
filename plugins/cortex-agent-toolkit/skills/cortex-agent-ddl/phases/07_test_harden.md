@@ -91,6 +91,8 @@ Note the file path as `SPEC_EXPORT_PATH`.
 
 > ⚠️ **MANDATORY — execute immediately.** Write this file now using the Write file tool. Do not defer, skip, or treat this as optional. This step must complete before Step 7.6.
 
+> **Schema reference:** `reference/handoff-schema.json` — canonical field definitions and types for this file. Downstream consumers (`agent-flag-tester`, `cortex-agent-optimization`) read from this contract.
+
 Write the following JSON to `./<AGENT_NAME>_handoff.json` (using the Write tool, not bash heredoc):
 
 ```json

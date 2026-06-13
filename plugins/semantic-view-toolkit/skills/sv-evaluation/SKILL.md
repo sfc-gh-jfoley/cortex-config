@@ -46,12 +46,25 @@ Parse the DDL output from DESCRIBE to count `verified_queries` entries. If 0 VQR
 Run grant checks:
 
 ```sql
--- Check CORTEX_USER role
-SELECT 1 FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) WHERE "privilege" = 'USAGE'; -- placeholder
--- Check EXECUTE TASK
+-- Check CORTEX_USER database role is granted to current role
+SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_USER;
+SELECT "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "grantee_name" = CURRENT_ROLE();
+-- If 0 rows: GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <ROLE>;
+
+-- Check EXECUTE TASK on account
 SHOW GRANTS ON ACCOUNT;
--- Check CREATE TASK on schema
+SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "grantee_name" = CURRENT_ROLE()
+  AND "privilege" = 'EXECUTE TASK';
+-- If 0 rows: GRANT EXECUTE TASK ON ACCOUNT TO ROLE <ROLE>;
+
+-- Check CREATE TASK and CREATE DATASET on schema
 SHOW GRANTS ON SCHEMA <DB>.<SCHEMA>;
+SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "grantee_name" = CURRENT_ROLE()
+  AND "privilege" IN ('CREATE TASK', 'CREATE DATASET');
+-- If fewer than 2 rows: GRANT CREATE TASK, CREATE DATASET ON SCHEMA <DB>.<SCHEMA> TO ROLE <ROLE>;
 ```
 
 Report any missing grants with remediation DDL:

@@ -49,6 +49,11 @@ If unsure which skill matches, ask the user.
 | query-cortex-agent | Query an existing agent via SQL | `plugins/cortex-agent-toolkit/skills/query-cortex-agent/` |
 | agent-gepa-optimizer | Evolutionary population-based agent optimization | `plugins/cortex-agent-toolkit/skills/agent-gepa-optimizer/` |
 
+> **Bundled Skill Override**: If the bundled `cortex-agent` or `semantic-view` skill was
+> just invoked, load the vault toolkit instead (see paths above). The bundled skills lack
+> the full lifecycle (eval → flag-test → optimize → GEPA). Exceptions: YAML/FastGen
+> and Tableau/PBI import stay on bundled semantic-view.
+
 ### Knowledge Graph & Ontology
 
 | Skill | When to use | Path |

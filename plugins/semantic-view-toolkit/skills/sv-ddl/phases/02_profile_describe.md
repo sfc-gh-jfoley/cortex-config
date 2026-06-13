@@ -185,7 +185,7 @@ For each column, build and execute a CORTEX.COMPLETE prompt.
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',  -- complete_fast alias from LLMs.md
+  '<complete_fast>',  -- complete_fast alias from LLMs.md — do not hardcode a model version
   CONCAT(
     'You are a data documentation expert. Generate metadata for a database column.\n',
     'Respond ONLY with a JSON object — no explanation, no markdown fences.\n\n',
@@ -218,7 +218,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',  -- complete_fast alias from LLMs.md
+  '<complete_fast>',  -- complete_fast alias from LLMs.md — do not hardcode a model version
   CONCAT(
     'Generate JSON metadata for these ', <N>, ' columns from table <table_name>.\n',
     'Business context: <BUSINESS_CONTEXT>\n',

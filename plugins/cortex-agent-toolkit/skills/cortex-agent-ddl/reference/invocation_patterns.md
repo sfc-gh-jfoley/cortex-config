@@ -229,16 +229,7 @@ SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
 
 ### Extract text answer
 
-```sql
-SELECT TRY_PARSE_JSON(
-  SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
-    'DB.SCHEMA.AGENT_NAME',
-    $${"messages":[{"role":"user","content":[{"type":"text","text":"<question>"}]}]}$$
-  )
-):content[7]:text::STRING;
-```
-
-> Content index `[7]` is typical after thinking/tool_use/tool_result cycles for claude-sonnet models. If empty, scan with `LATERAL FLATTEN`:
+Use FLATTEN with a type filter — `content[N]` indexing is model-specific and will silently return NULL when the response structure changes:
 
 ```sql
 WITH response AS (
@@ -256,6 +247,19 @@ WHERE f.value:type::STRING = 'text'
 ORDER BY f.index DESC
 LIMIT 1;
 ```
+
+> **Legacy/Debug only — do not use in production**: `content[7]:text::STRING` is index-specific
+> for claude-sonnet models only. Returns NULL silently if response structure changes (different
+> model, more tool cycles). For reference only:
+>
+> ```sql
+> SELECT TRY_PARSE_JSON(
+>   SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+>     'DB.SCHEMA.AGENT_NAME',
+>     $${"messages":[{"role":"user","content":[{"type":"text","text":"<question>"}]}]}$$
+>   )
+> ):content[7]:text::STRING;
+> ```
 
 ---
 

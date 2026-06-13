@@ -171,10 +171,9 @@ You are an intelligent router. Analyze the user's inquiry to determine the corre
 ```json
 {
   "models": {
-    "orchestration": "claude-sonnet-4-5"
+    "orchestration": "<default_agent>"  // Read ~/.snowflake/cortex/vault/LLMs.md for current value
   },
   "experimental": {
-    "EnableAgenticAnalyst": true,
     "EnableVQRFastPath": false
   },
   "orchestration": {

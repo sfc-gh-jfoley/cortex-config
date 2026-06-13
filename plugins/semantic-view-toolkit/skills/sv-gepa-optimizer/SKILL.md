@@ -51,12 +51,11 @@ DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
 Save the output to a local file for the scripts to reference (e.g., `/tmp/gepa_workspace/current_sv.sql`).
 
 ```sql
--- Check baseline score
-SELECT eval_name, mean_score, eval_timestamp
-FROM <DB>.<SCHEMA>._SV_TOOLKIT_META
-WHERE sv_name = '<SV_NAME>'
-  AND entry_type = 'EVAL_HISTORY'
-ORDER BY eval_timestamp DESC
+-- Check baseline score (reads from structured EVAL_HISTORY table written by sv-evaluation)
+SELECT run_name, mean_score, run_timestamp
+FROM <DB>._SV_TOOLKIT_META.EVAL_HISTORY
+WHERE sv_fqn LIKE '%<SV_NAME>%'
+ORDER BY run_timestamp DESC
 LIMIT 5;
 ```
 
@@ -110,9 +109,9 @@ Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
 Use the returned prompt with CORTEX.COMPLETE to generate the mutated DDL:
 
 ```sql
--- Use default_agent alias from ~/.snowflake/cortex/vault/LLMs.md (currently claude-sonnet-4-6)
+-- Read ~/.snowflake/cortex/vault/LLMs.md for current default_agent value — do not hardcode
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'claude-sonnet-4-6',
+    '<default_agent>',
     '<mutation_prompt_escaped>'
 ) AS mutated_ddl;
 ```
@@ -399,21 +398,20 @@ CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
 Record the GEPA run results:
 
 ```sql
-INSERT INTO <DB>.<SCHEMA>._SV_TOOLKIT_META (sv_name, entry_type, entry_data, entry_timestamp)
-SELECT
-    '<SV_NAME>',
-    'GEPA_RUN',
-    PARSE_JSON('{
-        "status": "<ACCEPTED|REJECTED|CONVERGED|FAILED>",
-        "generations": <G>,
-        "baseline_fitness": <BASELINE>,
-        "final_fitness": <FINAL_SCORE>,
-        "best_candidate": "<cand_id>",
-        "best_operator": "<winning_operator>",
-        "convergence_reason": "<reason>",
-        "operator_weights_final": <weights_json>
-    }'),
-    CURRENT_TIMESTAMP();
+-- Record final GEPA result in structured EVAL_HISTORY (matches sv-evaluation write schema)
+-- config_yaml carries GEPA-specific metadata as a serialized string
+INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_HISTORY
+    (run_name, sv_fqn, total_vqrs, mean_score, perfect_count, failed_count, regressions, config_yaml)
+VALUES (
+    CONCAT('<SV_NAME>', '_gepa_', TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD_HH24MISS')),
+    '<DB>.<SCHEMA>.<SV_NAME>',
+    <TOTAL_VQRS>,
+    <FINAL_SCORE>,
+    <PERFECT_COUNT>,
+    <FAILED_COUNT>,
+    <REGRESSIONS>,
+    '{"source":"gepa","status":"<ACCEPTED|REJECTED|CONVERGED|FAILED>","generations":<G>,"baseline_fitness":<BASELINE>,"best_candidate":"<cand_id>","best_operator":"<winning_operator>","convergence_reason":"<reason>","operator_weights_final":<weights_json>}'
+);
 ```
 
 Drop all remaining candidate SVs:

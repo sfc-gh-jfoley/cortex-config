@@ -22,14 +22,14 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 
 | # | Rule | How to check | Auto-fix |
 |---|------|-------------|----------|
-| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to value of `default_agent` alias from LLMs.md (currently `claude-sonnet-4-6`) |
+| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to value of `default_agent` alias from LLMs.md (see LLMs.md for current value) |
 | 2 | `instructions.orchestration` is present and non-empty (>50 chars) | `spec.instructions.orchestration` exists and length > 50 | Prompt user — cannot auto-generate without context |
 | 3 | Each `cortex_analyst_text_to_sql` tool has `tool_resources[name].execution_environment.type = "warehouse"` and `tool_resources[name].execution_environment.warehouse` is non-empty | For each `cortex_analyst_text_to_sql` tool name T: `spec.tool_resources[T].execution_environment.type == "warehouse"` and `spec.tool_resources[T].execution_environment.warehouse` is non-empty string. Also check no top-level `execution_environment` exists — if found, it must be removed. | Add `execution_environment: {type: "warehouse", warehouse: AGENT_WAREHOUSE}` inside each offending tool_resources entry; remove any top-level `execution_environment` block |
 | 4 | `tools` array is non-empty | `spec.tools.length > 0` | Cannot auto-fix — return to Phase 2 |
 | 5 | Every `tools[i].tool_spec.name` has a matching key in `tool_resources` | For each tool name T: `spec.tool_resources[T]` exists | Add empty `{}` entry for each missing key (Phase 2 mismatch) |
 | | **Exception — no-resource tools**: `web_search`, `data_to_chart`, and `code_execution` tools do NOT require a `tool_resources` entry. If these tool types appear in the `tools` array without a matching `tool_resources` key, this is correct — do not flag as an error. | | |
 | | **Exception — MCP tools**: MCP connectors do not appear in the `tools` array at all. They appear in the `mcp_servers` section instead. Validate that each entry in `mcp_servers` references an `EXTERNAL MCP SERVER` object that exists in Snowflake: `DESCRIBE EXTERNAL MCP SERVER <DATABASE>.<SCHEMA>.<SERVER_NAME>;` | | |
-| MCP server objects exist | For each entry in `mcp_servers`, verify the EXTERNAL MCP SERVER object exists via DESCRIBE | Deploy-time failure if missing |
+| 5b | MCP server objects exist | For each entry in `mcp_servers`, verify the EXTERNAL MCP SERVER object exists via DESCRIBE | Deploy-time failure if missing |
 | 6 | No duplicate `tool_spec.name` values across `tools[]` | Collect all names → check for duplicates | Rename duplicate by appending `_2`, `_3`, etc. |
 | 7 | `cortex_analyst_text_to_sql` tools: `tool_resources[name].semantic_view` is a 3-part FQN matching `X.Y.Z` | Regex: `\w+\.\w+\.\w+` on the value | Cannot auto-fix — surface to user with SHOW SEMANTIC VIEWS |
 | 8 | `cortex_search` tools: `tool_resources[name].name` is a 3-part FQN | Regex: `\w+\.\w+\.\w+` | Cannot auto-fix — surface to user |

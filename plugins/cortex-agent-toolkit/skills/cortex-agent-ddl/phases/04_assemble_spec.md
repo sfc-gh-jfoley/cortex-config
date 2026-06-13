@@ -17,8 +17,8 @@ This phase produces one artifact: `AGENT_SPEC` — the full spec JSON. No user i
 If not already specified by the user, recommend the `default_agent` alias from `~/.snowflake/cortex/vault/LLMs.md`:
 
 ```
-Recommended model: default_agent → claude-sonnet-4-6
-(Read LLMs.md to resolve current value. Best balance of instruction-following and speed.)
+Recommended model: use default_agent alias — read ~/.snowflake/cortex/vault/LLMs.md for current value. Do not hardcode a model version string.
+(Best balance of instruction-following and speed.)
 
 Other options: heavy_agent → claude-opus-4-7 (highest quality), fast_agent → claude-haiku-4-5 (fastest)
 Confirm model or override:

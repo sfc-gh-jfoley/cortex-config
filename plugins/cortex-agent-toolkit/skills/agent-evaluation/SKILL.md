@@ -29,6 +29,10 @@ GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
 GRANT MONITOR ON AGENT <database>.<schema>.<agent> TO ROLE <role>;
 ```
 
+> **invoke_agent.py requires a Personal Access Token (PAT)**: Set the `SNOWFLAKE_PAT` environment
+> variable before using the pre-flight batch test script (Phase 3B.3).
+> Store it via: `cortex secret store snowflake_pat --from-env SNOWFLAKE_PAT`
+
 ---
 
 ## Phase 1: Discover Agent
@@ -533,9 +537,9 @@ Questions: <N>
 ### 6.2 Update Agent (if instruction changes needed)
 
 ```sql
-CREATE OR REPLACE CORTEX AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>
+CREATE OR REPLACE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>
   COMMENT = 'Updated instructions based on eval run <RUN_NAME>'
-  AGENT_SPEC = $$
+  FROM SPECIFICATION $$
   <updated_spec>
   $$;
 ```

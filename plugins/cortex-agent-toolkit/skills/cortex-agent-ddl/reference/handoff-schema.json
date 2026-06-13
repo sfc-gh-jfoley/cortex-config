@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "handoff-schema.json",
+  "title": "Cortex Agent Handoff",
+  "description": "Schema for <AGENT_NAME>_handoff.json written by Phase 7 (07_test_harden.md). Consumed by agent-flag-tester (Phase 1 auto-load) and cortex-agent-optimization (DEV split seeding).",
+  "type": "object",
+  "required": [
+    "agent_fqn",
+    "agent_name",
+    "database",
+    "schema",
+    "connection",
+    "warehouse",
+    "model",
+    "tools",
+    "sample_questions",
+    "smoke_test_results",
+    "created_at",
+    "spec_export_path"
+  ],
+  "properties": {
+    "agent_fqn": {
+      "type": "string",
+      "description": "Fully-qualified agent name, e.g. MY_DB.PUBLIC.SALES_AGENT"
+    },
+    "agent_name": {
+      "type": "string",
+      "description": "Unqualified agent identifier"
+    },
+    "database": { "type": "string" },
+    "schema": { "type": "string" },
+    "connection": {
+      "type": "string",
+      "description": "Cortex Code connection name used to create the agent"
+    },
+    "warehouse": {
+      "type": "string",
+      "description": "execution_environment warehouse for the agent"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model alias used (e.g. default_agent — see ~/.snowflake/cortex/vault/LLMs.md)"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "source_fqn"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["ANALYST", "CORTEX_SEARCH", "PYTHON", "SQL"]
+          },
+          "source_fqn": {
+            "type": "string",
+            "description": "FQN of the semantic view or cortex search service"
+          }
+        }
+      }
+    },
+    "sample_questions": {
+      "description": "Array of sample question strings used for smoke tests and eval seeding"
+    },
+    "smoke_test_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question", "score", "status"],
+        "properties": {
+          "question": { "type": "string" },
+          "score": { "type": "number" },
+          "status": { "type": "string", "enum": ["PASS", "WARN", "FAIL"] },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the handoff file was written"
+    },
+    "spec_export_path": {
+      "type": "string",
+      "description": "Absolute path to the exported agent spec JSON file"
+    }
+  }
+}

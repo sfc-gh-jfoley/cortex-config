@@ -44,7 +44,7 @@ That's it. The sections below cover each phase in detail.
 
 ## Phase A: Build Your Semantic View
 
-> **This phase uses the `semantic-view-ddl` plugin** (installed separately). See the [semantic-view-ddl Customer Guide](../semantic-view-ddl/CUSTOMER_GUIDE.md) for the full 8-phase walkthrough.
+> **This phase uses the `semantic-view-toolkit` plugin** (installed separately). See the semantic-view-toolkit Customer Guide at `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/CUSTOMER_GUIDE.md` for the full SV creation walkthrough.
 
 A Cortex Agent needs at least one **semantic view** to answer data questions. A semantic view tells Cortex Analyst what your tables contain, how they relate, and what business terms map to which columns.
 
@@ -271,11 +271,13 @@ Run a flag test on my agent MY_DB.PUBLIC.SALES_AGENT
 
 ### The three variants
 
+> **Note (Apr 2026):** `EnableAgenticAnalyst` is now **default behavior** and the flag is obsolete. The AGENTIC and FASTPATH_OFF variants below are preserved for historical reference but will not differ from BASE on accounts running Apr 2026+ releases. Use **model comparison** as your primary first sweep instead (the skill prompts for this automatically).
+
 | Variant | Flags | What it tests |
 |---|---|---|
 | BASE | No experimental flags | Baseline behavior (simplest reasoning path) |
-| AGENTIC | `EnableAgenticAnalyst: true` | Enhanced multi-step reasoning for text-to-SQL |
-| FASTPATH_OFF | `EnableAgenticAnalyst: true`, `EnableVQRFastPath: false` | Full reasoning on every question (no shortcut for verified queries) |
+| AGENTIC *(deprecated Apr 2026)* | `EnableAgenticAnalyst: true` | Was: enhanced multi-step reasoning — now default, no longer distinct |
+| FASTPATH_OFF *(deprecated Apr 2026)* | `EnableAgenticAnalyst: true`, `EnableVQRFastPath: false` | Full reasoning on every question (no shortcut for verified queries) |
 
 ### What happens
 

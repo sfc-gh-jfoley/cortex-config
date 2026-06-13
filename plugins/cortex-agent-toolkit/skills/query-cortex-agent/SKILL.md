@@ -74,7 +74,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "<USER_QUESTION>"}]
         }
       ],
-      "models": {"orchestration": "claude-sonnet-4-6"},  // default_agent alias — see LLMs.md
+      "models": {"orchestration": "<default_agent>"},  // Read ~/.snowflake/cortex/vault/LLMs.md for current value
       "stream": false
     }$$
   )
@@ -100,7 +100,21 @@ The response JSON has this structure:
 }
 ```
 
-Extract the `text` entries from the `content` array to present the agent's answer to the user.
+Extract `text` entries using FLATTEN with a type filter — `content[N]` indexing is model-specific and will silently return NULL when the response structure changes:
+
+```sql
+WITH resp AS (
+  SELECT TRY_PARSE_JSON(
+    SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+      '<DATABASE>.<SCHEMA>.<AGENT_NAME>',
+      $${"messages":[{"role":"user","content":[{"type":"text","text":"<USER_QUESTION>"}]}]}$$
+    )
+  ) AS r
+)
+SELECT f.value:text::STRING AS answer_text
+FROM resp, LATERAL FLATTEN(input => r:content) f
+WHERE f.value:type::STRING = 'text';
+```
 
 ### Step 5 (Optional): Multi-Turn Conversation
 

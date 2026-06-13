@@ -32,6 +32,9 @@ triggers:
   - tune my sv
 ---
 
+> **This toolkit is the source of truth for SV lifecycle work.** If the bundled `semantic-view`
+> skill loaded you, follow this toolkit instead (except YAML/FastGen + Tableau/PBI import).
+
 # Semantic View Toolkit
 
 Full lifecycle management for Snowflake Semantic Views — from discovery through optimization.
@@ -179,7 +182,7 @@ See `references/composable-sv-patterns.md` for syntax and design guidance.
 |---|---|
 | `cortex-agent-toolkit` | **Downstream consumer.** sv-composer generates hand-off docs for cortex-agent-ddl. |
 | `ontology-demo` (kg-data-discovery) | **Upstream feeder.** KG discovery can identify SV candidates; graduated domains use curated SVs. |
-| Bundled `semantic-view` skill | **Complementary.** Bundled skill handles YAML/FastGen path and Snowsight optimization. This toolkit handles DDL path, programmatic eval, and automated optimization. |
+| Bundled `semantic-view` skill | **Superseded** for DDL/eval/optimize/audit/GEPA/VQR. Bundled handles YAML/FastGen + Tableau/PBI import only. Load this toolkit for all other SV work. |
 
 ---
 
