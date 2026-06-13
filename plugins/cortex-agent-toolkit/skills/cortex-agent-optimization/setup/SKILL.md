@@ -125,6 +125,7 @@ For split assignment (~45% DEV, ~55% TEST, stratified by category), load `eval-d
 
 Create views for each split:
 ```sql
+-- Rollback gate: Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
 CREATE OR REPLACE VIEW <DATABASE>.<SCHEMA>.AGENT_EVAL_DEV AS
 SELECT * FROM <EVAL_TABLE> WHERE SPLIT = '<DEV_SPLIT_VALUE>';
 
@@ -192,6 +193,8 @@ Initialize `<WORKSPACE_ROOT>/<AGENT_DIR>/optimization_log.md`:
 ```
 
 ## Step 7: Run Baseline Eval
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
 
 Build and deploy current instructions to confirm the pipeline works:
 ```bash

@@ -164,6 +164,11 @@ See `references/queryable-objects.md` for detection patterns and INFORMATION_SCH
 
 ## Composable SV Patterns
 
+> ⚠️ **Nested SVs (Pattern 1) are not yet GA — Private Preview only.**
+> Do not recommend nested SVs to customers. Default to Pattern 2 (Multi-SV Agent Composition)
+> for all production accounts. See sv-composer/SKILL.md and sv-ddl/reference/ddl_syntax.md
+> for the full caveat.
+
 Two composition patterns supported by `sv-composer`:
 
 ### Pattern 1: Nested SVs

@@ -117,7 +117,10 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND its exp
   COMMENT = '<description>'
 ```
 
-> ⚠️ **FILTER Deployment Guard**: Before emitting ANY `LABELS = (FILTER)` entries, run a feature probe first (see Step 5.0.5 above). If the probe fails, emit these as plain boolean facts WITHOUT the LABELS clause — they still work as boolean expressions that Cortex Analyst can use in WHERE clauses, just without the explicit FILTER semantic hint.
+> ⚠️ **FILTER Deployment Guard**: Verify the `AS` expression resolves to BOOLEAN type (Step 5.0.5
+> inspection). If the expression is not boolean, emit as a plain fact WITHOUT the LABELS clause.
+> The runtime probe (in Phase 6) will confirm account support; if Phase 6 probe fails, return
+> here and regenerate without FILTER labels.
 
 **Duplicate column names across source objects**: if two objects both have `AMOUNT`, define it in **one table only** (the primary source). Skip the duplicate in the other table.
 
@@ -135,7 +138,7 @@ For each column with `class = "DIMENSION"` or `class = "TIME_DIMENSION"`:
 
 Same alias rule applies: alias must match the source column name for direct references.
 
-If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOLEAN type, emit the FILTER label (only if Step 5.0.5 probe passed):
+If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOLEAN type, emit the FILTER label:
 ```sql
 <table_alias>.<dim_name>
   LABELS = ( FILTER )
@@ -143,7 +146,9 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOL
   COMMENT = '<description>'
 ```
 
-> If the FILTER probe failed in Step 5.0.5, emit these as plain boolean dimensions without LABELS.
+> Verify the `AS` expression is BOOLEAN type (Step 5.0.5 inspection). The runtime probe in
+> Phase 6 confirms account support. If Phase 6 probe fails, return here and regenerate
+> without FILTER labels.
 
 For computed dimensions (e.g. extracting year from date):
 ```sql
@@ -293,7 +298,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | WITH SYNONYMS and COMMENT on column entries | WARN if missing. The skill should auto-generate both from Phase 2 profiling. If absent, note degraded Analyst quality but do not block. |
 | String literals in metric expressions use single-quotes with NO extra escaping — `COUNT_IF(OUTCOME = 'WON')` is correct; `COUNT_IF(OUTCOME = ''WON'')` is **wrong** and will fail at execution | Scan every `AS <aggregate_expr>` in METRICS for `''` double-quote patterns |
 | Non-standard column names (from `NON_STANDARD_COLUMNS`) are double-quoted **everywhere** they appear: in `AS <alias>`, inside computed expressions, and in `AI_SQL_GENERATION` examples. Use `REPLACE(col_name, '"', '""')` for names that themselves contain a double-quote character. Example: `t."user@email.com" AS "user@email.com"`. Standard names (`[A-Z0-9_]` only, not starting with digit) need no quoting. | Cross-reference every column name in FACTS/DIMENSIONS/METRICS against `NON_STANDARD_COLUMNS`; fail if any appears unquoted |
-| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. |
+| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. The runtime account-support probe runs in Phase 6. |
 | Window metric references valid inner metric | For every window function metric, verify the inner `<metric_ref>` exists as a defined metric in the same table's METRICS section. Missing inner metrics will fail at creation. |
 | PARTITION BY EXCLUDING dims are accessible | For every `PARTITION BY EXCLUDING <dims>`, verify each excluded dimension is defined and accessible from the same entity. Inaccessible dims cause silent wrong results. |
 | ASOF column type is DATE/TIMESTAMP/NUMBER | For every ASOF relationship, verify the ASOF-marked column's data type is DATE, TIMESTAMP_*, or NUMBER. Other types are not supported for point-in-time joins. |

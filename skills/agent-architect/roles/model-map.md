@@ -8,12 +8,12 @@ Right-size models per role. Not everything needs Opus.
 
 | Role | Model ID | Rationale |
 |---|---|---|
-| **Architect** | `claude-opus-4-7` (`current_opus`) | Complex reasoning: plan synthesis, cross-team consistency, decision records, escalation judgment |
-| **Researcher** | `claude-sonnet-4-6` (`current_sonnet`) | Fast read-only exploration. Doesn't need deep reasoning — gathers facts, reports structure |
-| **Security Architect** | `claude-sonnet-4-6` (`current_sonnet`) | Checklist-driven structured output. Security patterns are well-defined — Sonnet handles them correctly |
-| **Worker** | `claude-sonnet-4-6` (`current_sonnet`) | Code generation + TDD loop. Sonnet is strong at implementation given clear specs |
-| **Tester** | `openai-gpt-5.2` (`tester_model`) | Cross-model independence: GPT catches Claude Worker blind spots. Checklist-driven structured output — different training = different failure modes caught |
-| **Team Architect** | `claude-sonnet-4-6` (`current_sonnet`) | Executes a pre-defined charter from the Primary Architect. Charter scope is bounded — Primary already did cross-team synthesis and decomposition |
+| **Architect** | `current_opus` (currently resolves to `claude-opus-4-7`) | Complex reasoning: plan synthesis, cross-team consistency, decision records, escalation judgment |
+| **Researcher** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Fast read-only exploration. Doesn't need deep reasoning — gathers facts, reports structure |
+| **Security Architect** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Checklist-driven structured output. Security patterns are well-defined — Sonnet handles them correctly |
+| **Worker** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Code generation + TDD loop. Sonnet is strong at implementation given clear specs |
+| **Tester** | `tester_model` (currently resolves to `openai-gpt-5.2`) | Cross-model independence: GPT catches Claude Worker blind spots. Checklist-driven structured output — different training = different failure modes caught |
+| **Team Architect** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Executes a pre-defined charter from the Primary Architect. Charter scope is bounded — Primary already did cross-team synthesis and decomposition |
 
 ## When to Override
 
@@ -34,7 +34,7 @@ Every `Task()` call in the framework MUST include the `model` parameter:
 ```python
 Task(
     subagent_type="general-purpose",
-    model="claude-sonnet-4-6",   # current_sonnet — see LLMs.md
+    model="current_sonnet",   # resolve via LLMs.md
     ...
 )
 ```

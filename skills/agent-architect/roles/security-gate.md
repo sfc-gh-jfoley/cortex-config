@@ -44,7 +44,7 @@ For tasks where `is_major_change: true`, invoke a second model family:
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'llama3.1-70b',
+    'llama3.1-70b',  -- LLMs.md alias: complete_quality — SQL string literal cannot resolve alias; update manually if that alias changes
     CONCAT(
         'You are a security reviewer. Review this code for vulnerabilities. ',
         'Focus on: injection, auth bypass, data exposure, privilege escalation. ',

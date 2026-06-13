@@ -85,7 +85,7 @@ Consecutive rejections: 1
 | `score_current >= ACCURACY_TARGET` | **Done** — target reached |
 | `consecutive_rejections >= 3` | **Escalate** → sv-gepa-optimizer (local optimum) |
 | `consecutive_rejections < 3` | **Continue** → run another optimize iteration |
-| `iterations_total >= 10 AND delta < 5%` | **Escalate** → sv-gepa-optimizer (slow convergence) |
+| `iterations_total >= 10 AND total_improvement < 5%` | **Escalate** → sv-gepa-optimizer (slow convergence) |
 
 Present recommendation:
 ```

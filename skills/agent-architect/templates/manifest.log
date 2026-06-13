@@ -10,7 +10,6 @@
 #   RESEARCH_COMPLETE — Phase 1 done, all researchers returned
 #   PLAN_APPROVED — Phase 2 done, user confirmed plan
 #   STARTED — worker began a task
-#   COMMITTED — worker pushed code to branch
 #   DONE — task fully complete (worker shipped, or gate passed)
 #   BLOCKED — worker cannot proceed (dependency or build loop)
 #   REJECTED — SecArch rejected the task

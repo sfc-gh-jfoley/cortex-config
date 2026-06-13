@@ -20,19 +20,30 @@ CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_P
 
 ## Starting an Evaluation
 
+**Canonical approach: upload config to a stage, then pass the stage path.**
+This is more robust than inline strings for large configs and keeps GEPA generation history auditable.
+
 ```sql
--- Start evaluation
+-- Step 1: Create stage (if not exists)
+CREATE STAGE IF NOT EXISTS <DB>.<SCHEMA>.SV_EVAL_CONFIGS
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
+```
+
+Write config YAML to a local temp file, upload it, then call:
+
+```sql
+-- Step 2: Upload config
+PUT file:///tmp/<eval_config>.yaml
+  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
+  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+
+-- Step 3: Start evaluation (stage-path reference)
 CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
     '<evaluation_name>',
     '<semantic_view_fqn>',
-    '<eval_config_yaml>'
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<eval_config>.yaml'
 );
 ```
-
-The eval config YAML specifies:
-- Which VQRs to evaluate (question strings)
-- Which metrics to compute (typically `sql_correctness`)
-- Optional parameters (model, temperature)
 
 ## Polling Pattern
 

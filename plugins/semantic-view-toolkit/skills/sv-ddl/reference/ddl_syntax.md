@@ -401,9 +401,89 @@ DROP SEMANTIC VIEW IF EXISTS <db>.<schema>.__FILTER_PROBE;
 
 ---
 
-## Verified queries — column reference behavior
+## ALTER SEMANTIC VIEW — sub-command reference
 
-When you write SQL inside `AI_VERIFIED_QUERIES`, the engine automatically transforms column references:
+Sub-commands for modifying an existing semantic view in-place. Documented as used in
+`skills/sv-evaluation/references/failure-analysis.md`.
+
+> ⚠️ **Syntax not fully confirmed against Snowflake docs.** Commands below are
+> derived from usage in failure-analysis.md. Verify with `SHOW COMMANDS LIKE 'ALTER SEMANTIC VIEW'`
+> or Snowflake documentation before using in production. If a command fails, use
+> `CREATE OR REPLACE SEMANTIC VIEW` with the full updated DDL instead.
+
+> **Note on ADD VERIFIED QUERY:** `ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY` is **not supported**
+> (syntax error). To add VQRs, use `CREATE OR REPLACE SEMANTIC VIEW` with the updated
+> `AI_VERIFIED_QUERIES` clause appended. See `vqr-generator/SKILL.md` Phase 5 for the workflow.
+
+### Relationship sub-commands
+
+```sql
+-- Add a new relationship
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ADD RELATIONSHIP <rel_name>
+    FROM <left_table> (<fk_col>) REFERENCES <right_table> (<pk_col>)
+    RELATIONSHIP_TYPE = MANY_TO_ONE;
+
+-- Modify relationship type
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ALTER RELATIONSHIP <rel_name>
+    SET RELATIONSHIP_TYPE = MANY_TO_ONE;
+```
+
+### Column sub-commands
+
+```sql
+-- Set or update a column description
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ALTER COLUMN <table_alias>.<column_name>
+    SET COMMENT = '<new description>';
+
+-- Set or replace synonyms on a column
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ALTER COLUMN <table_alias>.<column_name>
+    SET SYNONYMS = ('<syn1>', '<syn2>');
+
+-- Mark a column as a time dimension
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ALTER COLUMN <table_alias>.<column_name>
+    SET IS_TIME_DIMENSION = TRUE;
+
+-- Drop a column from the SV
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  DROP COLUMN <table_alias>.<column_name>;
+```
+
+### Metric sub-commands
+
+```sql
+-- Add a new metric
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ADD METRIC <table_alias>.<metric_name>
+    EXPR = '<aggregate_sql_expr>'
+    DESCRIPTION = '<description>'
+    DEFAULT_AGGREGATION = <AGG_FUNC>;
+
+-- Modify an existing metric's expression or aggregation
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ALTER METRIC <table_alias>.<metric_name>
+    SET EXPR = '<new_aggregate_expr>'
+    SET DEFAULT_AGGREGATION = <AGG_FUNC>;
+```
+
+### Filter sub-commands
+
+```sql
+-- Add a named filter (boolean predicate usable as a WHERE clause hint)
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ADD FILTER <filter_name>
+    ON <table_alias>
+    EXPR = '<boolean_sql_expr>'
+    DESCRIPTION = '<description>';
+```
+
+---
+
+## Verified queries — column reference behavior
 
 - **Write**: `SELECT customer_name, SUM(total_amount) FROM ...`
 - **Engine stores**: `SELECT __orders.customer_name, SUM(__orders.total_amount) FROM ...`

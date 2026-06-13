@@ -72,29 +72,29 @@ USE SCHEMA <SCHEMA>;
 
 ### Ground Truth Not Parsed (Expected tools: [])
 
-The table schema is wrong. Verify:
+The table schema may be wrong. Verify:
 
-1. Column name is `EXPECTED_TOOLS` (not GROUND_TRUTH)
-2. Column type is `VARCHAR` (not OBJECT/VARIANT)
-3. JSON is inserted as plain string (no PARSE_JSON)
+1. Column name is `GROUND_TRUTH` (not EXPECTED_TOOLS)
+2. Column type is `VARIANT` (not VARCHAR or OBJECT)
+3. JSON is inserted using `PARSE_JSON('{...}')`, not as a plain string
 4. JSON uses `ground_truth_invocations` with `tool_name`/`tool_sequence`
 
 ```sql
 -- Verify format
 DESC TABLE <EVAL_TABLE>;
--- Should show: INPUT_QUERY VARCHAR, EXPECTED_TOOLS VARCHAR
+-- Should show: INPUT_QUERY VARCHAR, GROUND_TRUTH VARIANT, SPLIT VARCHAR
 
-SELECT INPUT_QUERY, EXPECTED_TOOLS FROM <EVAL_TABLE> LIMIT 3;
+SELECT INPUT_QUERY, GROUND_TRUTH:ground_truth_output::STRING FROM <EVAL_TABLE> LIMIT 3;
 ```
 
 **Wrong formats (will show empty expected tools):**
 ```
-["tool1", "tool2"]
-{"tools": ["tool1"]}
-{"expected_tools": ["tool1"]}
+[\"tool1\", \"tool2\"]
+{\"tools\": [\"tool1\"]}
+{\"expected_tools\": [\"tool1\"]}
 ```
 
-**Correct format:**
+**Correct format (VARIANT, inserted via PARSE_JSON):**
 ```json
 {"ground_truth_invocations": [{"tool_name": "tool1", "tool_sequence": 1}], "ground_truth_output": "Brief answer."}
 ```

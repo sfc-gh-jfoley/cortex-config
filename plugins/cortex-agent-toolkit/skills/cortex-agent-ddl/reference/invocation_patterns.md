@@ -30,8 +30,6 @@ SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
 );
 ```
 
-> **Note on `stream` parameter**: The `stream` key is only meaningful for REST API invocations. In SQL-based invocations via `DATA_AGENT_RUN`, it is ignored — responses are always returned as a complete JSON object.
-
 ---
 
 ## Multi-turn conversations

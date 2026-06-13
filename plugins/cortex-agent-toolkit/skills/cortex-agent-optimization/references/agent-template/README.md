@@ -65,4 +65,4 @@ Description for second tool
 ```
 
 **spec_base.json:**
-Must include: `name`, `model`, `tools` array (with tool names/types), `tool_resources`, and `budget`.
+Must include: `models.orchestration`, `orchestration.budget` (under `orchestration`), and `tools` array (with `tool_spec.type` and `tool_spec.name` per tool). Does NOT include a top-level `name` or `tool_resources` — those are resolved at build time from `metadata.yaml` and descriptions from `tool_descriptions.md`.

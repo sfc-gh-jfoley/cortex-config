@@ -20,7 +20,7 @@ If not already specified by the user, recommend the `default_agent` alias from `
 Recommended model: use default_agent alias — read ~/.snowflake/cortex/vault/LLMs.md for current value. Do not hardcode a model version string.
 (Best balance of instruction-following and speed.)
 
-Other options: heavy_agent → claude-opus-4-7 (highest quality), fast_agent → claude-haiku-4-5 (fastest)
+Other options: heavy_agent (highest quality), fast_agent (fastest) — resolve from `~/.snowflake/cortex/vault/LLMs.md`
 Confirm model or override:
 ```
 

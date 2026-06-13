@@ -86,9 +86,11 @@ Only Claude and OpenAI models are supported for agent orchestration. Open-weight
 
 ### Speed Recommendations
 
-- **Demo / latency-sensitive**: `claude-haiku-4-5` or `openai-gpt-5-mini`
-- **Production default**: `claude-sonnet-4-6`
-- **Maximum accuracy**: `claude-opus-4-7` or `openai-gpt-5.2`
+> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before using in specs.
+
+- **Demo / latency-sensitive**: `fast_agent` alias (e.g. claude-haiku class) or `openai_fast` alias
+- **Production default**: `default_agent` alias (e.g. current Sonnet class)
+- **Maximum accuracy**: `heavy_agent` alias (e.g. current Opus class) or `openai_heavy` alias
 
 > **Note**: `auto` resolves to a Sonnet-class model. For explicit speed control, set the model directly.
 
@@ -446,14 +448,16 @@ SELECT SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
 );
 ```
 
-Extract text answer:
+Extract text answer (use FLATTEN — portable across all accounts):
 ```sql
 SELECT TRY_PARSE_JSON(
   SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
     'DB.SCHEMA.AGENT_NAME',
-    $${"messages":[{"role":"user","content":[{"type":"text","text":"<question>"}]}]}$$
+    $${{"messages":[{{"role":"user","content":[{{"type":"text","text":"<question>"}}]}}]}}$$
   )
 ):content[7]:text::STRING;
 ```
 
-> Content index `[7]` is typical after thinking/tool_use/tool_result cycles for claude-sonnet models. If empty, try `[5]`, `[6]`, or scan with `FLATTEN`.
+> ⚠️ **Debug/legacy only** — `content[N]` indexing is model-specific and will silently return NULL when
+> the response structure changes. Use the FLATTEN pattern from `invocation_patterns.md` for all
+> non-debug purposes: filter `content` array by `type = 'text'` instead of hardcoding an index.

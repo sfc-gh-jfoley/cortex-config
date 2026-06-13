@@ -410,7 +410,7 @@ For `is_major_change` tasks: Primary Architect ALSO reviews after Team's SecArch
 for each charter:
     Task(
         subagent_type="general-purpose",
-        model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+        model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
         run_in_background=True,
         worktree_isolation=True,
         team_name="arch-<slug>",
@@ -432,7 +432,7 @@ Run Phases 1-5 for your charter only. On completion:
 ```python
 Task(
     subagent_type="general-purpose",
-    model="claude-opus-4-7",  # current_opus alias — see ~/.snowflake/cortex/vault/LLMs.md
+    model="current_opus",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
     run_in_background=True,
     name="primary-arch-<slug>",
     prompt="You are the Primary Architect for <slug>. [inject full SKILL.md + role files]. Run Phases 0-6."
@@ -538,27 +538,27 @@ Every agent spawn MUST include the `model` parameter from `roles/model-map.md`:
 
 ```python
 # Researcher
-Task(subagent_type="Explore", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="Explore", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True,
      team_name="arch-<slug>", name="researcher-<topic>", prompt="...")
 
 # Worker
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, worktree_isolation=True,
      team_name="arch-<slug>", name="worker-<task_id>", prompt="...")
 
 # SecArch
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="secarch-<task_id>", prompt="...")
 
 # Tester
-Task(subagent_type="general-purpose", model="openai-gpt-5.2",  # tester_model alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="tester_model",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="tester-<task_id>", prompt="...")
 
 # Team Architect (multi-team headless only — spawned by Primary Architect)
-Task(subagent_type="general-purpose", model="claude-sonnet-4-6",  # current_sonnet alias — see ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, worktree_isolation=True,
      team_name="arch-<slug>", name="team-arch-<N>-<slug>", prompt="...")
 ```

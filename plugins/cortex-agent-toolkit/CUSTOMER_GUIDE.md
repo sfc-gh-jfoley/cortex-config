@@ -186,6 +186,8 @@ Evaluate my agent MY_DB.PUBLIC.SALES_AGENT
 
 **Output:** Evaluation scores, a failure analysis, and actionable fix recommendations. Results are also viewable in the Snowsight Evaluations UI.
 
+> **Note for Phase D/E:** The evaluation dataset produced here uses the canonical Schema B: table `<AGENT_NAME>_EVAL` with columns `TEST_ID` (AUTOINCREMENT), `TEST_CATEGORY`, `INPUT_QUERY`, `GROUND_TRUTH` (VARIANT), and `SPLIT`. Phases D and E read this table directly — the schema must match for the optimization loop to work.
+
 ---
 
 ## Phase D: Optimize Your Agent
@@ -235,7 +237,7 @@ Optimize my agent MY_DB.PUBLIC.SALES_AGENT
 - **Dev/test split**: Your evaluation dataset is split into a dev set (for analysis) and a test set (for validation). You never look at test failures to decide what to change — this prevents overfitting.
 - **One change per iteration**: Each iteration makes one targeted fix (e.g., "add retry guidance for multi-hop questions"). This makes it clear what helped and what didn't.
 - **Accept/reject gates**: After each iteration, you (or the skill in autonomous mode) decide whether the change is kept or reverted.
-- **Stopping criteria**: If 2-3 consecutive iterations are rejected on the same failure pattern, the local optimum is reached.
+- **Stopping criteria**: If 3 consecutive iterations are rejected on the same failure pattern, the local optimum is reached.
 
 ### Optimization patterns that work
 
@@ -379,7 +381,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "What were total sales last month?"}]
         }
       ],
-      "models": {"orchestration": "claude-4-sonnet"},
+      "models": {"orchestration": "auto"},
       "tools": [...],
       "tool_resources": {...},
       "stream": false

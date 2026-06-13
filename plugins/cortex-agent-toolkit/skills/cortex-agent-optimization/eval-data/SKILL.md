@@ -52,6 +52,9 @@ If any category has fewer than 6 total questions, it cannot achieve ≥3 per spl
 ### Step 4: Present and Execute
 
 Generate `UPDATE` SQL to set the `SPLIT` column for each `TEST_ID`:
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 ```sql
 UPDATE <EVAL_TABLE> SET SPLIT = '<DEV_SPLIT_VALUE>' WHERE TEST_ID IN (...);
 UPDATE <EVAL_TABLE> SET SPLIT = '<TEST_SPLIT_VALUE>' WHERE TEST_ID IN (...);
@@ -108,6 +111,9 @@ For each flagged category, propose specific `TEST_ID` moves between splits to br
 ### Step 3: Present and Execute
 
 Generate `UPDATE` SQL for the proposed moves:
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 ```sql
 UPDATE <EVAL_TABLE> SET SPLIT = '<DEV_SPLIT_VALUE>' WHERE TEST_ID IN (...);
 UPDATE <EVAL_TABLE> SET SPLIT = '<TEST_SPLIT_VALUE>' WHERE TEST_ID IN (...);
@@ -160,6 +166,9 @@ Show before/after distribution if merge proceeds:
 ### Step 3: Execute Merge
 
 Generate UPDATE SQL:
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 ```sql
 UPDATE <EVAL_TABLE> 
 SET TEST_CATEGORY = '<TARGET_CATEGORY>' 

@@ -1,3 +1,22 @@
+---
+name: sv-gepa-optimizer
+description: >
+  Population-based evolutionary optimization for Snowflake Semantic Views using
+  Genetic Evaluation and Parameter Adaptation (GEPA). Explores the SV structure
+  space broadly when sequential optimization has stalled.
+triggers:
+  - GEPA
+  - gepa optimizer
+  - evolutionary optimization
+  - population-based sv optimization
+  - sv gepa
+  - hit a wall
+  - plateau
+  - local optimum
+  - broad search
+  - evolutionary search
+---
+
 # sv-gepa-optimizer
 
 Population-based evolutionary optimization for Snowflake Semantic Views using Genetic Evaluation and Parameter Adaptation (GEPA).
@@ -67,6 +86,11 @@ ls /tmp/gepa_workspace/gepa_state.yaml 2>/dev/null
 ```
 
 ### Step 2: Resume or Initialize
+
+> **Script path note:** All `scripts/` commands below assume CWD is the plugin root:
+> `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/`
+> If running from another directory, prefix each script path accordingly, e.g.:
+> `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/scripts/population_state.py`
 
 **If `gepa_state.yaml` exists → Resume Protocol** (see end of document)
 
@@ -202,20 +226,37 @@ The script returns a JSON array of selected question strings and records the bat
 
 ### Step 7: Fire Evaluations
 
-For each candidate, start an AI evaluation using the mini-batch VQRs:
+For each candidate, write the mini-batch eval config to a file, upload to stage, and launch:
+
+```bash
+# Write mini-batch eval config for this candidate
+cat > /tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml << 'EOF'
+evaluation:
+  analyst_params:
+    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>"
+    analyst_type: "SEMANTIC VIEW"
+  source_metadata:
+    type: "verified_queries"
+    verified_queries:
+      - "<question_1>"
+      - "<question_2>"
+      # ... (selected mini-batch questions from Step 6)
+  metrics:
+    - "sql_correctness"
+EOF
+```
 
 ```sql
+-- Upload config to eval stage
+PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
+  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
+  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+
+-- Launch evaluation (stage-path reference — canonical convention per eval-polling.md)
 CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
     '<SV_NAME>__gen<G>__cand_<N>',
     '<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>',
-    $$
-    metrics:
-      - sql_correctness
-    questions:
-      - "What is total revenue?"
-      - "Show top customers by region"
-      ... (selected mini-batch questions)
-    $$
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gen<G>_cand<N>.yaml'
 );
 ```
 
@@ -352,14 +393,29 @@ CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
 
 Run a complete evaluation using ALL VQRs (not mini-batch):
 
+```bash
+# Write final eval config (all VQRs — omit verified_queries list to evaluate all embedded VQRs)
+cat > /tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml << 'EOF'
+evaluation:
+  analyst_params:
+    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>"
+    analyst_type: "SEMANTIC VIEW"
+  source_metadata:
+    type: "verified_queries"
+  metrics:
+    - "sql_correctness"
+EOF
+```
+
 ```sql
+PUT file:///tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml
+  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
+  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+
 CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
     '<SV_NAME>__gepa_final',
     '<DB>.<SCHEMA>.<SV_NAME>',
-    $$
-    metrics:
-      - sql_correctness
-    $$
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gepa_final.yaml'
 );
 ```
 

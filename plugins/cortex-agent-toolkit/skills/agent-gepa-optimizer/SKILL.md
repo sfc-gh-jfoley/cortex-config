@@ -5,7 +5,7 @@ description: "Population-based evolutionary optimization of agent instructions u
 
 ## When to Use
 
-Use when the sequential optimizer (the `cortex-agent-optimization` skill) has hit a local optimum (2-3 consecutive rejections) or when you want to explore the instruction space more broadly before committing to a direction.
+Use when the sequential optimizer (the `cortex-agent-optimization` skill) has hit a local optimum (3 consecutive rejections) or when you want to explore the instruction space more broadly before committing to a direction.
 
 ## Prerequisites
 
@@ -124,6 +124,8 @@ Execute the returned SQL to create view `<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>`
 
 For each candidate:
 
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 1. Build spec:
    ```bash
    python scripts/build_agent_spec.py --json \
@@ -214,6 +216,8 @@ Load `references/convergence-criteria.md`. Evaluate stop conditions:
 ## Phase 4: Validate Winner
 
 ### Step 12: Deploy Winner as Primary
+
+> **Rollback gate (emphasize):** Ask the user: "Want me to create a rollback clone first? This step overwrites the production agent — a clone is strongly recommended." Execute on confirmation.
 
 Copy winner's `agent/*.md` files to `<WORKSPACE_ROOT>/<AGENT_DIR>/agent/` (replacing current).
 Build and deploy via standard pipeline:

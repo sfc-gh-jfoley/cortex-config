@@ -270,12 +270,12 @@ Which tenant isolation pattern fits your architecture?
 
   Pattern C — Session attribute (most flexible, requires trusted middleware)
     Tenant identity is injected via session variable at connection time.
-    RAP filters on: GETVARIABLE('tenant_id') or SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
+    RAP filters on: SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
     Best for: connection-pooled apps, API gateways, multi-tenant SaaS.
     ⚠️  SECURITY: Pattern C is ONLY secure when the session attribute is set by
         trusted middleware (Snowflake's auth flow, a controlled API gateway).
         If arbitrary SQL callers can SET the variable, tenant isolation is broken.
-    Example predicate: tenant_id = GETVARIABLE('tenant_id')
+    Example predicate: tenant_id = SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
 ```
 
 After the user selects a pattern, note "load data-governance skill → data-policy workflow (row

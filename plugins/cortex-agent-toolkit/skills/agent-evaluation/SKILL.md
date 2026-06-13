@@ -12,7 +12,7 @@ End-to-end workflow for evaluating Cortex Agents: discover the agent, build an e
 | Metric | API Name | Requires Ground Truth | Description |
 |--------|----------|----------------------|-------------|
 | Answer Correctness | `answer_correctness` | Yes | Semantic match of agent's final answer vs expected |
-| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? |
+| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? **(custom metric — replaces deprecated built-in)** |
 | Tool Execution Accuracy | `tool_execution_accuracy` | Yes | Correct tool inputs/outputs? |
 | Logical Consistency | `logical_consistency` | No | Consistency across instructions, planning, and tool calls (reference-free) |
 
@@ -230,15 +230,22 @@ Then skip to Phase 4 with only `logical_consistency` metric.
 
 ### 3.5 Create the Evaluation Table
 
-**CRITICAL FORMAT REQUIREMENTS:**
-- Column names: `INPUT_QUERY` (VARCHAR) and `EXPECTED_TOOLS` (VARCHAR)
-- `EXPECTED_TOOLS` is **VARCHAR**, not OBJECT or VARIANT
-- Insert JSON as plain string — no PARSE_JSON needed
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
+**Eval table schema (canonical — Schema B):**
+
+This schema is shared across agent-evaluation, agent-flag-tester, and cortex-agent-optimization.
+- `GROUND_TRUTH` is **VARIANT** (JSON object) — parsed by the evaluator at runtime
+- `SPLIT` enables DEV/TEST partitioning used by the optimization loop downstream
+- Use `OBJECT_CONSTRUCT('ground_truth_invocations', PARSE_JSON('[...]'), 'ground_truth_output', '...')` to populate
 
 ```sql
-CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET (
-    INPUT_QUERY VARCHAR(16777216),
-    EXPECTED_TOOLS VARCHAR(16777216)
+CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (
+    TEST_ID        NUMBER(38,0) AUTOINCREMENT,
+    TEST_CATEGORY  VARCHAR,
+    INPUT_QUERY    VARCHAR(16777216),
+    GROUND_TRUTH   VARIANT,
+    SPLIT          VARCHAR DEFAULT 'VALIDATION'
 );
 ```
 
@@ -247,18 +254,22 @@ CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET (
 **Standard format (works for all metrics):**
 
 ```sql
-INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET (INPUT_QUERY, EXPECTED_TOOLS)
+INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (TEST_CATEGORY, INPUT_QUERY, GROUND_TRUTH, SPLIT)
 VALUES (
+    'revenue',
     'What is the top campaign by ROI?',
-    '{"ground_truth_invocations": [{"tool_name": "query_metrics", "tool_sequence": 1}], "ground_truth_output": "Back to School has highest ROI at 203%."}'
+    PARSE_JSON('{"ground_truth_invocations": [{"tool_name": "query_metrics", "tool_sequence": 1}], "ground_truth_output": "Back to School has highest ROI at 203%."}'),
+    'VALIDATION'
 );
 ```
 
 **Multi-tool example:**
 ```sql
 INSERT INTO ... VALUES (
+    'multi-tool',
     'Find popular items and place an order',
-    '{"ground_truth_invocations": [{"tool_name": "search_items", "tool_sequence": 1}, {"tool_name": "place_order", "tool_sequence": 2}], "ground_truth_output": "Strawberry Frosted is most popular. Order confirmed."}'
+    PARSE_JSON('{"ground_truth_invocations": [{"tool_name": "search_items", "tool_sequence": 1}, {"tool_name": "place_order", "tool_sequence": 2}], "ground_truth_output": "Strawberry Frosted is most popular. Order confirmed."}'),
+    'VALIDATION'
 );
 ```
 
@@ -297,18 +308,18 @@ INSERT INTO ... VALUES (
 >
 > **Fix**: Update affected rows:
 > ```sql
-> UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET
-> SET EXPECTED_TOOLS = REPLACE(
->     EXPECTED_TOOLS,
+> UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+> SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+>     GROUND_TRUTH::STRING,
 >     '"tool_name": "cortex_analyst_text_to_sql"',
 >     '"tool_name": "system_execute_sql"'
-> )
-> WHERE EXPECTED_TOOLS LIKE '%cortex_analyst_text_to_sql%';
+> ))
+> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
 > ```
 > Run this once per eval table. Verify with:
 > ```sql
 > SELECT COUNT(*) FROM <EVAL_TABLE>
-> WHERE EXPECTED_TOOLS LIKE '%cortex_analyst_text_to_sql%';
+> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
 > -- Should return 0
 > ```
 
@@ -340,11 +351,11 @@ Fill in `<DATABASE>`, `<SCHEMA>`, `<AGENT_NAME>`, `<EVAL_TABLE>`, and the select
 ```yaml
 dataset:
   dataset_type: "CORTEX AGENT"
-  table_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET"
+  table_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL"
   dataset_name: "<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>"
   column_mapping:
     query_text: "INPUT_QUERY"
-    ground_truth: "EXPECTED_TOOLS"
+    ground_truth: "GROUND_TRUTH"
 
 evaluation:
   agent_params:
@@ -360,7 +371,17 @@ evaluation:
 metrics:
   - "answer_correctness"       # include only if selected
   - "logical_consistency"      # include only if selected
-  - "tool_selection_accuracy"  # include only if selected
+  # tool_selection_accuracy is a CUSTOM metric (replaces deprecated built-in):
+  - name: "tool_selection_accuracy"   # include only if selected
+    score_ranges:
+      min_score: [0, 3]
+      median_score: [4, 6]
+      max_score: [7, 10]
+    prompt: |
+      Evaluate whether the agent selected the correct tool(s) for the user's query.
+      Compare tools actually called ({{tool_info}}) to expected behavior in ground truth ({{ground_truth}}).
+      Rate 0-10: 0=wrong tool, 5=correct but suboptimal sequence, 10=perfect match.
+      Output ONLY a numeric score.
   - "tool_execution_accuracy"  # include only if selected
 ```
 
@@ -603,7 +624,7 @@ Improvements attributed to:
 
 ## Artifacts Produced
 
-- Evaluation dataset table: `<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET`
+- Evaluation dataset table: `<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL`
 - Registered dataset: `<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>`
 - Evaluation runs viewable in Snowsight Evaluations UI
 - Improvement report with specific fix recommendations

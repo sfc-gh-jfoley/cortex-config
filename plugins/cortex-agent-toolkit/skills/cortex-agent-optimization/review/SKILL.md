@@ -91,6 +91,7 @@ Wait for user confirmation (supervised mode only).
    - Recommendation on whether architectural changes are needed (different tools, guardrails, workflow restructuring)
 4. Restore `agent/*.md` files from the last accepted snapshot in `snapshots/` (the most recent accepted `<ITER_NAME>/` directory, or `baseline/` if no iterations have been accepted).
 5. Rebuild and redeploy with reverted instructions:
+   > **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
    ```bash
    python <WORKSPACE_ROOT>/scripts/build_agent_spec.py
    <CLI_TOOL> sql --connection <CONNECTION> --filename <WORKSPACE_ROOT>/<AGENT_DIR>/deploy.sql

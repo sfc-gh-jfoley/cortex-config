@@ -246,6 +246,8 @@ Otherwise, manually review changed files in `agent/` directory.
 
 ## Step 6: Build and Deploy
 
+> **Rollback gate (once per session):** At the start of the first iteration, ask: "Want me to create a rollback clone first so we can undo optimization changes?" Execute on confirmation. This clone covers all subsequent ALTER AGENT calls in this optimization session — the prompt will not repeat each iteration to avoid prompt fatigue.
+
 ```bash
 python <WORKSPACE_ROOT>/scripts/build_agent_spec.py
 <CLI_TOOL> sql --connection <CONNECTION> --filename <WORKSPACE_ROOT>/<AGENT_DIR>/deploy.sql

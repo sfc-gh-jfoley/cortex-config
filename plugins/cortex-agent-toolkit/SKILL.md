@@ -100,7 +100,7 @@ Based on findings, recommend next action:
 |---|---|---|
 | "create agent", "build agent", "I have a semantic view", "agent DDL" | **cortex-agent-ddl** | `skills/cortex-agent-ddl/SKILL.md` |
 | "evaluate", "eval", "baseline", "how good is my agent", "accuracy" | **agent-evaluation** | `skills/agent-evaluation/SKILL.md` |
-| "flags", "compare variants", "EnableAgenticAnalyst", "3-way test" | **agent-flag-tester** | `skills/agent-flag-tester/SKILL.md` |
+| "flags", "compare model variants", "model sweep", "A/B test models" | **agent-flag-tester** | `skills/agent-flag-tester/SKILL.md` |
 | "optimize", "improve", "iterate", "fix failures", "next iteration" | **cortex-agent-optimization** | `skills/cortex-agent-optimization/SKILL.md` |
 | "GEPA", "evolutionary", "population", "plateau", "local optimum" | **agent-gepa-optimizer** | `skills/agent-gepa-optimizer/SKILL.md` |
 | "query", "invoke", "DATA_AGENT_RUN", "call my agent", "test question" | **query-cortex-agent** | `skills/query-cortex-agent/SKILL.md` |
@@ -148,6 +148,8 @@ Create <DB>._AGENT_TOOLKIT_META? (yes / no — I'll work ephemerally)
 
 If yes:
 ```sql
+-- Rollback gate: Ask the user: "Want me to create a rollback clone first so we can undo this?"
+-- If yes: CREATE DATABASE <DB>_AGENT_TOOLKIT_META_RESTORE CLONE <DB>; then proceed.
 CREATE SCHEMA IF NOT EXISTS <DB>._AGENT_TOOLKIT_META;
 -- Tables created by individual skills as needed:
 --   EVAL_HISTORY, OPTIMIZATION_LOG, FLAG_SWEEP_RESULTS, GEPA_RUNS

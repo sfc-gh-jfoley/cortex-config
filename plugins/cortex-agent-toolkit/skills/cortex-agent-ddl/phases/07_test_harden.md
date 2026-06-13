@@ -173,7 +173,7 @@ Present the next-steps menu:
 What would you like to do next?
 
   [1] agent-flag-tester
-      Compare model variants (claude-sonnet vs openai-gpt-5 vs haiku)
+      Compare model variants (current_sonnet vs openai_heavy vs fast_agent — resolve from LLMs.md)
       and conditional flag variants (VQR, unrestricted chart) side-by-side.
       Best when: you want to find the right model/config tradeoff
       before committing to a final configuration.

@@ -1,5 +1,5 @@
 ---
-name: sv-discovery-phase12-audit-recommend
+name: sv-audit-phase12-audit-recommend
 description: Present prioritized audit findings with improvement recommendations and user approval gate before any changes
 ---
 

@@ -120,8 +120,8 @@ Remove shared tables from domain SVs and reference the core SV instead. DDL patt
 ```sql
 CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV
   TABLES (
-    <DB>.<SCHEMA>.ORDERS AS orders,
-    <DB>.<SCHEMA>.ORDER_ITEMS AS order_items
+    orders AS <DB>.<SCHEMA>.ORDERS,
+    order_items AS <DB>.<SCHEMA>.ORDER_ITEMS
   )
   -- Reference columns from core SV for shared dimensions
   RELATIONSHIPS (

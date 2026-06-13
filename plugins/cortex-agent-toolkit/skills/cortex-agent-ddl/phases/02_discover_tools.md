@@ -291,15 +291,18 @@ For each selected SV, generate a tool description.
 
 **Step 2.6a: Probe for the best available model first**
 
-Before running CORTEX.COMPLETE, find the fastest available Claude model with this probe sequence. Run each until one succeeds:
+Before running CORTEX.COMPLETE, find the fastest available model with this probe sequence.
+
+**First, read `~/.snowflake/cortex/vault/LLMs.md` to resolve the current values of `current_haiku` and `default_agent` aliases.** Then run each probe until one succeeds:
 
 ```sql
--- Read LLMs.md: try current_haiku (currently claude-haiku-4-5) first, then default_agent (currently claude-sonnet-4-6)
-SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-haiku-4-5', 'OK') AS r;   -- current_haiku
-SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-sonnet-4-6', 'OK') AS r;  -- default_agent (fallback)
+-- Try current_haiku alias first (fastest), then fall back to default_agent
+-- Replace <current_haiku> and <default_agent> with values resolved from LLMs.md
+SELECT SNOWFLAKE.CORTEX.COMPLETE('<current_haiku>', 'OK') AS r;   -- current_haiku (fastest)
+SELECT SNOWFLAKE.CORTEX.COMPLETE('<default_agent>', 'OK') AS r;  -- default_agent (fallback)
 ```
 
-Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Read LLMs.md for current alias values — do not hardcode version strings.
+Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Never hardcode version strings in this probe — always resolve from LLMs.md.
 
 **Step 2.6b: Generate the description**
 

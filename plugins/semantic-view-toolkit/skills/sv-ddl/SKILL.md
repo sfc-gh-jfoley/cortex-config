@@ -119,7 +119,7 @@ To begin, load Phase 1:
 
 ## Critical DDL Rules (always active)
 
-These rules are embedded in Phase 5's self-check. Reference `references/ddl-syntax.md` for the full list.
+These rules are embedded in Phase 5's self-check. Reference `reference/ddl_syntax.md` for the full list.
 
 | Rule | |
 |------|-|

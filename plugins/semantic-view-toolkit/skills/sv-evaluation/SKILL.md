@@ -1,8 +1,23 @@
+---
+name: sv-evaluation
+description: >
+  Evaluate semantic view accuracy using Cortex Analyst's native EXECUTE_AI_EVALUATION API.
+  Measures sql_correctness by generating SQL from VQRs and comparing results against
+  verified queries.
+triggers:
+  - evaluate semantic view
+  - eval sv
+  - run evaluation
+  - check accuracy
+  - test sv
+  - score sv
+  - how accurate is my semantic view
+  - sv correctness
+  - run sql_correctness
+  - benchmark sv
+---
+
 # sv-evaluation
-
-**Description:** Evaluate semantic view accuracy using Cortex Analyst's native EXECUTE_AI_EVALUATION API. Measures sql_correctness by generating SQL from VQRs and comparing results against verified queries.
-
-**Triggers:** evaluate semantic view, eval sv, run evaluation, check accuracy, test sv, score sv, how accurate is my semantic view, sv correctness, run sql_correctness, benchmark sv
 
 **Prerequisites:**
 - CORTEX_USER database role granted to active role
@@ -300,7 +315,8 @@ If `_SV_TOOLKIT_META` schema exists, persist for future regression tracking:
 > **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
 > objects ask the user: "Want me to create a rollback clone first so we can undo this?
 > (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding.
+> If yes, create the clone before proceeding. This gate covers the schema and both
+> tables (EVAL_HISTORY and EVAL_RESULTS) — ask once, not again for the second table.
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_HISTORY (
@@ -323,11 +339,6 @@ VALUES
 ```
 
 Also persist per-VQR results:
-
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
-> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding.
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_RESULTS (

@@ -126,21 +126,23 @@ WHERE SCHEMA_NAME = :schema_name;
 ### Detection SQL
 
 ```sql
+-- List external tables and detect Iceberg format via TABLE_FORMAT column
+SHOW EXTERNAL TABLES IN SCHEMA <database>.<schema_name>;
+-- Check the TABLE_FORMAT column: 'ICEBERG' indicates an Iceberg external table.
+-- IS_ICEBERG (or equivalent) column availability varies by Snowflake version;
+-- use TABLE_FORMAT as the primary signal.
+```
+
+```sql
+-- Alternative: query INFORMATION_SCHEMA for external table existence
 SELECT
     TABLE_NAME,
-    TABLE_TYPE,
-    -- Check if Iceberg format
-    SYSTEM$GET_ICEBERG_TABLE_INFORMATION(TABLE_NAME) AS iceberg_info
+    TABLE_TYPE
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = :schema_name
     AND TABLE_TYPE = 'EXTERNAL TABLE'
 ORDER BY TABLE_NAME;
-```
-
-```sql
--- Alternative: check TABLE_FORMAT for Iceberg detection
-SHOW EXTERNAL TABLES IN SCHEMA :database.:schema;
--- Look at TABLE_FORMAT column: 'ICEBERG' vs other formats
+-- Then SHOW EXTERNAL TABLES to get format details for Iceberg detection.
 ```
 
 ### SV Design Notes

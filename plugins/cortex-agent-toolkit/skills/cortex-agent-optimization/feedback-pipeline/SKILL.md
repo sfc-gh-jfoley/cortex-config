@@ -196,6 +196,8 @@ SELECT
 - Category distribution of new rows
 - Current eval table size vs new size after insert
 
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 Wait for user approval before executing.
 
 ### Step 5: Post-Insert Guidance

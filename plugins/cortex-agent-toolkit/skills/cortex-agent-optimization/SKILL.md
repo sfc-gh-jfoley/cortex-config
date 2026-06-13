@@ -163,6 +163,6 @@ cortex ctx rule add "In autonomous mode, stop after 3 consecutive rejected itera
 - **DO**: Add tool retry logic, fix buggy examples, use "WRONG" examples, make small targeted changes
 - **DON'T**: Add verbose checklists, modify tool descriptions for routing, change tool order, keep strengthening the same failing rule
 - **ALWAYS**: Revert on TEST regression, log every iteration, separate DEV analysis from TEST evaluation
-- **STOP WHEN**: 2-3 consecutive rejections on the same failures — local optimum reached
+- **STOP WHEN**: 3 consecutive rejections on the same failures — local optimum reached
 
 Load `references/optimization-patterns.md` for the full set of distilled patterns.

@@ -64,7 +64,7 @@ A systematic, phase-based workflow for optimizing any Snowflake Cortex Agent fro
   "database": "MY_DB",
   "schema": "MY_SCHEMA",
   "models": {
-    "orchestration": "claude-sonnet-4-6"
+    "orchestration": "<default_agent>"  // resolve default_agent alias from LLMs.md
   },
   "instructions": "You are an expert assistant...",
   "tools": [
@@ -147,10 +147,12 @@ If accuracy < 80%, **stop**. Fix the agent (instructions, tool descriptions, sem
 
 ### Valid Agent Models (as of 2026-05)
 
+> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before using in specs.
+
 **Claude** (all support agent tool-use loop):
-- `claude-opus-4-7` — heavy, highest accuracy
-- `claude-sonnet-4-6` — balanced (recommended default)
-- `claude-haiku-4-5` — fast, good for simple routing
+- `heavy_agent` alias — highest accuracy (e.g. claude-opus class)
+- `default_agent` alias — balanced, recommended default (e.g. claude-sonnet class)
+- `fast_agent` alias — fast, good for simple routing (e.g. claude-haiku class)
 
 **OpenAI** (all support agent tool-use loop):
 - `openai-gpt-5.2` — heavy

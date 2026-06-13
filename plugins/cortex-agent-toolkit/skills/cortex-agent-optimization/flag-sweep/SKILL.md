@@ -1,3 +1,21 @@
+---
+name: flag-sweep
+description: >
+  Re-validate or run a flag/model variant comparison within an active optimization project.
+  Creates model comparison variants (_MODEL_A/B/C) and optional conditional flag variants,
+  runs DEV/TEST evaluations, and compares results across variants.
+  Use when: revalidate flags after instruction changes, re-run flag comparison, model sweep
+  within optimization loop, confirm flag choice still holds.
+  Note: for standalone first-sweep use agent-flag-tester instead.
+triggers:
+  - flag sweep
+  - revalidate flags
+  - re-run flag comparison
+  - model sweep optimization
+  - flag recheck
+  - confirm flag choice
+---
+
 # Flag Sweep — Multi-Agent Flag Comparison Evaluation
 
 ## Purpose
@@ -34,11 +52,13 @@ Ask the user (or read from a config) which flags to compare. Default matrix:
 
 **Default sweep: Model comparison (always applicable)**
 
+> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before building variant specs.
+
 | Variant Suffix | Spec change | Description |
 |---|---|---|
-| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — current recommended default |
-| `_MODEL_B` | `models.orchestration: openai-gpt-5` | Cross-family comparison (OpenAI vs Claude) |
-| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized option |
+| `_MODEL_A` | `models.orchestration: <current_sonnet>` | Baseline — resolve `current_sonnet` alias from LLMs.md |
+| `_MODEL_B` | `models.orchestration: <openai_heavy>` | Cross-family comparison — resolve `openai_heavy` alias from LLMs.md |
+| `_MODEL_C` | `models.orchestration: <fast_agent>` | Latency-optimized — resolve `fast_agent` alias from LLMs.md |
 
 **Conditional sweep: Flags (only if applicable to agent)**
 
@@ -57,6 +77,8 @@ The user can select a subset or define custom variants.
 ### Step 2: Deploy Agent Variants
 
 For each row in the matrix, create (or verify) an agent in the target schema.
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
 
 ```sql
 CREATE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>_{SUFFIX}
@@ -263,7 +285,7 @@ Scoring logic:
 If promoting:
 1. Apply winning flags to the original agent
 2. Drop the variant agents
-3. Record the winning flags and scores in `optimization_log.md` (if it exists)
+3. Record the winning flags and scores in `flag_sweep_baseline.json` (if it exists)
 4. Clean up stage configs
 
 ## Re-validation After Instruction Changes
@@ -279,7 +301,7 @@ still holds under the updated instructions.
 2. Skip Steps 1-3 (variants and dataset already exist from initial sweep)
 3. Generate fresh YAML configs pointing at the current (instruction-modified) variant agents
 4. Run Steps 5-8 as normal
-5. Compare new scores to the **initial sweep baseline** (stored in `optimization_log.md`)
+5. Compare new scores to the **initial sweep baseline** (stored in `flag_sweep_baseline.json`)
 6. If the winner changes:
    - **HARD STOP** — present the shift to the user
    - Apply new winning variant config (model or flags) to the original agent

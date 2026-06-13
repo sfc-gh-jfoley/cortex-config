@@ -1,5 +1,5 @@
 ---
-name: sv-discovery-phase10-audit-connect
+name: sv-audit-phase10-audit-connect
 description: Connect to an existing semantic view, describe its structure, and establish the audit scope
 ---
 
