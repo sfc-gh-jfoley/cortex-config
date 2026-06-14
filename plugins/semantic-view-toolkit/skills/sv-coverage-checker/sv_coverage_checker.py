@@ -437,10 +437,16 @@ def gap_differ(workload: dict, sv: dict) -> list:
     return gaps
 
 
-def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
+def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
+                        validate_data: bool = False) -> dict:
     """
     Main entry point. Expects gt_table to have columns (QUESTION_ID, SQL_TEXT).
     Returns VARIANT with keys: checker_version, gaps[], verdicts[], summary{}, warnings[].
+
+    validate_data (optional, default False):
+        When True, execute each SQL_TEXT against actual data (LIMIT 3) and attach
+        the top rows to each verdict as 'actual_top_rows'. Useful for GT data validation:
+        confirms structural ANSWERABLE verdict with grounded data results.
     """
     # HIGH-1: validate identifiers before any session call
     _IDENT_RE = re.compile(r'^[\w]+(?:\.[\w]+){0,2}$')
@@ -462,6 +468,7 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
     per_question = {}
     all_warnings = []
     skipped_ids = set()
+    actual_data: dict = {}  # q_id → list of row dicts (populated when validate_data=True)
 
     for row in rows:
         q_id = str(row['QUESTION_ID'])
@@ -484,6 +491,13 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
         per_question[q_id] = w
         if not w.get('explain_failed'):
             all_warnings.extend(w.get('warnings', []))
+
+        if validate_data and not w.get('explain_failed'):
+            try:
+                data_rows = session.sql(f"{sql} LIMIT 3").collect()
+                actual_data[q_id] = [r.as_dict() for r in data_rows]
+            except Exception as exc:
+                actual_data[q_id] = [{'_error': _sanitize_err(exc)}]
 
     # Build global workload from non-failed questions only
     global_workload = {
@@ -519,10 +533,13 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
 
     for q_id, w in per_question.items():
         if w.get('explain_failed'):
-            verdicts.append(_classify_verdict(q_id, w, []))
+            v = _classify_verdict(q_id, w, [])
         else:
             q_gaps = gap_differ(w, sv)
-            verdicts.append(_classify_verdict(q_id, w, q_gaps))
+            v = _classify_verdict(q_id, w, q_gaps)
+        if validate_data and q_id in actual_data:
+            v['actual_top_rows'] = actual_data[q_id]
+        verdicts.append(v)
 
     summary = {
         'total_questions': len(verdicts),
@@ -532,6 +549,7 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
         'explain_failed': sum(1 for v in verdicts if v['status'] == 'EXPLAIN_FAILED'),
         'skipped': len(skipped_ids),
         'unique_gaps': len(gaps),
+        'validate_data': validate_data,
     }
 
     # C3 fix: return dict (Snowpark auto-converts to VARIANT), do NOT use json.dumps()

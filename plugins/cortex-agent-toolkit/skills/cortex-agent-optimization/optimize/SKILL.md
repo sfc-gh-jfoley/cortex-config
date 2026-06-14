@@ -33,6 +33,42 @@ FROM <DATABASE>.<SCHEMA>.AGENT_EVAL_DEV;
 - If `MISSING_GT = 0`: proceed to fire eval runs.
 - If `MISSING_GT > 0`: **HARD STOP**. List the questions with `eval-data/SKILL.md` Workflow E Step 2 query. Do NOT fire eval runs — missing GT scores 0 and silently corrupts all metrics.
 
+### Quick Iterate Mode (Optional)
+
+If the question manifest exists and the previous iteration has scores, offer this mode when the user asks to "iterate quickly" or "run only failing questions". It replaces the full eval with a filtered subset to save ~70% of eval time when only a few questions are failing.
+
+**Step QI-1** — Query failing questions from the last iteration:
+
+```sql
+SELECT INPUT_TEXT, MIN(SCORE) AS MIN_SCORE
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_QUESTION_MANIFEST
+WHERE SOURCE = 'optimize_dev'
+  AND ITERATION = '<LAST_ITER>'
+  AND METRIC_NAME = 'answer_correctness'
+GROUP BY INPUT_TEXT
+HAVING MIN_SCORE < 0.9;
+```
+
+If 0 rows: all questions passed — no quick iterate needed.
+
+**Step QI-2** — Create a temporary filtered view:
+
+```sql
+CREATE OR REPLACE TEMPORARY VIEW <DATABASE>.<SCHEMA>.AGENT_EVAL_DEV_FAILING AS
+SELECT * FROM <DATABASE>.<SCHEMA>.AGENT_EVAL_DEV
+WHERE INPUT_QUERY IN (<comma-separated failing question strings from QI-1>);
+```
+
+**Step QI-3** — Fire eval runs against the filtered view only (same slot configs, same run naming convention, pointed at the filtered view).
+
+**Mandatory gates — do not skip:**
+- Before accepting any iteration as final, **always run the full DEV set** once.
+- **Always force full set when SV changes** (not just agent instruction changes). SV changes affect all questions; instruction changes are lower regression risk.
+
+> ⚠️ Quick iterate used. Run full eval before accepting this iteration as accepted.
+
+---
+
 ### Fire DEV Eval Runs
 
 Fire all `<RUNS_PER_SPLIT>` DEV runs simultaneously — each uses its own slot config:

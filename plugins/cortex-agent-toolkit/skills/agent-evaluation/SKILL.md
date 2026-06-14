@@ -35,6 +35,60 @@ GRANT MONITOR ON AGENT <database>.<schema>.<agent> TO ROLE <role>;
 
 ---
 
+## Phase 0.5: Pre-flight Grant Check
+
+Before any evaluation work, verify required grants are in place. Missing grants produce silent **"Metric failed"** errors — especially missing `IMPERSONATE`, which is the most commonly overlooked and hardest-to-diagnose missing grant.
+
+Run these checks **before Phase 1**:
+
+```sql
+-- 1. CORTEX_USER database role
+SELECT COUNT(*) AS HAS_CORTEX_USER
+FROM SNOWFLAKE.INFORMATION_SCHEMA.APPLICABLE_ROLES
+WHERE ROLE_NAME = 'CORTEX_USER';
+-- Expected: 1. If 0: GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <role>;
+
+-- 2. IMPERSONATE (most commonly missing — causes ALL metrics to silently fail)
+SELECT COUNT(*) AS HAS_IMPERSONATE
+FROM INFORMATION_SCHEMA.OBJECT_PRIVILEGES
+WHERE PRIVILEGE_TYPE = 'IMPERSONATE'
+  AND OBJECT_NAME = CURRENT_USER();
+-- Expected: 1. If 0: GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
+
+-- 3. Task / Dataset grants — look for EXECUTE TASK, CREATE DATASET, CREATE TASK
+SHOW GRANTS TO ROLE <CURRENT_ROLE>;
+```
+
+If any grant is missing, emit corrective GRANTs using ACCOUNTADMIN:
+
+```sql
+USE ROLE ACCOUNTADMIN;
+
+-- Missing CORTEX_USER:
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <role>;
+
+-- Missing IMPERSONATE (most critical):
+GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
+
+-- Missing EXECUTE TASK:
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE <role>;
+
+-- Missing CREATE DATASET:
+GRANT CREATE DATASET ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <role>;
+
+-- Missing CREATE TASK:
+GRANT CREATE TASK ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <role>;
+
+-- Missing MONITOR on agent:
+GRANT MONITOR ON AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME> TO ROLE <role>;
+```
+
+> **Do not silently proceed** with missing grants. Missing `IMPERSONATE` in particular causes all metric computations to fail with a generic "Metric failed" message — not a permissions error — making it nearly impossible to diagnose without running this check first.
+
+**STOP** — Confirm all grants are in place before proceeding to Phase 1.
+
+---
+
 ## Phase 1: Discover Agent
 
 ### 1.1 Identify the Agent
@@ -249,6 +303,40 @@ CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (
 );
 ```
 
+### 3.5.1 Automated tool_name Migration Check
+
+Run immediately after creating and populating the eval table. As of April 2026, Cortex Agents report `system_execute_sql` instead of custom tool names (e.g. `cortex_analyst_text_to_sql`) in response blocks. Rows with old tool names score **0% on `tool_selection_accuracy`** silently.
+
+```sql
+-- Check: how many rows need migration?
+SELECT COUNT(*) AS ROWS_NEEDING_MIGRATION
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE GROUND_TRUTH::STRING LIKE '%"tool_name": "cortex_analyst_text_to_sql"%';
+```
+
+If `ROWS_NEEDING_MIGRATION > 0`, run the migration **automatically**:
+
+```sql
+UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+    GROUND_TRUTH::STRING,
+    '"tool_name": "cortex_analyst_text_to_sql"',
+    '"tool_name": "system_execute_sql"'
+))
+WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+
+-- Verify: should return 0
+SELECT COUNT(*) AS REMAINING
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+```
+
+Confirm: **"Migrated N rows: `cortex_analyst_text_to_sql` → `system_execute_sql`"** (or "No migration needed").
+
+> Note: Named Cortex Analyst tools (e.g. `commerce_analytics`) are also now reported as `system_execute_sql`. Check for any custom tool name that mapped to a Cortex Analyst tool.
+
+---
+
 ### 3.6 Insert Ground Truth
 
 **Standard format (works for all metrics):**
@@ -327,6 +415,59 @@ INSERT INTO ... VALUES (
 
 ---
 
+### Phase 3.7 (Optional): GT Data Validation
+
+**Trigger**: Run when the user types "validate ground truth" or "check GT against data", or proactively offer it before Phase 4. Non-blocking — eval can proceed without it.
+
+> ⚠️ **Why this matters**: GT text is often written as assumptions about data, not derived from running the actual SQL. In the SIEBIS commerce run, 7/20 GT outputs were factually wrong (wrong ranking, wrong country, wrong direction of comparison). The agent scored 0% on those questions even when its answers were correct. Correcting the GT brought the score to 100% with zero agent instruction changes.
+
+**Step 1** — Identify rows with executable SQL:
+
+```sql
+SELECT
+    TEST_ID,
+    INPUT_QUERY,
+    TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_output::STRING AS GT_TEXT,
+    TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_invocations[0].tool_output.SQL::STRING AS GT_SQL
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_invocations[0].tool_output.SQL IS NOT NULL;
+```
+
+**Step 2** — For each row, execute its SQL against actual data (`LIMIT 3`) and display side-by-side:
+
+```
+Q: "What is the revenue by storefront channel?"
+GT text:   "Console drives the majority of digital revenue"
+Top rows:  Web=$815K | Console=$413K  ← MISMATCH
+```
+
+**Step 3** — For each question, prompt:
+
+```
+Does the GT text match the actual data? [y / update / skip]
+  y      → mark as validated
+  update → correct GT text in-place, then run:
+             UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+             SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+                 GROUND_TRUTH::STRING, '<old_text>', '<new_text>'
+             ))
+             WHERE TEST_ID = <id>;
+  skip   → leave as-is, flag as unvalidated
+```
+
+**Step 4** — Print validation summary:
+
+```
+GT Validation: 17/20 validated, 3 flagged as unvalidated
+⚠️ Unvalidated GT rows will count against your eval score if the agent answers correctly.
+```
+
+**If GT validation is skipped entirely**, add this warning banner before Phase 4 launch:
+
+> ⚠️ **GT not validated against actual data.** Inaccurate GT causes correct agent answers to score 0%. Run Phase 3.7 now or type "validate ground truth".
+
+---
+
 ## Phase 4: Register Dataset & Run Evaluation
 
 ### 4.1 Set Database Context
@@ -337,6 +478,24 @@ USE SCHEMA <SCHEMA>;
 ```
 
 ### 4.2 Create Stage and Generate Eval Config
+
+> ⚠️ **CRITICAL: Eval table must be in the same `DATABASE.SCHEMA` as the agent.**
+>
+> If your agent is `MYDB.PUBLIC.MY_AGENT`, the eval table must be in `MYDB.PUBLIC.*`.
+> Placing it in a different schema (e.g. `MYDB.EVAL_METADATA.*`) causes **all metrics to silently
+> fail** with "Metric failed" — even though agent invocations complete successfully. This is not
+> surfaced as a schema permissions error, making it extremely difficult to diagnose.
+>
+> **Pre-flight schema check — run before generating the config:**
+> ```sql
+> SELECT
+>     TABLE_SCHEMA,
+>     TABLE_SCHEMA = '<AGENT_SCHEMA>' AS SCHEMA_MATCHES,
+>     TABLE_NAME
+> FROM <DATABASE>.INFORMATION_SCHEMA.TABLES
+> WHERE TABLE_NAME = '<EVAL_TABLE_NAME>';
+> -- If SCHEMA_MATCHES = FALSE: HARD STOP — move the eval table to <AGENT_SCHEMA> first.
+> ```
 
 Create a stage to hold eval config files:
 
@@ -404,6 +563,19 @@ CALL EXECUTE_AI_EVALUATION(
 ```
 
 Poll for completion every 60 seconds:
+
+### Error: "Dataset version already exists"
+
+If `EXECUTE_AI_EVALUATION START` returns this error, clear only the version lock on the failing slot:
+
+```sql
+ALTER DATASET <DATABASE>.<SCHEMA>.<DATASET_NAME>
+DROP VERSION 'SYSTEM_AI_OBS_CORTEX_AGENT_DATASET_VERSION_DO_NOT_DELETE';
+```
+
+Then retry the `START` call. **Never DROP the dataset itself** — only the version lock. This lock is per-dataset-name so only the failing slot is affected; other parallel eval slots are unaffected.
+
+---
 
 ```sql
 CALL EXECUTE_AI_EVALUATION(
