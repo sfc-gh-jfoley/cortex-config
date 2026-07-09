@@ -15,7 +15,7 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 | SQL syntax error | Invalid SV DDL (bad expression, wrong alias) | Manual DDL fix |
 | Empty result set | Filter too restrictive or wrong table | `change_relationship`, `add_filter` |
 | Analyst refuses | Question out of SV scope | `add_vqr` (teach by example) |
-| Reference contaminated | Model applies metric filter; reference SQL does not | `add_refund_filter_to_vqr` |
+| Reference contaminated | Model applies metric filter; reference SQL does not | **Read-only analysis** (do not modify VQR) |
 
 ---
 
@@ -454,14 +454,14 @@ WHERE relative_month_num = -1;
 -- If gap_pct is 0.1%–0.8%: contaminated baseline confirmed
 ```
 
-### Fix: `add_refund_filter_to_vqr`
+### Fix: Read-Only Analysis (Do Not Modify VQR)
 
-Do NOT modify the generated SQL — the model is correct. Fix the reference VQR SQL to add the missing filter:
+VQR contamination is a **read-only finding**: do NOT apply mutations to the VQR. The model SQL is correct; the issue is with the VQR baseline.
 
-```sql
--- BEFORE: sum(sales_exc_tax_usd)
--- AFTER:  sum(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END)
-```
+**Options:**
+1. **Exclude the contaminated VQR** from future optimization loops (see Step 3b in sv-evaluation/SKILL.md)
+2. **Flag as REFERENCE_CONTAMINATED** and continue optimization focusing on non-contaminated VQRs
+3. **Analyze separately:** Run a targeted eval excluding contaminated VQRs to get a clean SV quality score
 
 ---
 
@@ -488,11 +488,11 @@ VQR scored < 1.0
   ├── Correct columns, wrong AGG or GROUP BY?
   │     └── YES → Category 3 (Wrong aggregation) → add_metric / refine_metric_expr
   │
-  └── Time/date related issue?
-        └── YES → Category 4 (Wrong time filter) → add_time_dimension
+  ├── Time/date related issue?
+  │     └── YES → Category 4 (Wrong time filter) → add_time_dimension
   │
   └── generated_sql has refund filter, reference does NOT, metric requires it?
-        └── YES → Category 8 (Contaminated reference) → add_refund_filter_to_vqr
+        └── YES → Category 8 (Contaminated reference) → **read-only analysis** (exclude/flag; do not modify)
 ```
 
 ---
@@ -510,7 +510,7 @@ Assign severity to prioritize which failures to fix first:
 | **MEDIUM** | Wrong time filter (Category 4) — temporal queries fail | Fix after HIGH |
 | **LOW** | Wrong column (Category 2) — subtle difference | Fix last (or via GEPA) |
 | **LOW** | Empty result (Category 6) — data/filter issue | Investigate data first |
-| **HIGH** | Reference contaminated (Category 8) — eval penalizes correct model behavior | Reclassify as REFERENCE_CONTAMINATED; fix VQR, not SV |
+| **INFO** | Reference contaminated (Category 8) — eval marks correct model behavior as wrong | Exclude/flag contaminated VQR; do not modify |
 
 ---
 

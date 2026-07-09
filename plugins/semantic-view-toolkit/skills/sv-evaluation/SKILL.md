@@ -80,9 +80,8 @@ VQR Health Summary:
 
 If CONTAMINATED VQRs exist, offer:
 ```
-A) Fix contaminated VQRs now (apply add_refund_filter_to_vqr)
-B) Proceed and flag contaminated VQR failures as REFERENCE_CONTAMINATED
-C) Exclude contaminated VQRs from this eval run
+A) Proceed and flag contaminated VQR failures as REFERENCE_CONTAMINATED (read-only analysis)
+B) Exclude contaminated VQRs from this eval run
 ```
 
 **STOP Gate (GUIDED mode):** Wait for user choice before proceeding.
@@ -348,7 +347,6 @@ Failure categories:
 | Wrong time handling | Date logic errors | `add_time_dimension` |
 | SQL syntax error | Query doesn't compile | Manual DDL fix |
 | Empty result / Analyst refuses | Out-of-scope question | `add_vqr` |
-| Reference contaminated | Model applied metric filter; reference VQR did not | `add_refund_filter_to_vqr` |
 
 ---
 

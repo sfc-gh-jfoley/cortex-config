@@ -28,6 +28,36 @@ Use this skill when you have a semantic view with VQRs and want to systematicall
 - CREATE OR REPLACE SEMANTIC VIEW privilege
 - Baseline eval score (run sv-evaluation first if you don't have one)
 
+## Pre-Optimization Checks
+
+Run these **before the first optimization iteration**. They catch structural defects that corrupt eval scores and waste iteration budget.
+
+### Check 1: VQR-Metric Filter Alignment (Critical)
+
+For each metric with a conditional aggregation filter (e.g., `CASE WHEN REFUNDED_IND = 0`), scan all VQRs that aggregate the same source column. Flag any VQR that omits the required filter.
+
+**Detection:** Extract `CASE WHEN <col> = <val>` patterns from metric exprs → check each VQR's SQL for the same guard.
+
+**Remediation:** VQR contamination is a **read-only finding** — do NOT apply mutations to contaminated VQRs. Instead, exclude them from optimization (see Step 3b in sv-evaluation/SKILL.md) or flag as REFERENCE_CONTAMINATED and continue optimizing with clean VQRs. A contaminated VQR baseline will penalize correct model behavior throughout the entire optimization loop.
+
+### Check 2: Cross-Table Metric Consistency (High)
+
+Same metric name with different aggregation logic on two fact tables creates LLM ambiguity.
+
+**Detection:** Group metric definitions by name across all tables. Compare EXPR values. Flag any pair where filter logic differs (e.g., `TOTAL_NET_REVENUE_USD` with filter on one table, without on another).
+
+**Remediation:** Apply `sync_metric_definitions_across_tables` — either align the expressions or rename one metric to make semantic difference explicit.
+
+### Check 3: VQR Table Routing Validation (Medium)
+
+A VQR that uses the wrong fact table may produce correct-looking SQL against a table with looser metric semantics.
+
+**Detection:** For VQRs querying extended attributes (discounts, campaign data, upgrade flags), confirm they use `FCT_*_EXT` rather than the base fact table. For revenue-only questions, confirm they use the base fact table with stricter metric definitions.
+
+**Remediation:** Manually review flagged VQRs and update table references if misrouted.
+
+---
+
 ## Intent Detection
 
 | Intent | Trigger Patterns | Action |
@@ -94,6 +124,10 @@ Each iteration applies ONE mutation from `references/mutation-operators.md`:
 | Analyst confused by too many options | `remove_column` |
 | Analyst refuses question | `add_vqr` (teach by example) |
 | Wrong filter applied | `add_filter` |
+| VQR SQL missing filter that metric definition requires | **Read-only analysis** (exclude/flag; do not modify) |
+| Same metric name with different filter logic on two tables | `sync_metric_definitions_across_tables` |
+| Metric uses SUM(CASE WHEN ...) on the same column repeatedly | `extract_metric_filter_to_fact` |
+| Pre-check: VQR health classification before eval | `detect_contaminated_vqr_baseline` |
 
 **One mutation per iteration** — measure its impact in isolation before stacking changes.
 
