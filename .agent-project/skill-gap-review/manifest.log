@@ -42,3 +42,9 @@ INTAKE:
   github: local-only
 
 2026-07-09 | ARCHITECT | INTAKE_COMPLETE | proceeding to Phase 1 spec discovery
+2026-07-09 | RESEARCHER | DONE | researcher-bundled-skills — 75 skills catalogued, 13 coverage gaps, 3 critical issues
+2026-07-09 | RESEARCHER | DONE | researcher-vault-surface — 10 skills/8 plugins/49 sub-skills, ml-pipeline-toolkit orphan found, 2 stale model slugs
+2026-07-09 | RESEARCHER | DONE | researcher-agent-arch-internals — 11 consistency findings, 2 critical git-breaking bugs
+2026-07-09 | ARCHITECT | RESEARCH_COMPLETE | all 3 researchers drained, synthesizing into gap report
+2026-07-09 | ARCHITECT | PLAN_APPROVED | gap-report.md written — 3 critical, 5 high, 7 medium, 10 low (25 total)
+2026-07-09 | ARCHITECT | SHIPPED | deliverable: .agent-project/skill-gap-review/gap-report.md
