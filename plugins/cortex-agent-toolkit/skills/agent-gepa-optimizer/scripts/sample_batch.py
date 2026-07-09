@@ -5,8 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
-
 
 def _qi(identifier: str) -> str:
     """Quote a Snowflake identifier if not already quoted."""
@@ -99,7 +97,7 @@ def main():
     parser.add_argument("--generation", type=int, required=True,
                         help="Current generation number")
     parser.add_argument("--history-file", default=None,
-                        help="Path to gepa_state.yaml for history lookup")
+                        help="Path to gepa_state.json for history lookup")
 
     args = parser.parse_args()
 
@@ -109,7 +107,7 @@ def main():
         p = Path(args.history_file)
         if p.exists():
             with p.open("r") as f:
-                state = yaml.safe_load(f)
+                state = json.load(f)
                 history = state.get("history", [])
 
     sql, id_query = get_batch_sql(

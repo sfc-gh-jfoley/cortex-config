@@ -52,7 +52,7 @@ QUALIFY ROW_NUMBER() OVER (
 
 **Goal:** Cover the full DEV set within 3-4 generations to avoid overfitting to a subset.
 
-**Tracking:** `gepa_state.yaml` maintains a `used_questions` list:
+**Tracking:** `gepa_state.json` maintains a `used_questions` list:
 ```yaml
 batch_history:
   gen_1: [Q_ID_1, Q_ID_4, Q_ID_7, Q_ID_12, Q_ID_15]
@@ -131,7 +131,7 @@ After tournament selection completes for generation N:
 |-----------|-------|-------|
 | Batch size | `max(5, ceil(DEV * 0.30))` | 30% of DEV set, minimum 5 |
 | Stratification | Proportional by TEST_CATEGORY | Via QUALIFY + ROW_NUMBER |
-| Rotation | Full DEV coverage within 3-4 gens | Track in gepa_state.yaml |
+| Rotation | Full DEV coverage within 3-4 gens | Track in gepa_state.json |
 | Anti-gaming | ≥20% different from prior gen | Re-sample if violated |
 | runs_per_split (mini-batch) | 1 | Cost control during selection |
 | runs_per_split (Phase 4) | From metadata.yaml | Rigorous final validation |

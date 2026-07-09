@@ -1,12 +1,10 @@
-"""Manage gepa_state.yaml — the persistent state between GEPA generations."""
+"""Manage gepa_state.json — the persistent state between GEPA generations."""
 
 import argparse
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-
-import yaml
 
 
 STATE_VERSION = 1
@@ -49,20 +47,20 @@ def init_state(pop_size: int, agent_name: str, baseline_fitness: float,
 
 
 def load_state(path: str) -> dict | None:
-    """Load state from YAML file. Returns None if file doesn't exist."""
+    """Load state from JSON file. Returns None if file doesn't exist."""
     p = Path(path)
     if not p.exists():
         return None
     with p.open("r") as f:
-        return yaml.safe_load(f)
+        return json.load(f)
 
 
 def save_state(state: dict, path: str) -> None:
-    """Write state to YAML file."""
+    """Write state to JSON file."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("w") as f:
-        yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+        json.dump(state, f, indent=2)
 
 
 def set_population(state: dict, candidates: list[dict]) -> dict:
@@ -216,7 +214,7 @@ def main():
     if args.command == "init":
         path = Path(args.path)
         if path.is_dir():
-            path = path / "gepa_state.yaml"
+            path = path / "gepa_state.json"
         state = init_state(
             pop_size=args.pop_size,
             agent_name=args.agent_name,

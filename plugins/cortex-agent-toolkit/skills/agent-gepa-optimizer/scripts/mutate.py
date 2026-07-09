@@ -12,8 +12,6 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
-
 # Default operator weights — proportional to documented effectiveness.
 # Normalized at selection time so absolute values don't matter (only ratios).
 DEFAULT_OPERATOR_WEIGHTS = {
@@ -374,7 +372,7 @@ def main():
         weights = dict(DEFAULT_OPERATOR_WEIGHTS)
         if args.weights_file:
             with open(args.weights_file, "r") as f:
-                data = yaml.safe_load(f)
+                data = json.load(f)
                 if isinstance(data, dict) and "operator_weights" in data:
                     weights = data["operator_weights"]
                 elif isinstance(data, dict):
