@@ -56,6 +56,39 @@ Parse the DDL output from DESCRIBE to count `verified_queries` entries. If 0 VQR
 - Offer: "Route to vqr-generator to create VQRs first?"
 - STOP (cannot evaluate without VQRs)
 
+**Step 3b: VQR Health Pre-Check**
+
+Before launching evaluation, scan each VQR's reference SQL against the SV's metric filter map to detect contaminated baselines.
+
+For each metric with a conditional filter (e.g., `SUM(CASE WHEN REFUNDED_IND = 0 THEN col)`), check every VQR that aggregates the same source column. Flag as **CONTAMINATED** if the VQR SQL omits the required filter.
+
+Classify each VQR:
+- **HEALTHY**: VQR SQL filter logic matches the metric definition
+- **CONTAMINATED**: VQR SQL aggregates the column without the required filter
+- **REVIEW**: VQR uses complex multi-table logic that cannot be auto-validated
+
+Report before proceeding:
+```
+VQR Health Summary:
+  HEALTHY:      N VQRs
+  CONTAMINATED: N VQRs → [list names]
+  REVIEW:       N VQRs → [list names]
+
+⚠ Warning: N contaminated VQR(s) detected. Eval will penalize correct model
+  behavior on these VQRs. Consider fixing before running eval.
+```
+
+If CONTAMINATED VQRs exist, offer:
+```
+A) Fix contaminated VQRs now (apply add_refund_filter_to_vqr)
+B) Proceed and flag contaminated VQR failures as REFERENCE_CONTAMINATED
+C) Exclude contaminated VQRs from this eval run
+```
+
+**STOP Gate (GUIDED mode):** Wait for user choice before proceeding.
+
+---
+
 **Step 4: Validate Eval Prerequisites**
 
 Run grant checks:
@@ -66,6 +99,13 @@ SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_USER;
 SELECT "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
 WHERE "grantee_name" = CURRENT_ROLE();
 -- If 0 rows: GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <ROLE>;
+
+-- Check USE AI FUNCTIONS privilege on account
+SHOW GRANTS ON ACCOUNT;
+SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "grantee_name" = CURRENT_ROLE()
+  AND "privilege" = 'USE AI FUNCTIONS';
+-- If 0 rows: GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE <ROLE>;
 
 -- Check EXECUTE TASK on account
 SHOW GRANTS ON ACCOUNT;
@@ -80,14 +120,26 @@ SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
 WHERE "grantee_name" = CURRENT_ROLE()
   AND "privilege" IN ('CREATE TASK', 'CREATE DATASET');
 -- If fewer than 2 rows: GRANT CREATE TASK, CREATE DATASET ON SCHEMA <DB>.<SCHEMA> TO ROLE <ROLE>;
+
+-- Check SELECT on semantic view and underlying tables
+SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
+-- Must include SELECT for current role
+
+-- Check MONITOR on semantic view
+SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
+-- Must include MONITOR for current role
 ```
+
+**⚠️ Primary Role Warning:** EXECUTE_AI_EVALUATION can only be called from a primary role. If your current role is not primary (e.g., a secondary role or a role in a role hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
 
 Report any missing grants with remediation DDL:
 ```sql
 -- Example remediation
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <ROLE>;
+GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE <ROLE>;
 GRANT EXECUTE TASK ON ACCOUNT TO ROLE <ROLE>;
 GRANT CREATE TASK, CREATE DATASET ON SCHEMA <DB>.<SCHEMA> TO ROLE <ROLE>;
+GRANT SELECT ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME> TO ROLE <ROLE>;
 GRANT MONITOR ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME> TO ROLE <ROLE>;
 ```
 
@@ -124,7 +176,7 @@ Build the evaluation configuration:
 ```yaml
 evaluation:
   analyst_params:
-    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>"
+    analyst_name: "<SV_NAME>"
     analyst_type: "SEMANTIC VIEW"
   source_metadata:
     type: "verified_queries"
@@ -132,8 +184,9 @@ evaluation:
     verified_queries:
       - "What is the total revenue by region for Q4?"
       - "Show me the top 10 customers by order count"
-  metrics:
-    - "sql_correctness"
+
+metrics:
+  - "sql_correctness"
 ```
 
 If ALL VQRs selected, omit the `verified_queries` list (evaluates all embedded VQRs).
@@ -141,9 +194,10 @@ If ALL VQRs selected, omit the `verified_queries` list (evaluates all embedded V
 **Step 8: Create Stage and Upload Config**
 
 ```sql
--- Create eval config stage (if not exists)
-CREATE STAGE IF NOT EXISTS <DB>.<SCHEMA>.SV_EVAL_CONFIGS
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
+-- Create eval config stage (idempotent, with FILE_FORMAT)
+CREATE OR REPLACE STAGE <DB>.<SCHEMA>.SV_EVAL_CONFIGS
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
+  FILE_FORMAT = (TYPE = 'YAML');
 ```
 
 Write config to local temp file, then upload:
@@ -168,20 +222,24 @@ Example: `REVENUE_SV_eval_20260522_143022`
 **Step 10: Launch Evaluation**
 
 ```sql
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<run_name>',
-    '<DB>.<SCHEMA>.<SV_NAME>',
+CALL EXECUTE_AI_EVALUATION(
+    'START',
+    OBJECT_CONSTRUCT('run_name', '<run_name>'),
     '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config_filename>.yaml'
 );
 ```
 
 **Step 11: Poll for Completion**
 
-Follow the polling pattern from `references/eval-polling.md`:
+Follow the polling pattern from `references/eval-polling.md` (use new STATUS pattern):
 
 ```sql
 -- Poll every 30 seconds (up to 15 minutes)
-SELECT SNOWFLAKE.CORTEX.GET_AI_EVALUATION_STATUS('<run_name>') AS status;
+CALL EXECUTE_AI_EVALUATION(
+    'STATUS',
+    OBJECT_CONSTRUCT('run_name', '<run_name>'),
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config_filename>.yaml'
+);
 ```
 
 Status progression: `CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_PROGRESS → COMPLETED`
@@ -197,29 +255,48 @@ In GUIDED mode, report progress at each status change.
 
 ### Phase 4: Analyze Results
 
-**Step 12: Query Raw Results**
+**Step 12: Query Raw Results (Normalized Pattern)**
+
+Use the normalized CTE from `references/eval-polling.md`:
 
 ```sql
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR,
+         EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    question,
-    generated_sql,
-    reference_sql,
-    sql_correctness,
-    error_message
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<run_name>'));
+  INPUT           AS question,
+  OUTPUT          AS generated_output,
+  GROUND_TRUTH    AS reference_output,
+  EVAL_AGG_SCORE  AS sql_correctness,
+  ERROR           AS error_message,
+  METRIC_STATUS,
+  METRIC_CALLS
+FROM raw;
 ```
 
 **Step 13: Calculate Metrics**
 
 ```sql
--- Overall accuracy
+-- Overall accuracy (use normalized CTE pattern)
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    AVG(sql_correctness) AS mean_score,
+    AVG(EVAL_AGG_SCORE) AS mean_score,
     COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN sql_correctness = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN sql_correctness = 0.0 THEN 1 ELSE 0 END) AS failed_count,
-    SUM(CASE WHEN sql_correctness > 0.0 AND sql_correctness < 1.0 THEN 1 ELSE 0 END) AS partial_count
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<run_name>'));
+    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
+    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count,
+    SUM(CASE WHEN EVAL_AGG_SCORE > 0.0 AND EVAL_AGG_SCORE < 1.0 THEN 1 ELSE 0 END) AS partial_count
+FROM raw;
 ```
 
 **Step 14: Regression Detection**
@@ -227,14 +304,20 @@ FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<run_name>'));
 If a previous evaluation exists (check `_SV_TOOLKIT_META.EVAL_HISTORY` or ask user for prior run name):
 
 ```sql
--- Compare with previous run
+-- Compare with previous run (use normalized CTE pattern)
 WITH current AS (
-    SELECT question, sql_correctness AS current_score
-    FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<current_run>'))
+    SELECT INPUT AS question, EVAL_AGG_SCORE AS current_score
+    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+      '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<current_run>'
+    ))
+    WHERE METRIC_NAME = 'sql_correctness'
 ),
 previous AS (
-    SELECT question, sql_correctness AS prev_score
-    FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<previous_run>'))
+    SELECT INPUT AS question, EVAL_AGG_SCORE AS prev_score
+    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+      '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<previous_run>'
+    ))
+    WHERE METRIC_NAME = 'sql_correctness'
 )
 SELECT
     c.question,
@@ -265,6 +348,7 @@ Failure categories:
 | Wrong time handling | Date logic errors | `add_time_dimension` |
 | SQL syntax error | Query doesn't compile | Manual DDL fix |
 | Empty result / Analyst refuses | Out-of-scope question | `add_vqr` |
+| Reference contaminated | Model applied metric filter; reference VQR did not | `add_refund_filter_to_vqr` |
 
 ---
 
@@ -338,30 +422,46 @@ VALUES
     ('<run_name>', '<DB>.<SCHEMA>.<SV_NAME>', M, 0.XX, N, N, N, '<yaml_content>');
 ```
 
-Also persist per-VQR results:
+Also persist per-VQR results (using normalized schema):
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_RESULTS (
     run_name VARCHAR,
     question VARCHAR,
-    generated_sql VARCHAR,
-    reference_sql VARCHAR,
+    generated_output VARCHAR,
+    reference_output VARCHAR,
+    raw_output VARCHAR,        -- new: raw OUTPUT column
+    raw_ground_truth VARCHAR,   -- new: raw GROUND_TRUTH column
     sql_correctness FLOAT,
     failure_category VARCHAR,
     error_message VARCHAR,
+    metric_status VARCHAR,
+    metric_calls INTEGER,
     PRIMARY KEY (run_name, question)
 );
 
 INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_RESULTS
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR,
+         EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
     '<run_name>' AS run_name,
-    question,
-    generated_sql,
-    reference_sql,
-    sql_correctness,
+    INPUT AS question,
+    OUTPUT AS generated_output,
+    GROUND_TRUTH AS reference_output,
+    OUTPUT AS raw_output,
+    GROUND_TRUTH AS raw_ground_truth,
+    EVAL_AGG_SCORE AS sql_correctness,
     NULL AS failure_category,  -- populated by analysis
-    error_message
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<run_name>'));
+    ERROR AS error_message,
+    METRIC_STATUS,
+    METRIC_CALLS
+FROM raw;
 ```
 
 ---

@@ -45,8 +45,20 @@ LIMIT 1;
 
 Get the most recent eval run name, then query failures:
 ```sql
-SELECT question, generated_sql, reference_sql, sql_correctness, error_message
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<latest_run_name>'))
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<latest_run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
+SELECT
+  INPUT AS question,
+  OUTPUT AS generated_sql,
+  GROUND_TRUTH AS reference_sql,
+  EVAL_AGG_SCORE AS sql_correctness,
+  ERROR AS error_message
+FROM raw
 WHERE sql_correctness < 1.0
 ORDER BY sql_correctness ASC;
 ```
@@ -104,10 +116,13 @@ Route to `sv-evaluation` to run a fresh evaluation:
 
 After eval completes, get score:
 ```sql
-SELECT AVG(sql_correctness) AS score_after,
-       SUM(CASE WHEN sql_correctness = 1.0 THEN 1 ELSE 0 END) AS perfect,
-       SUM(CASE WHEN sql_correctness = 0.0 THEN 1 ELSE 0 END) AS failed
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<EVAL_RUN_NAME>'));
+SELECT AVG(EVAL_AGG_SCORE) AS score_after,
+       SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect,
+       SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed
+FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+  '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<EVAL_RUN_NAME>'
+))
+WHERE METRIC_NAME = 'sql_correctness';
 ```
 
 Store as `SCORE_AFTER`.

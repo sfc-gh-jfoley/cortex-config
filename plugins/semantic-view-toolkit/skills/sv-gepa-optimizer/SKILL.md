@@ -233,7 +233,7 @@ For each candidate, write the mini-batch eval config to a file, upload to stage,
 cat > /tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml << 'EOF'
 evaluation:
   analyst_params:
-    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>"
+    analyst_name: "<SV_NAME>_GEPA_CAND_<N>"
     analyst_type: "SEMANTIC VIEW"
   source_metadata:
     type: "verified_queries"
@@ -241,8 +241,9 @@ evaluation:
       - "<question_1>"
       - "<question_2>"
       # ... (selected mini-batch questions from Step 6)
-  metrics:
-    - "sql_correctness"
+
+metrics:
+  - "sql_correctness"
 EOF
 ```
 
@@ -252,10 +253,10 @@ PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
   @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
--- Launch evaluation (stage-path reference — canonical convention per eval-polling.md)
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<SV_NAME>__gen<G>__cand_<N>',
-    '<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>',
+-- Launch evaluation (new START pattern — see eval-polling.md)
+CALL EXECUTE_AI_EVALUATION(
+    'START',
+    OBJECT_CONSTRUCT('run_name', '<SV_NAME>__gen<G>__cand_<N>'),
     '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gen<G>_cand<N>.yaml'
 );
 ```
@@ -267,17 +268,28 @@ CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
 Poll each evaluation for completion (see references/eval-polling.md for pattern):
 
 ```sql
--- Check status
-SELECT SNOWFLAKE.CORTEX.GET_AI_EVALUATION_STATUS('<SV_NAME>__gen<G>__cand_<N>') AS status;
+-- Check status (new STATUS pattern)
+CALL EXECUTE_AI_EVALUATION(
+    'STATUS',
+    OBJECT_CONSTRUCT('run_name', '<SV_NAME>__gen<G>__cand_<N>'),
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gen<G>_cand<N>.yaml'
+);
 ```
 
 Poll every 30 seconds, max 15 minutes per candidate.
 
-Once COMPLETED, retrieve the fitness score:
+Once COMPLETED, retrieve the fitness score (use normalized CTE pattern):
 
 ```sql
-SELECT AVG(sql_correctness) AS mean_score
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<SV_NAME>__gen<G>__cand_<N>'));
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>_GEPA_CAND_<N>', 'SEMANTIC VIEW', '<SV_NAME>__gen<G>__cand_<N>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
+SELECT AVG(EVAL_AGG_SCORE) AS mean_score
+FROM raw;
 ```
 
 Collect all scores into a JSON object:
@@ -398,12 +410,13 @@ Run a complete evaluation using ALL VQRs (not mini-batch):
 cat > /tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml << 'EOF'
 evaluation:
   analyst_params:
-    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>"
+    analyst_name: "<SV_NAME>"
     analyst_type: "SEMANTIC VIEW"
   source_metadata:
     type: "verified_queries"
-  metrics:
-    - "sql_correctness"
+
+metrics:
+  - "sql_correctness"
 EOF
 ```
 
@@ -412,22 +425,29 @@ PUT file:///tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml
   @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<SV_NAME>__gepa_final',
-    '<DB>.<SCHEMA>.<SV_NAME>',
+CALL EXECUTE_AI_EVALUATION(
+    'START',
+    OBJECT_CONSTRUCT('run_name', '<SV_NAME>__gepa_final'),
     '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gepa_final.yaml'
 );
 ```
 
-Poll until COMPLETED and retrieve full results:
+Poll until COMPLETED and retrieve full results (use normalized CTE pattern):
 
 ```sql
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<SV_NAME>__gepa_final'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    AVG(sql_correctness) AS mean_score,
+    AVG(EVAL_AGG_SCORE) AS mean_score,
     COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN sql_correctness = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN sql_correctness = 0.0 THEN 1 ELSE 0 END) AS failed_count
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<SV_NAME>__gepa_final'));
+    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
+    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count
+FROM raw;
 ```
 
 ### Step 14: Accept/Reject

@@ -15,6 +15,7 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 | SQL syntax error | Invalid SV DDL (bad expression, wrong alias) | Manual DDL fix |
 | Empty result set | Filter too restrictive or wrong table | `change_relationship`, `add_filter` |
 | Analyst refuses | Question out of SV scope | `add_vqr` (teach by example) |
+| Reference contaminated | Model applies metric filter; reference SQL does not | `add_refund_filter_to_vqr` |
 
 ---
 
@@ -25,12 +26,19 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 Compare `generated_sql` and `reference_sql` columns from eval results:
 
 ```sql
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    question,
-    generated_sql,
-    reference_sql
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<eval_name>'))
-WHERE sql_correctness < 1.0;
+    INPUT AS question,
+    OUTPUT AS generated_sql,
+    GROUND_TRUTH AS reference_sql
+FROM raw
+WHERE EVAL_AGG_SCORE < 1.0;
 ```
 
 **Signals:**
@@ -406,6 +414,57 @@ Teach Analyst by adding a verified query with the correct SQL:
 
 ---
 
+## 8. Reference-Contaminated Baseline
+
+### How to Identify
+
+**Signals:**
+- `generated_sql` contains `CASE WHEN refunded_ind = 0` or `WHERE refunded_ind = 0`, but `reference_sql` does not
+- The SV metric definition for the aggregated column includes a `CASE WHEN refunded_ind = 0` filter
+- Numeric gap between generated and reference results is small (~0.1%–0.8%), consistent with known refund rates
+- `sql_correctness < 1.0` despite the model generating business-correct SQL
+
+**Example:**
+```
+Question: "What is total net revenue last month?"
+Generated: SUM(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END)
+           ← matches TOTAL_NET_REVENUE_USD metric definition ✓
+Reference: SUM(sales_exc_tax_usd)
+           ← missing refund filter (contaminated baseline) ✗
+sql_correctness: 0.0  ← model penalized for being correct
+```
+
+### Root Cause
+1. VQR was authored before the metric filter was added
+2. Inconsistent VQR authoring — some VQRs for the same metric include the filter; others do not
+3. Cross-table semantic drift — metric correctly defined on one table; looser on another
+
+### Investigation Steps
+
+```sql
+-- Confirm spot-check: run both SQL paths for 1 month
+SELECT
+  SUM(sales_exc_tax_usd)                                             AS reference_result,
+  SUM(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END) AS metric_result,
+  reference_result - metric_result                                   AS gap,
+  ROUND((gap / reference_result) * 100, 2)                          AS gap_pct
+FROM <fact_table>
+JOIN <date_dim> ON ...
+WHERE relative_month_num = -1;
+-- If gap_pct is 0.1%–0.8%: contaminated baseline confirmed
+```
+
+### Fix: `add_refund_filter_to_vqr`
+
+Do NOT modify the generated SQL — the model is correct. Fix the reference VQR SQL to add the missing filter:
+
+```sql
+-- BEFORE: sum(sales_exc_tax_usd)
+-- AFTER:  sum(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END)
+```
+
+---
+
 ## Decision Tree
 
 Use this flowchart to quickly categorize a failure:
@@ -431,6 +490,9 @@ VQR scored < 1.0
   │
   └── Time/date related issue?
         └── YES → Category 4 (Wrong time filter) → add_time_dimension
+  │
+  └── generated_sql has refund filter, reference does NOT, metric requires it?
+        └── YES → Category 8 (Contaminated reference) → add_refund_filter_to_vqr
 ```
 
 ---
@@ -448,6 +510,7 @@ Assign severity to prioritize which failures to fix first:
 | **MEDIUM** | Wrong time filter (Category 4) — temporal queries fail | Fix after HIGH |
 | **LOW** | Wrong column (Category 2) — subtle difference | Fix last (or via GEPA) |
 | **LOW** | Empty result (Category 6) — data/filter issue | Investigate data first |
+| **HIGH** | Reference contaminated (Category 8) — eval penalizes correct model behavior | Reclassify as REFERENCE_CONTAMINATED; fix VQR, not SV |
 
 ---
 
@@ -457,20 +520,27 @@ When analyzing multiple failures, group by category to identify systemic issues:
 
 ```sql
 -- Categorize all failures (manual classification after review)
-WITH failures AS (
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+),
+failures AS (
     SELECT
-        question,
-        generated_sql,
-        reference_sql,
-        sql_correctness,
-        error_message,
+        INPUT AS question,
+        OUTPUT AS generated_sql,
+        GROUND_TRUTH AS reference_sql,
+        EVAL_AGG_SCORE AS sql_correctness,
+        ERROR AS error_message,
         CASE
             WHEN error_message LIKE '%cannot answer%' THEN 'analyst_refused'
             WHEN error_message IS NOT NULL THEN 'sql_error'
             WHEN generated_sql IS NULL THEN 'analyst_refused'
             ELSE 'logic_error'
         END AS failure_type
-    FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<eval_name>'))
+    FROM raw
     WHERE sql_correctness < 1.0
 )
 SELECT

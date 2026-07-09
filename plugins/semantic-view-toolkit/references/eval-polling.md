@@ -24,9 +24,10 @@ CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_P
 This is more robust than inline strings for large configs and keeps GEPA generation history auditable.
 
 ```sql
--- Step 1: Create stage (if not exists)
-CREATE STAGE IF NOT EXISTS <DB>.<SCHEMA>.SV_EVAL_CONFIGS
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
+-- Step 1: Create stage (idempotent, with FILE_FORMAT)
+CREATE OR REPLACE STAGE <DB>.<SCHEMA>.SV_EVAL_CONFIGS
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
+  FILE_FORMAT = (TYPE = 'YAML');
 ```
 
 Write config YAML to a local temp file, upload it, then call:
@@ -37,21 +38,25 @@ PUT file:///tmp/<eval_config>.yaml
   @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
--- Step 3: Start evaluation (stage-path reference)
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<evaluation_name>',
-    '<semantic_view_fqn>',
-    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<eval_config>.yaml'
+-- Step 3: Start evaluation (new START pattern)
+CALL EXECUTE_AI_EVALUATION(
+    'START',
+    OBJECT_CONSTRUCT('run_name', '<run_name>'),
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config>.yaml'
 );
 ```
 
 ## Polling Pattern
 
-### Method 1: STATUS Function (Recommended)
+### Method 1: STATUS Call (Recommended)
 
 ```sql
--- Check evaluation status
-SELECT SNOWFLAKE.CORTEX.GET_AI_EVALUATION_STATUS('<evaluation_name>') AS status;
+-- Check evaluation status (new STATUS pattern)
+CALL EXECUTE_AI_EVALUATION(
+    'STATUS',
+    OBJECT_CONSTRUCT('run_name', '<run_name>'),
+    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config>.yaml'
+);
 ```
 
 **Polling interval:** Every 30 seconds
@@ -64,13 +69,15 @@ import time
 MAX_WAIT_SECONDS = 900  # 15 minutes
 POLL_INTERVAL = 30      # 30 seconds
 
-def poll_evaluation(eval_name, connection):
+def poll_evaluation(run_name, config_path, connection):
     elapsed = 0
     while elapsed < MAX_WAIT_SECONDS:
         result = connection.execute(
-            f"SELECT SNOWFLAKE.CORTEX.GET_AI_EVALUATION_STATUS('{eval_name}') AS status"
+            f"CALL EXECUTE_AI_EVALUATION('STATUS', OBJECT_CONSTRUCT('run_name', '{run_name}'), '{config_path}')"
         )
-        status = result.fetchone()['STATUS']
+        # CALL result returns a row with STATUS column
+        row = result.fetchone()
+        status = row[1] if isinstance(row, tuple) else row['STATUS']
         
         if status == 'COMPLETED':
             return 'COMPLETED'
@@ -85,40 +92,70 @@ def poll_evaluation(eval_name, connection):
 
 ### Method 2: Check Scored Results
 
-Alternatively, check `GET_ANALYST_AI_EVALUATION_DATA` for scored results:
+Alternatively, check `GET_ANALYST_AI_EVALUATION_DATA` for scored results (use new 5-arg form):
 
 ```sql
--- Check if results are available (COMPLETED_METRICS > 0)
+-- Check if results are available by querying new 5-arg function
 SELECT *
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<evaluation_name>'))
+FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+  '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+))
+WHERE METRIC_NAME = 'sql_correctness'
 LIMIT 5;
 ```
 
 If this returns rows with non-NULL metric values, evaluation is complete.
 
-## Retrieving Results
+## Retrieving Results (Normalized Pattern)
+
+**Canonical normalized projection** — use this CTE pattern in all result queries:
 
 ```sql
--- Get full evaluation results
+-- Raw results from 5-arg SNOWFLAKE.LOCAL function
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR,
+         EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
+-- Normalized projection for downstream consumers
 SELECT
-    question,
-    generated_sql,
-    reference_sql,
-    sql_correctness,
-    error_message
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<evaluation_name>'));
+  INPUT           AS question,
+  OUTPUT          AS generated_output,
+  GROUND_TRUTH    AS reference_output,
+  EVAL_AGG_SCORE  AS sql_correctness,
+  ERROR           AS error_message,
+  METRIC_STATUS,
+  METRIC_CALLS
+FROM raw;
 ```
+
+**Key changes:**
+- Function: `SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA` (1-arg, old) → `SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA` (5-arg, new)
+- Arguments: `<evaluation_name>` → `'<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'`
+- Schema: old columns `question, generated_sql, reference_sql, sql_correctness, error_message` → new columns `INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS`
+- All queries **must** use this CTE normalization to map new schema to old names
 
 ### Aggregating Scores
 
 ```sql
 -- Mean sql_correctness (the fitness score for GEPA)
+-- Use the normalized CTE pattern from "Retrieving Results" section
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    AVG(sql_correctness) AS mean_score,
+    AVG(EVAL_AGG_SCORE) AS mean_score,
     COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN sql_correctness = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN sql_correctness = 0.0 THEN 1 ELSE 0 END) AS failed_count
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<evaluation_name>'));
+    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
+    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count
+FROM raw;
 ```
 
 ## Timeout Handling
@@ -192,12 +229,19 @@ for candidate in candidates:
 If evaluation completed for some VQRs but not all:
 
 ```sql
--- Check completion count
+-- Check completion count (use normalized CTE pattern)
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
     COUNT(*) AS total,
-    COUNT(sql_correctness) AS scored,
-    COUNT(*) - COUNT(sql_correctness) AS pending
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<evaluation_name>'));
+    COUNT(EVAL_AGG_SCORE) AS scored,
+    COUNT(*) - COUNT(EVAL_AGG_SCORE) AS pending
+FROM raw;
 ```
 
 If `scored / total >= 0.80`, use partial results (scale appropriately). Otherwise, treat as timeout.
