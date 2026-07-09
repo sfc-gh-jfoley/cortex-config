@@ -618,6 +618,38 @@ def _check_fan_trap_warning(ctx: _DDLContext) -> CheckResult:
     return CheckResult("fan_trap_warning", True, "warning", "No fan trap patterns detected.")
 
 
+def _check_chasm_trap_warning(ctx: _DDLContext) -> CheckResult:
+    """18. Warn about potential chasm traps (two fact tables converging on a shared dimension)."""
+    adj: dict[str, set[str]] = defaultdict(set)
+    for rel in ctx.relationships:
+        lt = rel["left_table"].upper()
+        rt = rel["right_table"].upper()
+        adj[lt].add(rt)
+        adj[rt].add(lt)
+
+    metric_tables = list(set(m["table"].upper() for m in ctx.metrics))
+    dim_tables = set(d["table"].upper() for d in ctx.dimensions)
+
+    issues = []
+    for i, mt1 in enumerate(metric_tables):
+        for mt2 in metric_tables[i + 1:]:
+            shared = adj.get(mt1, set()) & adj.get(mt2, set())
+            for shared_node in shared:
+                if shared_node in dim_tables or any(
+                    shared_node in adj.get(dt, set()) for dt in dim_tables
+                ):
+                    issues.append(
+                        f"Potential chasm trap: metrics on '{mt1}' and '{mt2}' both connect "
+                        f"to shared table '{shared_node}'. Aggregating both in one query will "
+                        f"multiply results. Pre-aggregate each to '{shared_node}' grain separately."
+                    )
+                    break
+
+    if issues:
+        return CheckResult("chasm_trap_warning", False, "warning", "; ".join(issues))
+    return CheckResult("chasm_trap_warning", True, "warning", "No chasm trap patterns detected.")
+
+
 def _check_cardinality_lie_warning(ctx: _DDLContext) -> CheckResult:
     """15. Warn if a PK column also appears as FK to another table."""
     pk_by_alias: dict[str, set[str]] = {}
@@ -713,6 +745,7 @@ def validate_ddl(ddl: str) -> List[CheckResult]:
         _check_asof_column_type_hint,
         _check_orphan_detection,
         _check_fan_trap_warning,
+        _check_chasm_trap_warning,
         _check_cardinality_lie_warning,
         _check_synonym_overlap,
         _check_semi_additive_audit,

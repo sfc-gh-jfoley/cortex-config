@@ -348,21 +348,31 @@ If any check fails — **fix the DDL first**, then re-run self-check. Do not pre
 After the internal self-check passes, validate the generated DDL with a compilation check
 before presenting to the user:
 
+**Gate A: Syntax compile check**
+
 ```sql
--- Validate the DDL compiles without executing
--- Use only_compile=true via sql_execute, or run sv_validator.py if available
+-- Use only_compile=true via sql_execute to catch parser errors before deploying
 ```
 
-Alternatively, if the `scripts/sv_validator.py` script is available in this skill directory,
-run it against the generated DDL file for a doc-backed second pass:
+**Gate B: Structural validator (mandatory)**
+
+Write the DDL to `/tmp/sv_ddl_check.sql` then run:
 
 ```bash
-uv run python scripts/sv_validator.py <ddl_file.sql>
+python3 ~/.snowflake/cortex/skills/semantic-view-ddl/scripts/sv_validator.py /tmp/sv_ddl_check.sql
 ```
 
-- **FAIL** → fix the issues reported, re-run Step 5.8 self-check, then re-run validation
-- **WARN** → note warnings in the Step 5.9 presentation summary
-- **PASS** → proceed
+If the script is not found at that path, **STOP**:
+```
+ERROR: sv_validator.py not found — 18 structural checks cannot run.
+Ensure the semantic-view-ddl skill is installed at ~/.snowflake/cortex/skills/semantic-view-ddl/
+Do not proceed to Phase 6 until this passes.
+```
+
+Interpret results:
+- Any `[ERROR]` → fix the DDL, re-run Step 5.8 self-check, then return here
+- Any `[WARNING]` → surface to user, ask to confirm before proceeding to Phase 6
+- `18/18 checks passed` → proceed
 
 ---
 

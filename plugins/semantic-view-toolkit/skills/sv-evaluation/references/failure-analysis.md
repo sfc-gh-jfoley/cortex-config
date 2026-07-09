@@ -17,9 +17,57 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 | Analyst refuses | Question out of SV scope | `add_vqr` (teach by example) |
 | Reference contaminated | Model applies metric filter; reference SQL does not | **Read-only analysis** (do not modify VQR) |
 
+| FAN_TRAP | Generated SQL applies additive aggregate above many-to-one join; reference pre-aggregates | Move metric to bridge-table grain; see Section 9 |
+| CHASM_TRAP | Generated SQL joins two fact tables on shared dim without per-fact CTEs | Pre-aggregate each fact to shared dimension grain; see Section 10 |
+| JOIN_HALLUCINATION | Generated SQL joins on fewer or different columns than reference | `change_relationship`, add missing RELATIONSHIP to SV |
+| GRANULARITY_MISMATCH | Generated SQL GROUP BY is at coarser level than reference | Add dimension at correct grain, or add guiding VQR |
+
 ---
 
-## 1. Wrong Table Joined
+## Automated Structural Analysis
+
+Before manually reviewing individual VQRs, run EXPLAIN-based structural comparison for all failures. This auto-classifies most failure patterns faster than visual SQL comparison.
+
+### Step A: Get failed VQRs with generated and reference SQL
+
+```sql
+WITH failures AS (
+    SELECT
+        INPUT           AS question,
+        OUTPUT          AS generated_sql,
+        GROUND_TRUTH    AS reference_sql,
+        EVAL_AGG_SCORE  AS sql_correctness,
+        ERROR           AS error_message
+    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+        '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<eval_name>'
+    ))
+    WHERE METRIC_NAME = 'sql_correctness'
+      AND EVAL_AGG_SCORE < 1.0
+)
+SELECT * FROM failures;
+```
+
+### Step B: Run EXPLAIN on each pair
+
+For each failed VQR, run in separate worksheets:
+```sql
+EXPLAIN USING TABULAR <generated_sql>;   -- paste as literal SQL
+EXPLAIN USING TABULAR <reference_sql>;
+```
+
+### Step C: Classify by structural diff
+
+| EXPLAIN signal | Category |
+|---|---|
+| Different `objects` in TableScan rows | **WRONG_TABLE** |
+| Fewer or different join keys (joinkey column) | **JOIN_HALLUCINATION** |
+| SUM/COUNT aggregate above a Join node not in reference plan | **FAN_TRAP** |
+| Two separate Aggregate→TableScan paths converge at a Join; reference uses CTEs | **CHASM_TRAP** |
+| Same tables/joins but GROUP BY columns differ | **GRANULARITY_MISMATCH** |
+| Structurally identical plans but results differ | **DATA_FILTER_ERROR** or **REFERENCE_CONTAMINATED** |
+| EXPLAIN fails on generated SQL | **SQL_SYNTAX_ERROR** |
+
+---
 
 ### How to Identify
 

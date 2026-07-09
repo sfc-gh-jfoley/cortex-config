@@ -22,7 +22,7 @@ Input VQR JSON format (stdin or file):
 
 Output: JSON list of selected VQR question strings to stdout.
 
-Run with: uvx --with pyyaml python scripts/sample_batch.py
+Run with: python3 scripts/sample_batch.py
 """
 
 import argparse
@@ -32,22 +32,20 @@ import random
 import sys
 from pathlib import Path
 
-import yaml
-
 
 def load_state(state_path: str) -> dict:
-    """Load GEPA state from YAML file."""
+    """Load GEPA state from JSON file."""
     path = Path(state_path)
     if not path.exists():
         return {"batch_history": []}
     with open(path) as f:
-        return yaml.safe_load(f) or {"batch_history": []}
+        return json.load(f) or {"batch_history": []}
 
 
 def save_state(state_path: str, state: dict) -> None:
-    """Save GEPA state to YAML file."""
+    """Save GEPA state to JSON file."""
     with open(state_path, "w") as f:
-        yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+        json.dump(state, f, indent=2)
 
 
 def get_previous_batch(state: dict, generation: int) -> set[str]:

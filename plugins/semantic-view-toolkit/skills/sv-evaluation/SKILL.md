@@ -334,7 +334,14 @@ WHERE change_type != 'UNCHANGED';
 
 **Step 15: Categorize Failures**
 
-For each VQR with `sql_correctness < 1.0`, analyze the generated vs reference SQL to determine failure category. Reference `references/failure-analysis.md` for detailed diagnosis.
+For each VQR with `sql_correctness < 1.0`:
+
+1. **Run structural EXPLAIN diff first** (see `references/failure-analysis.md → Automated Structural Analysis`):
+   - `EXPLAIN USING TABULAR <generated_sql>` (from `OUTPUT` column)
+   - `EXPLAIN USING TABULAR <reference_sql>` (from `GROUND_TRUTH` column)
+   - Auto-classify: **FAN_TRAP** | **CHASM_TRAP** | **JOIN_HALLUCINATION** | **GRANULARITY_MISMATCH** | **WRONG_TABLE** | **DATA_FILTER_ERROR**
+
+2. **Fall back to manual SQL comparison** only when EXPLAIN fails (invalid SQL or timeout)
 
 Failure categories:
 

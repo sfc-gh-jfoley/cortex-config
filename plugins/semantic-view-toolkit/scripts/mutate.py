@@ -8,7 +8,7 @@ Usage:
   python mutate.py get-prompt <operator> <sv_ddl_path>
   python mutate.py validate <original_ddl_path> <mutated_ddl_path>
 
-Run with: uvx --with pyyaml python scripts/mutate.py
+Run with: python3 scripts/mutate.py
 """
 
 import argparse
@@ -17,8 +17,6 @@ import random
 import re
 import sys
 from pathlib import Path
-
-import yaml
 
 
 OPERATORS = [
@@ -265,7 +263,7 @@ def load_state(state_path: str) -> dict:
         print(f"Error: State file not found: {state_path}", file=sys.stderr)
         sys.exit(1)
     with open(path) as f:
-        return yaml.safe_load(f)
+        return json.load(f)
 
 
 def cmd_select_operator(args: argparse.Namespace) -> None:

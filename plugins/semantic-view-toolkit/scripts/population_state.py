@@ -14,7 +14,7 @@ Usage:
   python population_state.py get-status <state_path>
   python population_state.py increment-generation <state_path>
 
-Run with: uvx --with pyyaml python scripts/population_state.py
+Run with: python3 scripts/population_state.py
 """
 
 import argparse
@@ -22,8 +22,6 @@ import json
 import os
 import sys
 from pathlib import Path
-
-import yaml
 
 
 DEFAULT_OPERATOR_WEIGHTS = {
@@ -43,26 +41,26 @@ WEIGHT_FLOOR = 0.02
 
 
 def load_state(state_path: str) -> dict:
-    """Load GEPA state from YAML file."""
+    """Load GEPA state from JSON file."""
     path = Path(state_path)
     if not path.exists():
         print(f"Error: State file not found: {state_path}", file=sys.stderr)
         sys.exit(1)
     with open(path) as f:
-        return yaml.safe_load(f)
+        return json.load(f)
 
 
 def save_state(state_path: str, state: dict) -> None:
-    """Save GEPA state to YAML file."""
+    """Save GEPA state to JSON file."""
     with open(state_path, "w") as f:
-        yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+        json.dump(state, f, indent=2)
 
 
 def cmd_init(args):
     """Initialize a new GEPA state file."""
     workspace = Path(args.workspace_dir)
     workspace.mkdir(parents=True, exist_ok=True)
-    state_path = workspace / "gepa_state.yaml"
+    state_path = workspace / "gepa_state.json"
 
     state = {
         "agent_name": args.agent_name,

@@ -13,14 +13,12 @@ Input scores_json format:
 Output (stdout JSON):
   {"winners": [...], "losers": [...], "best_fitness": 0.82, "converged": false}
 
-Run with: uvx --with pyyaml python scripts/tournament.py
+Run with: python3 scripts/tournament.py
 """
 
 import json
 import sys
 from pathlib import Path
-
-import yaml
 
 
 WEIGHT_BOOST = 0.02
@@ -40,13 +38,13 @@ def load_state(state_path: str) -> dict:
         print(f"Error: State file not found: {state_path}", file=sys.stderr)
         sys.exit(1)
     with open(path) as f:
-        return yaml.safe_load(f)
+        return json.load(f)
 
 
 def save_state(state_path: str, state: dict) -> None:
-    """Save GEPA state to YAML file."""
+    """Save GEPA state to JSON file."""
     with open(state_path, "w") as f:
-        yaml.dump(state, f, default_flow_style=False, sort_keys=False)
+        json.dump(state, f, indent=2)
 
 
 def extract_operator(mutations_str: str) -> str | None:

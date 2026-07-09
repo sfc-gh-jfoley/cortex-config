@@ -82,7 +82,7 @@ Record the most recent `mean_score` as `baseline_fitness`.
 
 Check if a previous GEPA run was interrupted:
 ```bash
-ls /tmp/gepa_workspace/gepa_state.yaml 2>/dev/null
+ls /tmp/gepa_workspace/gepa_state.json 2>/dev/null
 ```
 
 ### Step 2: Resume or Initialize
@@ -92,18 +92,18 @@ ls /tmp/gepa_workspace/gepa_state.yaml 2>/dev/null
 > If running from another directory, prefix each script path accordingly, e.g.:
 > `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/scripts/population_state.py`
 
-**If `gepa_state.yaml` exists → Resume Protocol** (see end of document)
+**If `gepa_state.json` exists → Resume Protocol** (see end of document)
 
 **If not → Initialize fresh population:**
 
 ```bash
-uvx --with pyyaml python scripts/population_state.py init /tmp/gepa_workspace \
+python3 scripts/population_state.py init /tmp/gepa_workspace \
   --pop-size 6 \
   --agent-name "<DB>.<SCHEMA>.<SV_NAME>" \
   --baseline-fitness <BASELINE_SCORE>
 ```
 
-This creates `gepa_state.yaml` with:
+This creates `gepa_state.json` with:
 - Uniform operator weights (10 operators)
 - Generation counter at 1
 - Convergence counter at 0
@@ -115,15 +115,15 @@ For each candidate slot (1 to `population_size`):
 
 **3a. Select mutation operator:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py select-operator \
-  --weights-file /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/mutate.py select-operator \
+  --weights-file /tmp/gepa_workspace/gepa_state.json
 ```
 
 Returns: `{"operator": "add_synonym", "target_hint": "...", "weight": 0.12}`
 
 **3b. Generate mutation prompt:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py get-prompt <OPERATOR> /tmp/gepa_workspace/current_sv.sql
+python3 scripts/mutate.py get-prompt <OPERATOR> /tmp/gepa_workspace/current_sv.sql
 ```
 
 Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
@@ -144,7 +144,7 @@ Save the result to `/tmp/gepa_workspace/candidates/cand_<N>.sql`.
 
 **3d. Validate mutation:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py validate \
+python3 scripts/mutate.py validate \
   /tmp/gepa_workspace/current_sv.sql \
   /tmp/gepa_workspace/candidates/cand_<N>.sql
 ```
@@ -153,8 +153,8 @@ If validation fails (`status: FAIL`), regenerate with the error feedback. Retry 
 
 **3e. Register candidate:**
 ```bash
-uvx --with pyyaml python scripts/population_state.py add-candidate \
-  /tmp/gepa_workspace/gepa_state.yaml \
+python3 scripts/population_state.py add-candidate \
+  /tmp/gepa_workspace/gepa_state.json \
   --id "cand_<N>" \
   --generation 1 \
   --mutations "<OPERATOR>: <brief description of change>"
@@ -207,11 +207,11 @@ Select a stratified subset of VQRs for this generation's evaluation:
 
 ```bash
 # First, extract VQR questions from current SV (pipe as JSON)
-echo '<vqr_json_array>' | uvx --with pyyaml python scripts/sample_batch.py \
+echo '<vqr_json_array>' | python3 scripts/sample_batch.py \
   --from-stdin \
   --batch-pct 0.30 \
   --generation <G> \
-  --history-file /tmp/gepa_workspace/gepa_state.yaml
+  --history-file /tmp/gepa_workspace/gepa_state.json
 ```
 
 Input VQR JSON format:
@@ -309,9 +309,9 @@ Collect all scores into a JSON object:
 ### Step 9: Run Tournament
 
 ```bash
-uvx --with pyyaml python scripts/tournament.py \
+python3 scripts/tournament.py \
   '{"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55, "cand_5": 0.70, "cand_6": 0.68}' \
-  /tmp/gepa_workspace/gepa_state.yaml
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Returns:
@@ -339,8 +339,8 @@ The script automatically:
 
 Remove eliminated candidates from state:
 ```bash
-uvx --with pyyaml python scripts/population_state.py remove-candidates \
-  /tmp/gepa_workspace/gepa_state.yaml \
+python3 scripts/population_state.py remove-candidates \
+  /tmp/gepa_workspace/gepa_state.json \
   --ids "cand_2,cand_4,cand_6"
 ```
 
@@ -359,8 +359,8 @@ Read the `converged` flag from the tournament output.
 
 1. Increment generation:
 ```bash
-uvx --with pyyaml python scripts/population_state.py increment-generation \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py increment-generation \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 2. Fill empty slots by mutating winners:
@@ -374,8 +374,8 @@ uvx --with pyyaml python scripts/population_state.py increment-generation \
 
 Check convergence reason via:
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Proceed to Phase 4.
@@ -389,8 +389,8 @@ Proceed to Phase 4.
 Identify the best candidate (highest fitness across all generations):
 
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Read the winner's DDL and deploy as the production semantic view:
@@ -525,12 +525,12 @@ Report final summary:
 
 ## Resume Protocol
 
-If `gepa_state.yaml` exists when starting the skill:
+If `gepa_state.json` exists when starting the skill:
 
 ### Step 1: Read State
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 ### Step 2: Check Environment
@@ -583,7 +583,7 @@ Report:
 ```
 Cleaned up:
 - Dropped N candidate semantic views
-- Removed gepa_state.yaml and workspace
+- Removed gepa_state.json and workspace
 ```
 
 ---

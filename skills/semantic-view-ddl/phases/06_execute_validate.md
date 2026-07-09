@@ -69,6 +69,48 @@ If any counts are lower than expected, find the missing element and fix.
 
 ---
 
+## Step 6.3.1: Post-deploy structural validation
+
+Run these SQL checks immediately after the DESCRIBE in Step 6.3, using RESULT_SCAN on that output:
+
+**Check 1: Fan trap** — metric reachable to dimension only via bridge table
+```sql
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+metric_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'),
+dim_tbl    AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'DIMENSION'),
+rels       AS (SELECT "left_table" AS lt, "right_table" AS rt FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+SELECT 'FAN_TRAP' AS issue_type, m.t AS metric_table, d.t AS dim_table, r1.rt AS bridge_table,
+       'SUM/COUNT on ' || m.t || ' inflated when grouped by ' || d.t || ' dims (bridge: ' || r1.rt || ')' AS detail
+FROM metric_tbl m JOIN rels r1 ON r1.lt = m.t JOIN rels r2 ON r2.lt = r1.rt
+JOIN dim_tbl d ON d.t = r2.rt WHERE d.t != m.t;
+```
+
+**Check 2: Chasm trap** — two fact tables converging on shared dimension
+```sql
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+metric_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'),
+rels       AS (SELECT "left_table" AS lt, "right_table" AS rt FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+SELECT 'CHASM_TRAP' AS issue_type, m1.t AS metric_1, m2.t AS metric_2, r1.rt AS shared_table,
+       'Pre-aggregate both ' || m1.t || ' and ' || m2.t || ' to ' || r1.rt || ' grain separately' AS detail
+FROM metric_tbl m1 JOIN rels r1 ON r1.lt = m1.t
+JOIN metric_tbl m2 ON m2.t != m1.t AND m2.t > m1.t
+JOIN rels r2 ON r2.lt = m2.t AND r2.rt = r1.rt;
+```
+
+**Check 3: Orphan tables**
+```sql
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+all_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'TABLE'),
+rel_tbl AS (SELECT "left_table" AS t FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP'
+            UNION ALL SELECT "right_table" FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+SELECT 'ORPHAN' AS issue_type, t, 'Table has no RELATIONSHIP' AS detail
+FROM all_tbl WHERE t NOT IN (SELECT t FROM rel_tbl);
+```
+
+FAN_TRAP or CHASM_TRAP → **STOP**, return to Phase 4/5. ORPHAN → **WARN** to user. All 0 rows → proceed.
+
+---
+
 ## Step 6.4: Self-test question loop
 
 Test the semantic view by constructing and executing SQL against the source objects for 3-5 sample questions.
