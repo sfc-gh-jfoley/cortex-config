@@ -239,35 +239,35 @@ def main():
 
     # add-candidate
     p_add = subparsers.add_parser("add-candidate", help="Add a candidate")
-    p_add.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_add.add_argument("state_path", help="Path to gepa_state.json")
     p_add.add_argument("--id", required=True, help="Candidate ID")
     p_add.add_argument("--generation", type=int, required=True, help="Generation number")
     p_add.add_argument("--mutations", required=True, help="Mutation description")
 
     # remove-candidates
     p_rm = subparsers.add_parser("remove-candidates", help="Remove candidates")
-    p_rm.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_rm.add_argument("state_path", help="Path to gepa_state.json")
     p_rm.add_argument("--ids", required=True, help="Comma-separated candidate IDs")
 
     # update-fitness
     p_fit = subparsers.add_parser("update-fitness", help="Update candidate fitness")
-    p_fit.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_fit.add_argument("state_path", help="Path to gepa_state.json")
     p_fit.add_argument("--id", required=True, help="Candidate ID")
     p_fit.add_argument("--fitness", type=float, required=True, help="Fitness score")
 
     # update-weights
     p_wt = subparsers.add_parser("update-weights", help="Update operator weights")
-    p_wt.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_wt.add_argument("state_path", help="Path to gepa_state.json")
     p_wt.add_argument("--winners", required=True, help="Comma-separated winner IDs")
     p_wt.add_argument("--losers", required=True, help="Comma-separated loser IDs")
 
     # get-status
     p_st = subparsers.add_parser("get-status", help="Get GEPA status")
-    p_st.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_st.add_argument("state_path", help="Path to gepa_state.json")
 
     # increment-generation
     p_gen = subparsers.add_parser("increment-generation", help="Increment generation")
-    p_gen.add_argument("state_path", help="Path to gepa_state.yaml")
+    p_gen.add_argument("state_path", help="Path to gepa_state.json")
 
     args = parser.parse_args()
 

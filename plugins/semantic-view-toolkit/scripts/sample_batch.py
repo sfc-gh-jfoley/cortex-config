@@ -144,7 +144,7 @@ def main():
     parser.add_argument("--from-file", help="Read VQR JSON from file")
     parser.add_argument("--batch-pct", type=float, default=0.30, help="Batch percentage (0.20-0.50)")
     parser.add_argument("--generation", type=int, required=True, help="Current generation number")
-    parser.add_argument("--history-file", required=True, help="Path to gepa_state.yaml")
+    parser.add_argument("--history-file", required=True, help="Path to gepa_state.json")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     args = parser.parse_args()
 

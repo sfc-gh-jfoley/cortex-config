@@ -403,7 +403,7 @@ def main() -> None:
 
     # select-operator
     p_select = subparsers.add_parser("select-operator", help="Weighted random operator selection")
-    p_select.add_argument("--weights-file", required=True, help="Path to gepa_state.yaml")
+    p_select.add_argument("--weights-file", required=True, help="Path to gepa_state.json")
     p_select.add_argument("--seed", type=int, help="Random seed for reproducibility")
 
     # get-prompt
