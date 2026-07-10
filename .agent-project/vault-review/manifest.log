@@ -1,3 +1,12 @@
 2026-07-10T17:00:00Z | architect | INTAKE_COMPLETE | vault-review: security+accuracy review of all vault skills modified today
 2026-07-10T17:00:00Z | architect | DOMAIN_HINTS | 1. Never invented DDL — verify against Snowflake docs; 2. Least-privilege grants; 3. No SQL injection in string concatenation; 4. IF NOT EXISTS on all DDL; 5. Bidirectional cross-references; 6. No hardcoded credentials
 2026-07-10T17:00:00Z | architect | SPECBUILDER_PRESENT | false
+2026-07-10T18:30:00Z | architect | RESEARCH_COMPLETE | 5 researchers + SecArch drained. 6 fixes identified.
+2026-07-10T18:30:00Z | architect | FIX_A | HIGH — sv-ddl: WITH ENUM_INDICATOR → IS_ENUM (ddl_syntax.md + phase 5 rules)
+2026-07-10T18:30:00Z | architect | FIX_B | MEDIUM — css-lifecycle README+PREREQS: invented CREATE RESOURCE BUDGET → SNOWFLAKE.CORE.BUDGET
+2026-07-10T18:30:00Z | architect | FIX_C | LOW — adaptive-compute/SKILL.md lines 14+82: 2024 → 2026
+2026-07-10T18:30:00Z | architect | FIX_D | MEDIUM — agent-architect/SKILL.md line 552: SecArch spawn model current_sonnet → openai_heavy
+2026-07-10T18:30:00Z | architect | FIX_F | LOW — agent-architect/templates/manifest.log: add STUCK + TEAM_SHIPPED status
+2026-07-10T18:30:00Z | architect | FIX_G | LOW — css-budgets: add input validation note for EXECUTE IMMEDIATE stored procs
+2026-07-10T18:30:00Z | architect | FALSE_POSITIVE | Framework Files table already has team-architect.md at line 67 — no fix
+2026-07-10T18:30:00Z | architect | PLAN_APPROVED | 2 workers: W1=FIX_A+FIX_B, W2=FIX_C+FIX_D+FIX_F+FIX_G
