@@ -35,7 +35,7 @@ Use the doc-reviewer skill.
 
 review_date: 2025-12-16
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Review specific files:**
@@ -46,7 +46,7 @@ Use the doc-reviewer skill.
 target_files: [README.md, CONTRIBUTING.md]
 review_date: 2025-12-16
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **Collection review (consolidated output):**
@@ -58,7 +58,7 @@ target_files: [README.md, CONTRIBUTING.md, docs/ARCHITECTURE.md]
 review_date: 2025-12-16
 review_mode: FULL
 review_scope: collection
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 ### Step 3: Verify Output
@@ -66,9 +66,9 @@ model: claude-sonnet-45
 Check the generated review file:
 
 ```bash
-ls reviews/README-claude-sonnet-45-2025-12-16.md
+ls reviews/README-claude-sonnet-4-6-2025-12-16.md
 # Or for collection:
-ls reviews/docs-collection-claude-sonnet-45-2025-12-16.md
+ls reviews/docs-collection-claude-sonnet-4-6-2025-12-16.md
 ```
 
 ## Execution Timing
@@ -80,7 +80,7 @@ Use the doc-reviewer skill.
 
 review_date: 2025-12-16
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 timing_enabled: true
 ```
 
@@ -98,7 +98,7 @@ When enabled, the output includes:
 |--------|-------|
 | Run ID | `a1b2c3d4e5f67890` |
 | Duration | 2m 30s (150.5s) |
-| Model | claude-sonnet-45 |
+| Model | claude-sonnet-4-6 |
 | Tokens | 12,300 (8,500 in / 3,800 out) |
 | Cost | ~$0.03 |
 ```
@@ -229,11 +229,11 @@ On success:
 ```text
 ✓ Review complete
 
-OUTPUT_FILE: reviews/README-claude-sonnet-45-2025-12-16.md
+OUTPUT_FILE: reviews/README-claude-sonnet-4-6-2025-12-16.md
 Target: README.md
 Mode: FULL
 Scope: single
-Model: claude-sonnet-45
+Model: claude-sonnet-4-6
 
 Summary:
 - Accuracy: 20/25

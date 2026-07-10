@@ -11,7 +11,7 @@ Use the plan-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 target_file: plans/example-plan.md
 ```
 
@@ -47,7 +47,7 @@ target_file: plans/example-plan.md
 
 ### Phase 4: Output
 -  Generate recommendations
--  Write to: `reviews/example-plan-claude-sonnet-45-2026-01-06.md`
+-  Write to: `reviews/example-plan-claude-sonnet-4-6-2026-01-06.md`
 -  Confirm: "Review written to: ..."
 
 ## Expected Output Structure
@@ -56,7 +56,7 @@ target_file: plans/example-plan.md
 # Plan Review: example-plan.md
 
 **Reviewed:** 2026-01-06
-**Model:** claude-sonnet-45
+**Model:** claude-sonnet-4-6
 **Mode:** FULL
 
 ## Executive Summary

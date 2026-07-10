@@ -11,7 +11,7 @@ Use the doc-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 target_files: README.md
 timing_enabled: false
 ```
@@ -21,7 +21,7 @@ timing_enabled: false
 ### Phase 1: Input Validation
 -  Date format valid (YYYY-MM-DD)
 -  Mode recognized (FULL)
--  Model slug created (claude-sonnet-45)
+-  Model slug created (claude-sonnet-4-6)
 -  Target file exists
 
 ### Phase 2: Review Execution
@@ -39,8 +39,8 @@ timing_enabled: false
 
 ### Phase 3: Output
 -  Generate recommendations
--  Write to: `reviews/doc-reviews/README-claude-sonnet-45-2026-01-06.md`
--  Confirm: "Review written to: reviews/doc-reviews/README-claude-sonnet-45-2026-01-06.md"
+-  Write to: `reviews/doc-reviews/README-claude-sonnet-4-6-2026-01-06.md`
+-  Confirm: "Review written to: reviews/doc-reviews/README-claude-sonnet-4-6-2026-01-06.md"
 
 ## Expected Output Structure
 
@@ -48,7 +48,7 @@ timing_enabled: false
 # Documentation Review: README.md
 
 **Reviewed:** 2026-01-06
-**Model:** claude-sonnet-45
+**Model:** claude-sonnet-4-6
 **Mode:** FULL
 
 ## Executive Summary

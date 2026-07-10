@@ -30,7 +30,7 @@ bash skills/skill-timing/scripts/run_timing.sh end \
 {
   "run_id": "a1b2c3d4e5f67890",
   "skill_name": "rule-reviewer",
-  "model": "claude-sonnet-45",
+  "model": "claude-sonnet-4-6",
   "duration_seconds": 225.5,
   "duration_human": "3m 45s",
   "status": "completed",
@@ -66,8 +66,8 @@ bash skills/skill-timing/scripts/run_timing.sh analyze \
 **Output:**
 ```csv
 skill,model,run_id,duration_seconds,status
-rule-reviewer,claude-sonnet-45,a1b2c3d4,225.5,completed
-rule-reviewer,claude-sonnet-45,b2c3d4e5,198.3,completed
+rule-reviewer,claude-sonnet-4-6,a1b2c3d4,225.5,completed
+rule-reviewer,claude-sonnet-4-6,b2c3d4e5,198.3,completed
 ```
 
 ## GitHub Actions Example
@@ -95,7 +95,7 @@ jobs:
           TIMING_OUTPUT=$(python skills/skill-timing/scripts/skill_timing.py start \
             --skill my-skill \
             --target input.md \
-            --model claude-sonnet-45)
+            --model claude-sonnet-4-6)
           
           RUN_ID=$(echo "$TIMING_OUTPUT" | grep TIMING_RUN_ID | cut -d= -f2)
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
@@ -154,7 +154,7 @@ timing-check:
       TIMING_OUTPUT=$(python skills/skill-timing/scripts/skill_timing.py start \
         --skill my-skill \
         --target input.md \
-        --model claude-sonnet-45)
+        --model claude-sonnet-4-6)
       RUN_ID=$(echo "$TIMING_OUTPUT" | grep TIMING_RUN_ID | cut -d= -f2)
       
       # Run skill
@@ -191,7 +191,7 @@ run_with_timing() {
     local skill="$1"
     local target="$2"
     local output="$3"
-    local model="${4:-claude-sonnet-45}"
+    local model="${4:-claude-sonnet-4-6}"
     
     # Start timing
     local timing_output

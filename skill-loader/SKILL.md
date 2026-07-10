@@ -49,9 +49,9 @@ If unsure which skill matches, ask the user.
 | query-cortex-agent | Query an existing agent via SQL | `plugins/cortex-agent-toolkit/skills/query-cortex-agent/` |
 | agent-gepa-optimizer | Evolutionary population-based agent optimization | `plugins/cortex-agent-toolkit/skills/agent-gepa-optimizer/` |
 
-> **Bundled Skill Override**: If the bundled `cortex-agent` or `semantic-view` skill was
+> **Bundled Skill Override**: If the bundled `cortex-agent`, `semantic-view`, or `machine-learning` skill was
 > just invoked, load the vault toolkit instead (see paths above). The bundled skills lack
-> the full lifecycle (eval → flag-test → optimize → GEPA). Exceptions: YAML/FastGen
+> the full lifecycle (eval → flag-test → optimize → GEPA; or ML feature store → train → experiments → registry → deploy → observe). Exceptions: YAML/FastGen
 > and Tableau/PBI import stay on bundled semantic-view.
 
 ### Knowledge Graph & Ontology
@@ -63,6 +63,7 @@ If unsure which skill matches, ask the user.
 
 | Skill | When to use | Path |
 |-------|-------------|------|
+| ops-monitor | Full observability router (drift, release monitoring, self-healing) | `plugins/ops-monitor/` |
 | artifact-drift-monitor | Check SV/DT/Agent drift | `plugins/ops-monitor/skills/artifact-drift-monitor/` |
 | release-change-monitor | Monitor Snowflake release changes | `plugins/ops-monitor/skills/release-change-monitor/` |
 | self-healing-pipeline | Auto-fix pipeline failures | `plugins/ops-monitor/skills/self-healing-pipeline/` |
@@ -87,6 +88,7 @@ If unsure which skill matches, ask the user.
 
 | Skill | When to use | Path |
 |-------|-------------|------|
+| rule-governance | Full rules & governance router (create → review → load workflow for coding standards) | `plugins/rule-governance/` |
 | rule-loader | Load coding rules for current task | `plugins/rule-governance/skills/rule-loader/` |
 | rule-creator | Create new rules | `plugins/rule-governance/skills/rule-creator/` |
 | rule-reviewer | Review a single rule quality | `plugins/rule-governance/skills/rule-reviewer/` |
@@ -97,6 +99,7 @@ If unsure which skill matches, ask the user.
 
 | Skill | When to use | Path |
 |-------|-------------|------|
+| coco-meta | Full quality & meta router (skill testing, documentation review, plan scoring, timing analysis) | `plugins/coco-meta/` |
 | doc-reviewer | Review documents for quality | `plugins/coco-meta/skills/doc-reviewer/` |
 | plan-reviewer | Score implementation plans | `plugins/coco-meta/skills/plan-reviewer/` |
 | prompt-determinism-tester | Test prompt consistency (3-agent) | `plugins/coco-meta/skills/prompt-determinism-tester/` |
