@@ -305,6 +305,9 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | COMMENT placement is AFTER all clauses | Verify COMMENT = '...' appears only after METRICS (or last present clause), never before TABLES or between clauses. Top-level COMMENT is NOT part of any clause block. |
 | No COMMENT inside RELATIONSHIPS block | Verify no relationship definition includes a COMMENT — relationship grammar only supports: `<name> AS <left> (<col>) REFERENCES <right> [(<col>)]`. COMMENT on relationships is NOT supported syntax. |
 | All SYNONYMS use `WITH SYNONYMS = (...)` prefix | Verify every SYNONYMS entry uses `WITH SYNONYMS = ('...', '...')` — bare `SYNONYMS = (...)` without `WITH` will fail. Must appear on tables, facts, dims (not relationships, not metrics without WITH). |
+| SAMPLE_VALUES must contain only valid SQL string literals (quoted) | For every dimension with `WITH SAMPLE_VALUES (...)`, verify each value is a quoted string literal: `'US_EAST'` ✓, `US_EAST` ✗. Invalid string formatting will cause DDL parse errors. |
+| If ENUM_INDICATOR is used, SAMPLE_VALUES should be provided (warning, not error) | For dimensions with `WITH ENUM_INDICATOR` but no `WITH SAMPLE_VALUES`, warn: "This dimension is marked as an enumeration but has no sample values. Consider adding `WITH SAMPLE_VALUES (...)` to guide AI generation." Proceeding without sample values is allowed but degrades Analyst quality. |
+| Dimension with SAMPLE_VALUES but no ENUM_INDICATOR is valid but redundant | For dimensions with `WITH SAMPLE_VALUES` but no `WITH ENUM_INDICATOR`: flag as informational (not an error): "This dimension provides sample values but is not marked as an enumeration. If values are finite and known, add `WITH ENUM_INDICATOR` to improve AI query generation." User may ignore this suggestion. |
 
 ### Semantic correctness checks (all must pass)
 

@@ -62,9 +62,28 @@ If `DOC_CONTEXT_TYPE = "data_dict"` and all columns are matched from the CSV: sk
 
 **If `AUTO_SAMPLE = false`**: skip sample value collection (the `ARRAY_AGG(DISTINCT ...)` queries below). Set `sample_values = []` for all columns and proceed directly to Step 2.2 after running the column catalog query only.
 
-> **Note**: The profiling queries below use `DESCRIBE TABLE` and `SELECT` statements. These work for all supported source types (tables, views, dynamic tables, secure views) because Snowflake's `DESCRIBE TABLE` command works on views and dynamic tables as well. No branching is needed for standard profiling.
+**Source-type detection**:
+
+Before profiling, determine the source type for each logical table:
+
+```
+FOR each logicalTable:
+  IF source is FQN (database.schema.table format):
+    → Proceed with INFORMATION_SCHEMA profiling (standard path, see below)
+  ELSE IF source is SQL query (SQL(...) syntax):
+    → Execute query with 30-second timeout to derive column list
+    → Use query result schema as column metadata
+  ENDIF
+```
+
+**SQL Query Logical Tables**:
+- Profiling executes the SQL query to sample columns. This is necessary because SQL query results don't have INFORMATION_SCHEMA entries.
+- Set a **30-second timeout** to avoid long-running profilers. If the query times out, suggest the user optimize the query or switch to a materialized view.
+- Document the timeout behavior in user output: "Long-running queries may cause profiling to fail; optimize or switch to a materialized view."
 
 For **each object** in `SOURCE_OBJECTS`, run this profiling query. Replace `<OBJECT>` with the fully qualified name.
+
+If source is FQN:
 
 ```sql
 SELECT

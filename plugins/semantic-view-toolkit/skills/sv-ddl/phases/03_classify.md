@@ -55,6 +55,32 @@ Set `PII_FLAGGED = []`. Skip all PII checks. A governance follow-up note will ap
 
 ---
 
+## Step 3.0-C: Variable resolution (if VARIABLES clause exists)
+
+If the semantic view definition includes a top-level `VARIABLES` clause, resolve all variable references in fact/dimension/metric expressions before classifying.
+
+**Process**:
+1. Parse the `VARIABLES` block and collect all variable names
+2. Scan all expressions in FACTS, DIMENSIONS, and METRICS for `$var_name` references
+3. For each `$var_name` found, verify it exists in the VARIABLES block
+4. If any undefined variable is found, produce an error: "Variable `$undefined_var` is referenced in expression but not defined in VARIABLES block. Add it to VARIABLES or remove the reference."
+5. Store validated variables in `RESOLVED_VARIABLES` for Phase 5 reference
+
+**Example**:
+```sql
+VARIABLES (
+  region_filter AS VARCHAR = 'US_EAST'
+)
+FACTS (
+  orders.revenue AS SUM(amount) WHERE region = $region_filter
+)
+```
+When classifying, confirm `$region_filter` is defined in VARIABLES block.
+
+**Best-practice**: Variables can only be used in WHERE filters and aggregations. Referencing variables in relationship join conditions will produce an error at CREATE time.
+
+---
+
 ## Step 3.1: Auto-classify using heuristics
 
 Apply these rules to every column in `TABLE_PROFILES`. Start with the heuristic classification, then refine with business context.

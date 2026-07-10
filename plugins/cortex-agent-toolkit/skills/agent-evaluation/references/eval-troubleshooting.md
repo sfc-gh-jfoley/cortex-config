@@ -125,3 +125,45 @@ ORDER BY score ASC;
 
 > **Note**: LLM judge variance is ~±10% per run. Average 2+ independent runs for stability.
 > Low-scoring questions (< 0.7) are the highest-value improvement targets.
+
+---
+
+## 6. Native Tool Selection/Execution Accuracy (Jun 11+)
+
+**Context**: As of June 11, 2026, `tool_selection_accuracy` and `tool_execution_accuracy` are now native system metrics available directly via `SYSTEM$EVAL_AGENT`. Prior to Jun 11, these were available only through custom Snowpark evaluation scripts.
+
+### When to use native metrics
+
+**Default choice for new evaluations.** Native metrics are faster, have no setup overhead, and are tested by Snowflake.
+
+```sql
+-- Native metrics invocation (Jun 11+)
+CALL SYSTEM$EVAL_AGENT(
+    agent => '<db>.<schema>.<agent_name>',
+    dataset_table => '<db>.<schema>.<eval_table>',
+    metrics => ['answer_correctness', 'tool_selection_accuracy', 'tool_execution_accuracy', 'logical_consistency']
+);
+```
+
+### Custom script migration
+
+If you have existing Snowpark `tool_selection_accuracy` or `tool_execution_accuracy` scripts from before Jun 11, they can still run. However, results may differ from native metrics due to different scoring methodologies.
+
+**Expected delta**: Native and custom TSA/TEA may produce different scores (typically ±5–10%) due to different scoring algorithms. Both are valid; choose based on your evaluation goals:
+
+| Aspect | Native (Jun 11+) | Custom (Legacy) |
+|--------|------------------|-----------------|
+| Scoring algorithm | Snowflake-optimized | User-defined |
+| Synonym matching | Yes | Depends on implementation |
+| Performance | Fast (native SQL) | Slower (Snowpark) |
+| Setup overhead | None | Script deployment required |
+
+### Switching from custom to native
+
+To migrate from custom TSA/TEA scripts:
+
+1. Update your evaluation config to use the native metric names instead of custom Snowpark scoring
+2. See agent-evaluation/SKILL.md Phase 4 for examples (both YAML config and direct `SYSTEM$EVAL_AGENT` invocation)
+3. Run both native and custom on the same dataset to establish your delta baseline, then choose one going forward
+
+**Recommendation**: Run both methods on a small test dataset (10–20 questions) to verify the ±5–10% delta is within your acceptable tolerance. Then standardize on native metrics for future evaluations.

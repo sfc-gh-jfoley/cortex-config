@@ -10,6 +10,7 @@ description: Complete CREATE SEMANTIC VIEW DDL syntax with all pitfalls, example
 ```sql
 CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
   TABLES ( logicalTable [ , ... ] )
+  [ VARIABLES ( variableDefinition [ , ... ] ) ]
   [ RELATIONSHIPS ( relationshipDef [ , ... ] ) ]
   [ FACTS ( factExpression [ , ... ] ) ]
   [ DIMENSIONS ( dimensionExpression [ , ... ] ) ]
@@ -28,7 +29,7 @@ CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
 ### logicalTable
 
 ```sql
-[ <table_alias> AS ] <database>.<schema>.<table_or_view_name>
+[ <table_alias> AS ] ( <database>.<schema>.<table_or_view_name> | SQL ( <sql_query> ) )
   [ PRIMARY KEY ( <col> [ , ... ] ) ]
   [ UNIQUE ( <col> [ , ... ] ) [ ... ] ]        -- can repeat for multiple unique key sets
   [ CONSTRAINT [ <constraint_name> ]
@@ -38,13 +39,41 @@ CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
   [ COMMENT = '<table description>' ]
 ```
 
-**Supported source object types:** The `<table_or_view_name>` can reference any of:
+**Supported source object types:**
+
+For FQN references, `<table_or_view_name>` can reference any of:
 - Standard tables
 - Views (including secure views)
 - Dynamic tables
 - Materialized views
 
+For SQL queries, use the `SQL ( <sql_query> )` syntax. Query results are materialized once at CREATE time; the query is not re-executed per request. Use SQL queries to create virtual tables from aggregations, CTEs, or cross-schema unions.
+
 All are valid sources for a semantic view. The engine resolves the FQN against the catalog — any object that supports `SELECT` can be used. Semantic views referencing other semantic views ("composable SVs") are not yet GA.
+
+**SQL Query Logical Tables**
+
+When using `SQL ( <sql_query> )` as a source:
+- **When to use**: Create virtual tables from aggregations, CTEs, or cross-schema unions
+- **Limitations**: SQL query results are materialized on CREATE SEMANTIC VIEW; the query is not re-executed per request. For dynamic results, use a materialized view instead.
+- **Performance**: Profiling a SQL query executes the query with a 30-second timeout. Long-running queries may cause profiling to fail; optimize or switch to a materialized view.
+- **Anti-patterns**: Avoid SQL queries with `UNION ALL` of 10+ tables, as they create very large materializations
+
+**Example**:
+```sql
+sales_by_region AS SQL (
+  SELECT
+    REGION,
+    SUM(AMOUNT) as total_sales,
+    COUNT(ORDER_ID) as order_count,
+    AVG(AMOUNT) as avg_order_value
+  FROM ANALYTICS.SALES.ORDERS
+  WHERE YEAR(ORDER_DATE) = YEAR(CURRENT_DATE())
+  GROUP BY REGION
+)
+  PRIMARY KEY (REGION)
+  COMMENT = 'Year-to-date sales aggregation by region'
+```
 
 **DISTINCT RANGE BETWEEN:** Declares a half-open interval `[start, end)` constraint. Both columns must be the same type (DATE, TIMESTAMP, or NUMBER) and belong to the same logical table. Used for SCD Type 2 tables, rate tables, and time-banded lookups. Used with range-join relationships (see `relationshipDef`).
 
@@ -71,6 +100,43 @@ REFERENCES <right_table_alias> ( BETWEEN <start_col> AND <end_col> EXCLUSIVE )
 
 **Range join:** Used with tables that have a `DISTINCT RANGE BETWEEN` constraint. The left-hand column is matched against the right-hand table's `[start_col, end_col)` interval. Typical uses: SCD Type 2 lookups, rate/tier tables, time-banded dimension joins.
 
+### variableDefinition
+
+```sql
+<var_name> AS <sql_type> = <default_value>
+  [ COMMENT = '<description>' ]
+```
+
+Variables enable parameterized semantic views. Define variables at the top level and reference them in expressions using `$var_name`.
+
+**Syntax**:
+- `<var_name>`: Parameter name (e.g., `region_filter`, `lookback_days`)
+- `<sql_type>`: SQL data type (VARCHAR, INT, TIMESTAMP, etc.)
+- `<default_value>`: Default value when query does not provide an override (must be a literal matching `<sql_type>`)
+- `COMMENT`: Optional description of the variable's purpose
+
+**Use case**: Parameterize metrics for regional/temporal filtering without creating multiple semantic views.
+
+**Example**:
+```sql
+VARIABLES (
+  region_filter AS VARCHAR = 'US_EAST' COMMENT = 'Filter metrics to a specific region',
+  lookback_days AS INT = 30 COMMENT = 'Number of days for historical aggregations'
+)
+```
+
+**Variable reference in expressions**:
+```sql
+FACTS (
+  orders.revenue_by_region AS SUM(amount) WHERE region = $region_filter COMMENT = '...'
+)
+```
+
+**Limitations**:
+- Variables are substituted at query-time; they cannot be used in relationship join conditions
+- Undefined variables in expressions will produce a 'Variable not found' error at CREATE time
+- Best-practice: Use variables for WHERE filters and aggregations only
+
 ### factExpression
 
 ```sql
@@ -91,12 +157,43 @@ REFERENCES <right_table_alias> ( BETWEEN <start_col> AND <end_col> EXCLUSIVE )
   [ LABELS = ( FILTER ) ]
   AS <sql_expr>
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
+  [ WITH SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
+  [ WITH ENUM_INDICATOR ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
   [ WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name> [ USING <col_name> ] ]
 ```
 
 `LABELS = ( FILTER )` on a dimension marks it as a preferred WHERE-clause filter. Typically used on BOOLEAN dimensions (IS_ACTIVE, HAS_DISCOUNT, etc.).
+
+**Sample Values and Enum Indicators**
+
+When to use these metadata clauses to guide AI generation:
+
+**SAMPLE_VALUES**
+- Provide 3–5 representative values for the dimension to guide AI generation
+- Helps AI understand the domain of acceptable values
+- Use valid SQL string literals (quoted values)
+- Example: `WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST' )`
+
+**ENUM_INDICATOR**
+- Mark a dimension as an enumeration (finite, known set of values)
+- AI will prefer IN lists over LIKE patterns for query generation
+- Example: status dimension with values {ACTIVE, PENDING, INACTIVE}
+- Improves natural language question matching — AI understands that "all regions" queries should map to `IN ('US_EAST', 'US_WEST', ...) ` not `LIKE '%REGION%'`
+
+**Best-practice example**:
+```sql
+orders.region AS region_code
+  WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST', 'APAC' )
+  WITH ENUM_INDICATOR
+  COMMENT = 'Region code for order fulfillment center'
+```
+
+This tells the AI that:
+1. Regions are enumerated (finite set)
+2. Common values are: US_EAST, US_WEST, EU_WEST, APAC
+3. Queries asking for "all regions" should generate `IN (...)` patterns
 
 ### metricExpression
 

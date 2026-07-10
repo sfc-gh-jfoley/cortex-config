@@ -105,6 +105,7 @@ Based on findings, recommend next action:
 | "GEPA", "evolutionary", "population", "plateau", "local optimum" | **agent-gepa-optimizer** | `skills/agent-gepa-optimizer/SKILL.md` |
 | "query", "invoke", "DATA_AGENT_RUN", "call my agent", "test question" | **query-cortex-agent** | `skills/query-cortex-agent/SKILL.md` |
 | "flags reference", "what flags exist", "experimental flags" | **cortex-agent-flags** | `skills/cortex-agent-flags/SKILL.md` |
+| "analytical search", "document collection", "semantic search", "search documents", "find information in documents" | **analytical-search** | `skills/analytical-search/SKILL.md` |
 
 ---
 
@@ -208,6 +209,21 @@ Without it, `CREATE AGENT` succeeds silently but `DATA_AGENT_RUN` fails with err
 Chain: `$semantic-view-toolkit` → create/optimize SV → `$cortex-agent-toolkit` → create/optimize agent using that SV.
 
 The `sv-composer` skill in semantic-view-toolkit generates hand-off documents formatted for `cortex-agent-ddl` in this toolkit.
+
+---
+
+## Relationship to CoWork Plugin
+
+| Plugin | Scope | Handoff |
+|---|---|---|
+| cortex-agent-toolkit (this) | Agent creation, evaluation, optimization | Creates and refines agents |
+| cowork | Investigation workflows, result sharing, source tracing | Consumes agents for multi-step investigations |
+
+**For end-user investigation workflows** with multi-step data gathering, source tracing, or team sharing, see **`$cowork`** plugin:
+- **Artifacts**: Create persistent, shareable references to agent responses
+- **Deep Research**: Multi-step investigations across structured and unstructured data with full source attribution
+
+Chain: `$cortex-agent-toolkit` → create/optimize agent → `$cowork` → run investigations / share results.
 
 ---
 

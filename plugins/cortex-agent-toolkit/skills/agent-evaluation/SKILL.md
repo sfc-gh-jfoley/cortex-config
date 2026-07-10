@@ -12,9 +12,26 @@ End-to-end workflow for evaluating Cortex Agents: discover the agent, build an e
 | Metric | API Name | Requires Ground Truth | Description |
 |--------|----------|----------------------|-------------|
 | Answer Correctness | `answer_correctness` | Yes | Semantic match of agent's final answer vs expected |
-| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? **(custom metric — replaces deprecated built-in)** |
-| Tool Execution Accuracy | `tool_execution_accuracy` | Yes | Correct tool inputs/outputs? |
+| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? **(native system metric as of Jun 11)** |
+| Tool Execution Accuracy | `tool_execution_accuracy` | Yes | Correct tool inputs/outputs? **(native system metric as of Jun 11)** |
 | Logical Consistency | `logical_consistency` | No | Consistency across instructions, planning, and tool calls (reference-free) |
+
+### Native vs. Custom Metrics
+
+As of **June 11, 2026**, `tool_selection_accuracy` and `tool_execution_accuracy` are now **native system metrics** available directly via `SYSTEM$EVAL_AGENT`. Prior to Jun 11, these were available only through custom Snowpark evaluation scripts.
+
+**Native metrics (default since Jun 11)**:
+- `tool_selection_accuracy` and `tool_execution_accuracy`
+- Available via `SYSTEM$EVAL_AGENT` SQL function
+- Optimized and tested by Snowflake
+- No setup overhead
+
+**Custom metrics (legacy, still supported)**:
+- User-provided Snowpark scripts that replicate the above logic
+- Useful if you need custom scoring logic or compatibility with pre-Jun-11 workflows
+- See references/eval-troubleshooting.md for migration guidance
+
+**Recommendation**: Use native metrics for new evaluations. Custom scripts are supported for backward compatibility, but native metrics are faster and require no additional setup.
 
 ## Prerequisites
 
@@ -530,18 +547,22 @@ evaluation:
 metrics:
   - "answer_correctness"       # include only if selected
   - "logical_consistency"      # include only if selected
-  # tool_selection_accuracy is a CUSTOM metric (replaces deprecated built-in):
-  - name: "tool_selection_accuracy"   # include only if selected
-    score_ranges:
-      min_score: [0, 3]
-      median_score: [4, 6]
-      max_score: [7, 10]
-    prompt: |
-      Evaluate whether the agent selected the correct tool(s) for the user's query.
-      Compare tools actually called ({{tool_info}}) to expected behavior in ground truth ({{ground_truth}}).
-      Rate 0-10: 0=wrong tool, 5=correct but suboptimal sequence, 10=perfect match.
-      Output ONLY a numeric score.
-  - "tool_execution_accuracy"  # include only if selected
+  # Native metrics (default since Jun 11):
+  - "tool_selection_accuracy"  # native system metric — include only if selected
+  - "tool_execution_accuracy"  # native system metric — include only if selected
+  
+  # Custom metrics (legacy, for pre-Jun-11 workflows or custom scoring logic):
+  # If using custom tool_selection_accuracy instead of native, replace above with:
+  # - name: "tool_selection_accuracy"   # custom metric example
+  #   score_ranges:
+  #     min_score: [0, 3]
+  #     median_score: [4, 6]
+  #     max_score: [7, 10]
+  #   prompt: |
+  #     Evaluate whether the agent selected the correct tool(s) for the user's query.
+  #     Compare tools actually called ({{tool_info}}) to expected behavior in ground truth ({{ground_truth}}).
+  #     Rate 0-10: 0=wrong tool, 5=correct but suboptimal sequence, 10=perfect match.
+  #     Output ONLY a numeric score.
 ```
 
 Upload to stage:
@@ -561,6 +582,21 @@ CALL EXECUTE_AI_EVALUATION(
     '@<DATABASE>.<SCHEMA>.AGENT_EVAL_CONFIGS/eval_config.yaml'
 );
 ```
+
+#### 4.3a: Native Metrics Direct Invocation (Alternative: Jun 11+)
+
+If you prefer to invoke the evaluation directly with native metrics (bypassing the YAML config), use:
+
+```sql
+-- Direct native metrics invocation (Jun 11+)
+CALL SYSTEM$EVAL_AGENT(
+    agent => '<DATABASE>.<SCHEMA>.<AGENT_NAME>',
+    dataset_table => '<DATABASE>.<SCHEMA>.<EVAL_TABLE>',
+    metrics => ['answer_correctness', 'tool_selection_accuracy', 'tool_execution_accuracy', 'logical_consistency']
+);
+```
+
+This method uses native `tool_selection_accuracy` and `tool_execution_accuracy` directly without custom scoring logic. See "Native vs. Custom Metrics" in the Metrics Reference section for more details.
 
 Poll for completion every 60 seconds:
 

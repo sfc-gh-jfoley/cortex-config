@@ -25,7 +25,7 @@ If unsure which skill matches, ask the user.
 |-------|-------------|------|
 | semantic-view-toolkit | Full SV lifecycle router (discovery, DDL, audit, eval, optimization, GEPA, watch, compose, VQR) | `plugins/semantic-view-toolkit/` |
 | sv-discovery | Find SV candidates from schema analysis | `plugins/semantic-view-toolkit/skills/sv-discovery/` |
-| sv-ddl | Build/edit semantic views (DDL path) | `plugins/semantic-view-toolkit/skills/sv-ddl/` |
+| sv-ddl | Build/edit semantic views (DDL path); supports SQL queries as logical tables, VARIABLES clause, SAMPLE_VALUES + ENUM_INDICATOR (all GA Jun 2026) | `plugins/semantic-view-toolkit/skills/sv-ddl/` |
 | sv-audit | Audit existing SV against usage patterns | `plugins/semantic-view-toolkit/skills/sv-audit/` |
 | sv-evaluation | Run Cortex Analyst evaluations on SVs | `plugins/semantic-view-toolkit/skills/sv-evaluation/` |
 | sv-optimization | Iterative SV improvement loop | `plugins/semantic-view-toolkit/skills/sv-optimization/` |
@@ -48,6 +48,7 @@ If unsure which skill matches, ask the user.
 | agent-flag-tester | Compare agent flag variants (3-way) | `plugins/cortex-agent-toolkit/skills/agent-flag-tester/` |
 | query-cortex-agent | Query an existing agent via SQL | `plugins/cortex-agent-toolkit/skills/query-cortex-agent/` |
 | agent-gepa-optimizer | Evolutionary population-based agent optimization | `plugins/cortex-agent-toolkit/skills/agent-gepa-optimizer/` |
+| analytical-search | Semantic + ranked search over large document collections as an agent tool type (GA Jul 2026) | `plugins/cortex-agent-toolkit/skills/analytical-search/` |
 
 > **Bundled Skill Override**: If the bundled `cortex-agent`, `semantic-view`, or `machine-learning` skill was
 > just invoked, load the vault toolkit instead (see paths above). The bundled skills lack
@@ -105,6 +106,32 @@ If unsure which skill matches, ask the user.
 | prompt-determinism-tester | Test prompt consistency (3-agent) | `plugins/coco-meta/skills/prompt-determinism-tester/` |
 | skill-tester | Test skills with fixtures | `plugins/coco-meta/skills/skill-tester/` |
 | skill-timing | Measure skill execution time | `plugins/coco-meta/skills/skill-timing/` |
+
+### Compute & Warehouses
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| adaptive-compute | Full Adaptive Warehouse router (create, convert, monitor) — AWS only (GA Jun 2026) | `plugins/adaptive-compute/` |
+| adaptive-warehouse-setup | Create a new Adaptive Warehouse or convert an existing standard warehouse | `plugins/adaptive-compute/skills/adaptive-warehouse-setup/` |
+| adaptive-warehouse-monitor | Track credit usage, performance, and revert criteria for Adaptive Warehouses | `plugins/adaptive-compute/skills/adaptive-warehouse-monitor/` |
+
+> **Region gate**: Adaptive Warehouses are AWS-only. Phase 0 of adaptive-warehouse-setup verifies `CURRENT_REGION()` before proceeding.
+
+### Security & Auth
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| workload-identity | Full Workload Identity Federation router — Snowflake as OIDC provider for external services (GA Jul 2026) | `plugins/workload-identity/` |
+| wif-setup | Create `WORKLOAD_IDENTITY_FEDERATION` secret, obtain issuer URL/subject, configure external service, test token issuance | `plugins/workload-identity/skills/wif-setup/` |
+| wif-troubleshoot | Diagnose WIF failures: expired tokens, wrong issuer URL, missing grants | `plugins/workload-identity/skills/wif-troubleshoot/` |
+
+### Collaboration
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| cowork | Full Snowflake CoWork router (Artifacts + Deep Research) — AI investigation and persistent result sharing (GA Jun–Jul 2026) | `plugins/cowork/` |
+| cowork-artifacts | Create, refresh, and share persistent chart/table references from agent responses | `plugins/cowork/skills/cowork-artifacts/` |
+| cowork-deep-research | Run multi-step AI investigations across structured + unstructured data with source tracing | `plugins/cowork/skills/cowork-deep-research/` |
 
 ### Workshops & Demos
 
