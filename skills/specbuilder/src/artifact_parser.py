@@ -6,8 +6,14 @@ context, and maps artifacts to domain agents.
 
 import re
 from pathlib import Path
+from typing import Any
 
 from specbuilder.src.agents.registry import match_domain
+from specbuilder.src.config import ARTIFACT_EXTENSIONS
+
+# Pre-compile the artifact path pattern from config extensions
+_EXT_PATTERN = "|".join(ARTIFACT_EXTENSIONS)
+_PATH_PATTERN = re.compile(rf"`([a-zA-Z0-9_./-]+\.(?:{_EXT_PATTERN}))`")
 
 # ---------------------------------------------------------------------------
 # Artifact parsing
@@ -32,22 +38,22 @@ def parse_output_section(spec_path: Path) -> list[dict]:
         return []
 
     output_text = output_match.group(1)
-    artifacts = []
+    artifacts: list[dict[str, Any]] = []
 
     # Pattern: backtick-quoted file paths (with common extensions)
-    path_pattern = re.compile(r"`([a-zA-Z0-9_./-]+\.(?:sql|py|yaml|yml|json|toml|md|sh))`")
+    path_pattern = _PATH_PATTERN
 
     # Pattern for depends_on annotations: (depends_on: path1, path2)
     depends_pattern = re.compile(r"\(?\s*depends_on:\s*([^)\n]+)\s*\)?")
 
     for match in path_pattern.finditer(output_text):
         path = match.group(1)
-        # Determine type from extension and context
-        artifact_type = _infer_type(path, output_text)
-        # Get surrounding context as description
+        # Extract the artifact's own line first for accurate type inference
         line_start = output_text.rfind("\n", 0, match.start()) + 1
         line_end = output_text.find("\n", match.end())
         line = output_text[line_start : line_end if line_end != -1 else len(output_text)]
+        # Determine type from extension and per-line context (not full output_text)
+        artifact_type = _infer_type(path, line)
 
         # Extract depends_on from the line
         depends_on = []
@@ -70,7 +76,14 @@ def parse_output_section(spec_path: Path) -> list[dict]:
             }
         )
 
-    return artifacts
+    seen: set[str] = set()
+    deduped = []
+    for a in artifacts:
+        apath: str = a["path"]
+        if apath not in seen:
+            seen.add(apath)
+            deduped.append(a)
+    return deduped
 
 
 def _infer_type(path: str, context: str) -> str:

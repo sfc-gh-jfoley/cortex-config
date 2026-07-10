@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+import tempfile
 from pathlib import Path
 
-from specbuilder.src.config import DEFAULT_TEMPLATE_STYLE
+from specbuilder.src.config import DEFAULT_TEMPLATE_STYLE, POC_SENTINEL, SPECBUILDER_TOML_FILE
 
 from .modes import (
     _VALID_TEMPLATE_STYLES,
-    scaffold_demo,
+    _detect_ci_platform,
     scaffold_lite,
     scaffold_poc,
     scaffold_project,
@@ -77,16 +80,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Install CI workflow template for spec drift checks (none/github/gitlab).",
     )
-    # Lite mode (EXT-003)
-    parser.add_argument(
-        "--lite",
-        action="store_true",
-        help="Produce minimal spec structure (spec/modules/, INTAKE.md, hook only).",
-    )
     parser.add_argument(
         "--upgrade",
         action="store_true",
-        help="Convert a lite project to full mode without overwriting existing specs.",
+        help="Convert a poc/minimal project to full mode without overwriting existing specs.",
+    )
+    parser.add_argument(
+        "--upgrade-from-poc",
+        action="store_true",
+        help=(
+            "Graduate a POC project to full mode"
+            " (removes spec/.poc, updates toml mode, adds missing structure)."
+        ),
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        default=False,
+        help="Confirm irreversible operations (required for --upgrade-from-poc).",
     )
     # POC mode (EXT-037)
     parser.add_argument(
@@ -94,11 +105,23 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Scaffold in POC mode (lite structure + collapsed workflow + relaxed quality gate).",
     )
-    # Demo mode (EXT-048)
+    # Lite mode (EXT-227)
+    parser.add_argument(
+        "--lite",
+        action="store_true",
+        help="Minimal file footprint: spec governance only, no CI templates.",
+    )
+    # Handover flag (EXT-193) — only valid with --poc
+    parser.add_argument(
+        "--handover",
+        action="store_true",
+        help="Enable handover artifact generation (requires --poc).",
+    )
+    # --demo is a deprecated alias for --poc --handover (EXT-193)
     parser.add_argument(
         "--demo",
         action="store_true",
-        help="Scaffold in demo mode (POC + auto-deploy/verify + handover generation).",
+        help="[Deprecated] Use --poc --handover instead.",
     )
     # Handover consumption (EXT-049)
     parser.add_argument(
@@ -115,6 +138,21 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     project_root = Path.cwd()
+
+    # F2: CI auto-detection — apply before any branch reads args.ci (EXT-163)
+    if args.ci is None:
+        args.ci = _detect_ci_platform(project_root)
+
+    # EXT-193: --demo is a deprecated alias for --poc --handover
+    if args.demo:
+        import warnings
+        warnings.warn(
+            "--demo is deprecated. Use --poc --handover instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        args.poc = True
+        args.handover = True
 
     # Handle prototype mode commands
     if args.end_prototype:
@@ -136,9 +174,9 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.prototype:
         # Mutual exclusion: --poc and --prototype cannot be combined (EXT-037)
-        if args.poc:
+        if args.poc or args.handover:
             parser.error(
-                "--poc and --prototype are mutually exclusive."
+                "--prototype cannot be combined with --poc or --handover."
                 " POC mode relaxes ceremony; prototype mode suspends"
                 " enforcement. Pick one."
             )
@@ -157,7 +195,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # Normal scaffold — project-name is required
     # Auto-detect handover files (EXT-049) when no specific mode is selected
-    if not any([args.upgrade, args.demo, args.poc, args.lite, args.from_handover]):
+    if not any([args.upgrade, args.upgrade_from_poc, args.poc,
+                args.from_handover, args.lite]):
         from specbuilder.src.handover_consumer import detect_handover_files
 
         handovers = detect_handover_files(project_root)
@@ -172,7 +211,95 @@ def main(argv: list[str] | None = None) -> None:
                 "\n"
             )
 
-    if args.upgrade:
+    if args.upgrade_from_poc:
+        if not args.confirm:
+            print(
+                "ERROR: --upgrade-from-poc is irreversible.\n"
+                "  Deleting spec/.poc and changing the mode in .specbuilder.toml"
+                " cannot be undone.\n"
+                "  Re-run with --confirm to proceed:\n"
+                "\n"
+                "    python3 -m specbuilder scaffold --upgrade-from-poc --confirm"
+            )
+            sys.exit(1)
+        poc_path = project_root / POC_SENTINEL
+        if not poc_path.exists():
+            print(
+                f"Warning: {POC_SENTINEL} not found — project may not be in POC mode."
+                " Proceeding with upgrade."
+            )
+        if args.dry_run:
+            print(f"[dry-run] delete {POC_SENTINEL}")
+            print(f"[dry-run] update {SPECBUILDER_TOML_FILE}: mode = \"poc\" → mode = \"full\"")
+        else:
+            toml_path = project_root / SPECBUILDER_TOML_FILE
+            if toml_path.exists():
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib  # type: ignore[no-redef]
+                import re as _re
+                raw = toml_path.read_text(encoding="utf-8")
+                try:
+                    toml_data = tomllib.loads(raw)
+                    toml_data.setdefault("project", {})["mode"] = "full"
+                    try:
+                        import tomli_w
+                        toml_content = tomli_w.dumps(toml_data)
+                    except ImportError:
+                        # Fallback: regex replacement — resilient to whitespace variations
+                        toml_content = _re.sub(
+                            r'(?m)^(\s*mode\s*=\s*)"poc"',
+                            r'\1"full"',
+                            raw,
+                        )
+                        if 'mode = "full"' not in toml_content:
+                            raise RuntimeError(
+                                "Could not locate 'mode = \"poc\"' in .specbuilder.toml"
+                                " — upgrade aborted."
+                            )
+                except Exception as parse_exc:
+                    raise RuntimeError(
+                        f"Failed to parse .specbuilder.toml — upgrade aborted: {parse_exc}"
+                    ) from parse_exc
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    dir=toml_path.parent,
+                    suffix=".tmp",
+                    prefix=".specbuilder.toml.",
+                )
+                try:
+                    with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+                        fh.write(toml_content)
+                    Path(tmp_path).replace(toml_path)  # atomic on POSIX; consistent on Windows
+                except OSError as e:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        f"Failed to write upgraded TOML — upgrade aborted, "
+                        f"POC sentinel preserved: {e}"
+                    ) from e
+            # Sentinel deleted only after the TOML write is fully committed
+            if poc_path.exists():
+                try:
+                    poc_path.unlink()
+                except OSError as e:
+                    print(
+                        f"Error: Could not remove POC sentinel {poc_path}: {e}\n"
+                        "The project is in a split-mode state: mode='full' in .specbuilder.toml "
+                        "but spec/.poc still on disk.\n"
+                        "Remove spec/.poc manually to complete the upgrade.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+        result = upgrade_project(
+            project_root=project_root,
+            project_name=args.project_name,
+            spec_dir=args.spec_dir,
+            dry_run=args.dry_run,
+        )
+    elif args.upgrade:
         result = upgrade_project(
             project_root=project_root,
             project_name=args.project_name,
@@ -184,43 +311,46 @@ def main(argv: list[str] | None = None) -> None:
 
         handover_main([args.from_handover] + (["--dry-run"] if args.dry_run else []))
         return
-    elif args.demo:
-        if args.prototype:
-            parser.error("--demo and --prototype are mutually exclusive.")
-        if not args.project_name:
-            parser.error("--project-name is required for scaffolding")
-        result = scaffold_demo(
-            project_root=project_root,
-            project_name=args.project_name,
-            protected_dirs=args.protected_dirs,
-            spec_dir=args.spec_dir,
-            reason=args.reason,
-            dry_run=args.dry_run,
-        )
     elif args.poc:
         if not args.project_name:
             parser.error("--project-name is required for scaffolding")
+        if not args.confirm and not args.dry_run:
+            print(
+                "ERROR: --poc creates a divergent lightweight structure.\n"
+                "  Re-run with --confirm to proceed:\n"
+                "\n"
+                "    python3 -m specbuilder scaffold --poc"
+                f" --project-name \"{args.project_name}\" --confirm"
+            )
+            sys.exit(1)
+        if args.handover:
+            if getattr(args, 'ci', None) and args.ci != "none":
+                print(
+                    f"Warning: --ci {args.ci!r} was specified but "
+                    "CI template installation is skipped for handover mode "
+                    "(handover projects are not connected to CI).",
+                    file=sys.stderr,
+                )
         result = scaffold_poc(
             project_root=project_root,
             project_name=args.project_name,
             protected_dirs=args.protected_dirs,
             spec_dir=args.spec_dir,
+            ci_platform=args.ci,
             reason=args.reason,
+            handover=args.handover,
             dry_run=args.dry_run,
         )
     elif args.lite:
         if not args.project_name:
             parser.error("--project-name is required for scaffolding")
-        result = scaffold_lite(
-            project_root=project_root,
-            project_name=args.project_name,
-            protected_dirs=args.protected_dirs,
-            spec_dir=args.spec_dir,
-            dry_run=args.dry_run,
-        )
+        scaffold_lite(project_root, project_name=args.project_name)
+        return
     else:
         if not args.project_name:
             parser.error("--project-name is required for scaffolding")
+        if getattr(args, 'handover', False):
+            parser.error("--handover requires --poc")
         result = scaffold_project(
             project_root=project_root,
             project_name=args.project_name,

@@ -7,6 +7,10 @@ Each entry defines:
 - flags: optional markers for the workspace manifest
 """
 
+# NOTE: Domain names here are AGENT domains (artifact → implementation agent).
+# They are intentionally different from domain-hints.json, which classifies
+# user-facing CoCo skills. Do not attempt to unify the two taxonomies.
+
 from pathlib import Path
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -67,7 +71,7 @@ def match_domain(artifact_type: str) -> str:
             if pattern.lower() == artifact_lower:
                 return domain
             # Also check if the artifact type contains the pattern
-            if pattern.lower() in artifact_lower or artifact_lower in pattern.lower():
+            if pattern.lower() in artifact_lower:
                 return domain
     return "fallback"
 
@@ -80,6 +84,9 @@ def get_agent_config(domain: str) -> dict:
 
     Returns:
         Dict with skills, artifact_types, prompt_template, and optional flags.
+        To resolve the absolute path to the template, compute:
+        ``TEMPLATES_DIR / config["prompt_template"]`` using the exported
+        ``TEMPLATES_DIR`` constant from this module.
 
     Raises:
         KeyError: If domain is not in the registry.
@@ -87,5 +94,4 @@ def get_agent_config(domain: str) -> dict:
     if domain not in AGENT_REGISTRY:
         raise KeyError(f"Unknown domain '{domain}'. Available: {list(AGENT_REGISTRY.keys())}")
     config = AGENT_REGISTRY[domain].copy()
-    config["template_path"] = TEMPLATES_DIR / config["prompt_template"]
     return config

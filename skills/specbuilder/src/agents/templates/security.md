@@ -42,10 +42,11 @@ Follow this lifecycle for every artifact:
 
 4. **On failure** — If implementation fails for any reason:
    ```bash
+   # Replace <REASON> with the specific error or rejection reason before dispatch
    python3 -c "from specbuilder.src.workspace import write_artifact_status; from pathlib import Path; write_artifact_status(Path('.specbuilder'), '<ARTIFACT_PATH>', 'failed', error='<REASON>')"
    ```
 
 The `<ARTIFACT_PATH>` placeholder is replaced by the orchestrator with the actual artifact path from dispatch.json.
 
-## Assignment
+## Artifact Assignment
 The spec sections relevant to your artifacts will be injected below.

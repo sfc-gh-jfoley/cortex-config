@@ -1,6 +1,7 @@
 # Changelog Rules
 
-Before completing a session that modified source code (`specbuilder/src/` or `specbuilder/skills/`),
+Before completing a session that modified SpecBuilder source code or your project's
+skill configuration,
 you MUST create a changelog entry if ANY of the following are true:
 
 - New features were added (sub-skills, commands, config options)
@@ -27,4 +28,5 @@ Do NOT create a changelog entry for:
 | Formatting/style cleanup | No | No semantic change |
 | Single proposal (non-behavioral) | Judgment call | If it's just a config addition, skip. If it changes how the tool behaves, log it. |
 
-Use `python3 -m specbuilder release changelog` or create manually at `spec/changelog/NNN-slug.md`.
+Create manually at `spec/changelog/NNN-slug.md` (no `release changelog` subcommand exists;
+see `release bump`, `release current`, and `release next` for version management).

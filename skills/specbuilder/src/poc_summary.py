@@ -15,6 +15,7 @@ from specbuilder.src.config import (
     DEFAULT_MODULES_DIR,
     DEFAULT_SUMMARY_FILE,
     get_project_root,
+    is_poc_mode,
 )
 from specbuilder.src.validation import parse_frontmatter
 
@@ -237,7 +238,7 @@ def generate_summary(
     project_root: Path,
     output_path: Path | None = None,
     modules: list[str] | None = None,
-) -> Path:
+) -> Path | None:
     """Orchestrate all functions, render markdown, write to output path."""
     if output_path is None:
         output_path = project_root / DEFAULT_SUMMARY_FILE
@@ -246,7 +247,7 @@ def generate_summary(
     module_statuses = parse_module_statuses(project_root, modules=modules)
     if not module_statuses:
         print("No implemented modules found. Nothing to summarize.", file=sys.stderr)
-        sys.exit(0)
+        return None
 
     out_of_scope = extract_out_of_scope(project_root)
     impl_dir = project_root / DEFAULT_IMPL_DIR
@@ -362,5 +363,13 @@ def main() -> None:
 
     args = parser.parse_args()
     project_root = get_project_root()
+    if not is_poc_mode(project_root):
+        print(
+            "Not a POC project (no spec/.poc and no [project] mode = 'poc' in .specbuilder.toml).",
+            file=sys.stderr,
+        )
+        print("Skipping POC summary generation.", file=sys.stderr)
+        return
     output = generate_summary(project_root, output_path=args.output, modules=args.modules)
-    print(f"Summary written to: {output}")
+    if output is not None:
+        print(f"Summary written to: {output}")

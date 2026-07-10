@@ -24,9 +24,19 @@ from specbuilder.src.config import (
     DEFAULT_SANDBOX_PREFIX,
     DEFAULT_SPECBUILDER_META_DIR,
     VALIDATION_TIERS,
-    get_active_profile,
+    get_effective_profile,
     get_project_root,
 )
+from specbuilder.src.diagnostic_schema import wrap_findings
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class ConfigurationError(Exception):
+    """Raised when a required runtime dependency is unavailable."""
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -192,6 +202,12 @@ def run_tier2(
 
     Returns (results, sandbox_schema_fqn).
     """
+    if sql_execute_fn is None:
+        raise ConfigurationError(
+            "run_tier2() requires a live sql_execute_fn. "
+            "Pass a valid executor or call run_tier1() directly for compile-only validation."
+        )
+
     # Run Tier 1 first
     results = run_tier1(impl_dir, sql_execute_fn)
 
@@ -263,6 +279,12 @@ def run_tier3(
 
     Returns (results, sandbox_schema_fqn).
     """
+    if sql_execute_fn is None:
+        raise ConfigurationError(
+            "run_tier3() requires a live sql_execute_fn. "
+            "Pass a valid executor or call run_tier1() directly for compile-only validation."
+        )
+
     sandbox_name = _generate_sandbox_name(sandbox_prefix)
     sandbox_fqn = f"{database}.{sandbox_name}"
 
@@ -348,14 +370,20 @@ def run_tier4(
     database: str,
     sql_execute_fn: Any,
     sandbox_prefix: str = DEFAULT_SANDBOX_PREFIX,
-    self_correct: bool = True,
+    reverify_on_fail: bool = False,
     max_retries: int = 2,
     privilege_discovery: bool = True,
 ) -> dict[str, Any]:
-    """Run Tier 4 (verify): full AC-driven validation with self-correction.
+    """Run Tier 4 (verify): full AC-driven validation with optional re-verification.
 
     Returns a comprehensive report dict.
     """
+    if sql_execute_fn is None:
+        raise ConfigurationError(
+            "run_tier4() requires a live sql_execute_fn. "
+            "Pass a valid executor or call run_tier1() directly for compile-only validation."
+        )
+
     sandbox_name = _generate_sandbox_name(sandbox_prefix)
     sandbox_fqn = f"{database}.{sandbox_name}"
     report: dict[str, Any] = {
@@ -442,13 +470,14 @@ def run_tier4(
             ac_result = _verify_assertion(assertion, sql_execute_fn)
             report["ac_results"].append(ac_result)
 
-            # Self-correction loop
-            if ac_result["status"] == "fail" and self_correct:
+            # Re-verification loop — re-runs the same assertion up to max_retries times.
+            # No corrective DDL or artifact mutation is applied between attempts;
+            # this detects transient execution failures, not logical errors.
+            if ac_result["status"] == "fail" and reverify_on_fail:
                 for attempt in range(max_retries):
-                    # Re-verify after correction attempt
                     ac_result = _verify_assertion(assertion, sql_execute_fn)
                     if ac_result["status"] == "pass":
-                        ac_result["corrected_attempt"] = attempt + 1
+                        ac_result["reverified_at_attempt"] = attempt + 1
                         break
                 report["ac_results"][-1] = ac_result
 
@@ -479,6 +508,17 @@ def _verify_assertion(assertion: ACAssertion, sql_execute_fn: Any) -> dict[str, 
     """Execute a single AC assertion and check the result."""
     try:
         result = sql_execute_fn(assertion.assertion_sql)
+
+        # show_exists: SHOW returns rows when object exists, empty when absent
+        if assertion.assertion_type == "show_exists":
+            if isinstance(result, list) and len(result) >= 1:
+                return _make_ac_result(assertion.ac_id, "pass", assertion.assertion_sql)
+            else:
+                return _make_ac_result(
+                    assertion.ac_id, "fail", assertion.assertion_sql,
+                    "Object not found (SHOW returned no rows)"
+                )
+
         # Extract the value from the result
         if isinstance(result, list) and len(result) > 0:
             first_row = result[0]
@@ -650,8 +690,8 @@ def main(argv: list[str] | None = None) -> None:
         help="Validation tier (overrides profile default).",
     )
     parser.add_argument(
-        "--self-correct", action="store_true", default=False,
-        help="Enable self-correction loop on AC failures (Tier 4).",
+        "--retry", dest="self_correct", action="store_true", default=False,
+        help="Re-run failed AC assertions up to --max-retries times (Tier 4).",
     )
     parser.add_argument(
         "--max-retries", type=int, default=None,
@@ -681,23 +721,14 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     project_root = get_project_root()
-    profile = get_active_profile(project_root)
+    profile = get_effective_profile(project_root)
 
     # Handle stale cleanup
     if args.cleanup_stale:
         if not args.database:
             print("Error: --database required for --cleanup-stale", file=sys.stderr)
             sys.exit(2)
-        dropped = cleanup_stale_sandboxes(
-            args.database, _get_sql_executor(), older_than_hours=args.older_than
-        )
-        if dropped:
-            print(f"Dropped {len(dropped)} stale sandbox(es):")
-            for name in dropped:
-                print(f"  - {name}")
-        else:
-            print("No stale sandboxes found.")
-        sys.exit(0)
+        _get_sql_executor()  # exits 1 — unreachable beyond this point
 
     # Module validation
     if not args.module_num:
@@ -722,7 +753,7 @@ def main(argv: list[str] | None = None) -> None:
     if not spec_files:
         print(f"Error: No spec module found for number {module_num}", file=sys.stderr)
         sys.exit(2)
-    spec_path = spec_files[0]
+    spec_path = spec_files[0]  # noqa: F841  — used when tier4 executor is implemented
 
     if not impl_dir.is_dir():
         print(f"Error: No impl/ directory found at {impl_dir}", file=sys.stderr)
@@ -738,35 +769,37 @@ def main(argv: list[str] | None = None) -> None:
         report = {"tier": tier, "artifact_results": results}
     elif tier == "dry-run":
         if not args.database:
-            print("Warning: --database not provided. Falling back to Tier 1 (compile).",
-                  file=sys.stderr)
-            results = run_tier1(impl_dir)
-            report = {"tier": "compile", "artifact_results": results, "degraded_from": "dry-run"}
+            print(
+                "Error: Tier 2 (dry-run) validation requires SQL executor "
+                "implementation and is not available in this version. "
+                "Use --tier compile for Tier 1 compile-only validation.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         else:
-            results, sandbox = run_tier2(impl_dir, args.database, _get_sql_executor())
-            report = {"tier": tier, "artifact_results": results, "sandbox": sandbox}
+            _get_sql_executor()  # exits 1 — unreachable beyond this point
     elif tier == "smoke-test":
         if not args.database:
-            print("Warning: --database not provided. Falling back to Tier 1 (compile).",
-                  file=sys.stderr)
-            results = run_tier1(impl_dir)
-            report = {"tier": "compile", "artifact_results": results, "degraded_from": "smoke-test"}
+            print(
+                "Error: Tier 3 (smoke-test) validation requires SQL executor "
+                "implementation and is not available in this version. "
+                "Use --tier compile for Tier 1 compile-only validation.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         else:
-            results, sandbox = run_tier3(impl_dir, args.database, _get_sql_executor())
-            report = {"tier": tier, "artifact_results": results, "sandbox": sandbox}
+            _get_sql_executor()  # exits 1 — unreachable beyond this point
     elif tier == "verify":
         if not args.database:
-            print("Warning: --database not provided. Falling back to Tier 1 (compile).",
-                  file=sys.stderr)
-            results = run_tier1(impl_dir)
-            report = {"tier": "compile", "artifact_results": results, "degraded_from": "verify"}
-        else:
-            report = run_tier4(
-                impl_dir, spec_path, args.database, _get_sql_executor(),
-                self_correct=self_correct,
-                max_retries=max_retries,
-                privilege_discovery=args.privilege_discovery,
+            print(
+                "Error: Tier 4 (verify) validation requires SQL executor "
+                "implementation and is not available in this version. "
+                "Use --tier compile for Tier 1 compile-only validation.",
+                file=sys.stderr,
             )
+            sys.exit(1)
+        else:
+            _get_sql_executor()  # exits 1 — unreachable beyond this point
     else:
         print(f"Error: Unknown tier '{tier}'", file=sys.stderr)
         sys.exit(2)
@@ -781,7 +814,8 @@ def main(argv: list[str] | None = None) -> None:
     skipped = sum(1 for r in artifact_results if r["status"] == "skip")
 
     if args.format == "json":
-        print(json.dumps(report, indent=2, default=str))
+        envelope = wrap_findings("validate-artifacts", report.get("artifact_results", []))
+        print(json.dumps(envelope, indent=2, default=str))
     else:
         print(f"Results: {passed} pass, {failed} fail, {skipped} skip")
         if failed > 0:
@@ -822,14 +856,19 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _get_sql_executor() -> Any:
-    """Get a SQL execution function.
+    """SQL executor stub — not yet implemented.
 
-    In a CoCo context, this would use the sql_execute tool.
-    Standalone, returns None (causing Tier 2+ to degrade to Tier 1).
+    Tiers 2/3/4 (dry-run, smoke-test, verify) require a live SQL executor
+    that is not implemented in this version. Use --tier compile for Tier 1
+    compile-only validation.
     """
-    # Placeholder: in practice, CoCo's sql_execute tool provides this.
-    # For CLI usage without a connection, return None.
-    return None
+    print(
+        "Error: SQL executor not implemented — Tiers 2/3/4 (dry-run, smoke-test, verify) "
+        "are unavailable in this version. Use --tier compile for Tier 1 "
+        "compile-only validation.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 if __name__ == "__main__":

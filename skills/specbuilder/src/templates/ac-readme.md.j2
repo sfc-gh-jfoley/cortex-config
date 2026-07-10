@@ -25,21 +25,23 @@ tell developers exactly what "done" means.
 
 Every AC file must follow these rules (enforced by `SCHEMA.md`):
 
-1. **Section headings** use the format `## AC-NN.XX` where `NN` is the
-   module number and `XX` is the criterion number (e.g., `## AC-01.03`).
+1. **Section headings** use the format `## AC-N: Title` where `N` is the
+   criterion number (e.g., `## AC-1: Validates required fields`).
 
 2. **Each AC section must contain a table** with these columns:
 
-   | Given | When | Then |
-   |-------|------|------|
-   | *precondition* | *action* | *expected result* |
+   | # | Criterion | Pass | Notes |
+   |---|-----------|------|-------|
+   | 1.1 | *description of verifiable condition* | ☐ | |
+
+   Do NOT use Given/When/Then (BDD) format — the validator enforces the
+   `#`/`Criterion`/`Pass`/`Notes` column layout.
 
 3. **The file must end with a `## Sign-Off` section** containing:
 
-   | Role     | Name | Date | Status |
-   |----------|------|------|--------|
-   | Author   |      |      |        |
-   | Reviewer |      |      |        |
+   | Reviewer | Date | Result | Comments |
+   |----------|------|--------|----------|
+   |          |      | ☐ Pass / ☐ Fail | |
 
 ## Sign-Off Process
 

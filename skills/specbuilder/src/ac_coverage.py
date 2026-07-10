@@ -7,6 +7,7 @@ heuristic keyword matching.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -189,7 +190,9 @@ def heuristic_match(ac_items: list[ACItem], test_file: Path) -> list[Match]:
 
             # Score = number of keyword hits
             score = len(ac_keywords & func_words)
-            if score > 0:
+            # Require >= 2 keyword hits: a single common token (e.g. "check", "run")
+            # is insufficient evidence that a test exercises this specific AC.
+            if score >= 2:
                 matches.append(Match(ac_id=item.id, test_name=func_name, score=float(score)))
 
     return matches
@@ -224,12 +227,11 @@ def generate_report(module_id: str, *, spec_path: Path, tests_dir: Path) -> str:
             else:
                 other_files.append(tf)
 
-        # Scan mapped files first (confidence boost: score * 1.5)
+        # Scan mapped files first (priority ordering; no score weighting)
         for tf in mapped_files:
             hmatches = heuristic_match(items, tf)
             for hm in hmatches:
-                boosted = Match(ac_id=hm.ac_id, test_name=hm.test_name, score=hm.score * 1.5)
-                all_heuristic.setdefault(boosted.ac_id, []).append(boosted.test_name)
+                all_heuristic.setdefault(hm.ac_id, []).append(hm.test_name)
 
         # Then scan remaining files at normal priority
         for tf in other_files:
@@ -287,7 +289,8 @@ def check_strict(baseline_path: Path | None) -> int:
 
     # Find all spec modules
     if not spec_dir.is_dir():
-        return 0
+        print(f"Error: spec/modules directory not found at {spec_dir}", file=sys.stderr)
+        return 2
 
     markers = collect_ac_markers(tests_dir) if tests_dir.is_dir() else {}
     uncovered_new: list[str] = []
@@ -346,17 +349,26 @@ def main() -> None:
         print("Options:")
         print("  --strict      Exit non-zero if any ACs lack coverage")
         print("  --new-only    Only check ACs not in .ac-coverage-baseline")
+        print("  --format json Output findings as JSON (single-module only)")
         print("  --help, -h    Show this help message")
         sys.exit(0)
 
     strict = "--strict" in args
     new_only = "--new-only" in args
+    json_output = False
+    if "--format" in args:
+        idx = args.index("--format")
+        if idx + 1 < len(args) and args[idx + 1] == "json":
+            json_output = True
 
     if new_only and not strict:
         print("Warning: --new-only has no effect without --strict", file=sys.stderr)
 
-    # Remove flags from args to find positional module_num
-    positional = [a for a in args if not a.startswith("--")]
+    # Remove flags and their value tokens from args to find positional module_num
+    positional = [
+        a for i, a in enumerate(args)
+        if not a.startswith("--") and (i == 0 or args[i - 1] != "--format")
+    ]
 
     root = get_project_root()
     spec_dir = root / "spec" / "modules"
@@ -382,6 +394,39 @@ def main() -> None:
         if not spec_files:
             print(f"No spec file found for module {mod_num}", file=sys.stderr)
             sys.exit(1)
+
+        if json_output:
+            from specbuilder.src.diagnostic_schema import wrap_findings
+            items = parse_spec_acs(spec_files[0])
+            markers = collect_ac_markers(tests_dir)
+            # Build heuristic matches — mirror the text path
+            all_heuristic: dict[str, list[str]] = {}
+            if tests_dir.is_dir():
+                mapped_filenames = set(MODULE_TEST_MAPPING.get(module_id, []))
+                mapped_files: list[Path] = []
+                other_files: list[Path] = []
+                for tf in sorted(tests_dir.glob("test_*.py")):
+                    if tf.name in mapped_filenames:
+                        mapped_files.append(tf)
+                    else:
+                        other_files.append(tf)
+                for tf in mapped_files + other_files:
+                    hmatches = heuristic_match(items, tf)
+                    for hm in hmatches:
+                        all_heuristic.setdefault(hm.ac_id, []).append(hm.test_name)
+            findings = []
+            for item in items:
+                marker_tests = markers.get(f"{module_id}/{item.id}", [])
+                heuristic_tests = all_heuristic.get(item.id, [])
+                if marker_tests:
+                    status = "covered"
+                elif heuristic_tests:
+                    status = "heuristic"
+                else:
+                    status = "uncovered"
+                findings.append({"ac_id": item.id, "status": status, "tests": marker_tests})
+            print(json.dumps(wrap_findings("ac-coverage", findings, module=module_id), indent=2))
+            sys.exit(0)
 
         report = generate_report(module_id, spec_path=spec_files[0], tests_dir=tests_dir)
         print(report)

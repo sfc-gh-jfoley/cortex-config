@@ -739,17 +739,6 @@ def _append_missing_ac_sections(
 ) -> None:
     """Append stub sections for ACs present in spec but missing from AC file."""
     existing_set = set(existing_acs)
-    version = fm.get("version", "")
-
-    # Update frontmatter version if different
-    if version:
-        ac_content = re.sub(
-            r'^(version:\s*)"[^"]+"',
-            f'\\1"{version}"',
-            ac_content,
-            count=1,
-            flags=re.MULTILINE,
-        )
 
     # Find insertion point: before Sign-Off section if it exists, else append at end
     sign_off_match = re.search(r"\n## Sign-Off\b", ac_content)
@@ -782,7 +771,11 @@ def _append_missing_ac_sections(
 
 
 def generate(project_root: Path | None = None, validate_only: bool = False) -> int:
-    """Run index generation.
+    """Backward-compat alias for generate-manifest + sync-ac-files.
+
+    Deprecated: use `generate-manifest` and `sync-ac-files` directly.
+    Does not bump specbuilder/SKILL.md version (use `bump-version`) or
+    regenerate root README (use `regenerate-readme`).
 
     Args:
         project_root: Root directory. Auto-detected if None.
@@ -819,12 +812,6 @@ def generate(project_root: Path | None = None, validate_only: bool = False) -> i
     if ac_updated:
         print(f"Updated {len(ac_updated)} AC file(s)")
 
-    # Sync SKILL.md version from changelog
-    _sync_skill_version(project_root)
-
-    # Regenerate root README auto-sections (EXT-050)
-    _regenerate_root_readme(project_root)
-
     return 0
 
 
@@ -832,6 +819,48 @@ def main() -> None:
     """CLI entry point."""
     validate_only = "--validate-only" in sys.argv
     sys.exit(generate(validate_only=validate_only))
+
+
+def cmd_generate_manifest(args: object = None) -> None:
+    """Entry point for generate-manifest command."""
+    project_root = get_project_root()
+    validate_only = "--validate-only" in sys.argv
+    errors = validate_project(project_root)
+    if errors:
+        for err in errors:
+            print(f"  ✗ {err}", file=sys.stderr)
+        sys.exit(1)
+    if validate_only:
+        print("All project files valid")
+        sys.exit(0)
+    generate_manifest(project_root)
+    print(f"Generated {DEFAULT_MANIFEST_FILE}")
+    regenerate_readme_table(project_root)
+    print(f"Regenerated {DEFAULT_README_FILE}")
+
+
+def cmd_sync_ac_files(args: object = None) -> None:
+    """Entry point for sync-ac-files command."""
+    project_root = get_project_root()
+    updated = generate_ac_files(project_root)
+    if updated:
+        print(f"Updated {len(updated)} AC file(s)")
+    sys.exit(0)
+
+
+def cmd_bump_version(args: object = None) -> None:
+    """Entry point for bump-version command.
+
+    Dev-repo only — silently no-ops in customer installs.
+    """
+    project_root = get_project_root()
+    _sync_skill_version(project_root)
+
+
+def cmd_regenerate_readme(args: object = None) -> None:
+    """Entry point for regenerate-readme command."""
+    project_root = get_project_root()
+    _regenerate_root_readme(project_root)
 
 
 if __name__ == "__main__":
