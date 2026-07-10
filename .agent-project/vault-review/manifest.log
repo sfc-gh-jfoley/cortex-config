@@ -10,3 +10,12 @@
 2026-07-10T18:30:00Z | architect | FIX_G | LOW — css-budgets: add input validation note for EXECUTE IMMEDIATE stored procs
 2026-07-10T18:30:00Z | architect | FALSE_POSITIVE | Framework Files table already has team-architect.md at line 67 — no fix
 2026-07-10T18:30:00Z | architect | PLAN_APPROVED | 2 workers: W1=FIX_A+FIX_B, W2=FIX_C+FIX_D+FIX_F+FIX_G
+2026-07-10T18:45:00Z | architect | FIX_A | DONE | IS_ENUM replaces WITH ENUM_INDICATOR in ddl_syntax.md + phase 5 rules
+2026-07-10T18:45:00Z | architect | FIX_B | DONE | CSS lifecycle README+PREREQS aligned to SNOWFLAKE.CORE.BUDGET
+2026-07-10T18:45:00Z | architect | FIX_C | DONE | adaptive-compute dates 2024→2026
+2026-07-10T18:45:00Z | architect | FIX_D | DONE | agent-architect SecArch spawn model=openai_heavy
+2026-07-10T18:45:00Z | architect | FIX_F | DONE | manifest.log template: STUCK+TEAM_SHIPPED added
+2026-07-10T18:45:00Z | architect | FIX_G | DONE | css-budgets EXECUTE IMMEDIATE security note added
+2026-07-10T18:45:00Z | verifier | SECARCH_GATE | PASS | all 6 fixes verified, no new injection vectors
+2026-07-10T18:45:00Z | verifier | TESTER | PASS | grep checks all confirmed correct
+2026-07-10T18:45:00Z | architect | SHIPPED | vault-review complete — 6 fixes applied, 0 regressions

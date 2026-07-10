@@ -11,7 +11,7 @@ Adaptive Warehouses enable **automatic scaling and credit optimization** for var
 
 **Key advantage**: Pay only for compute you use, with automatic scaling that responds in seconds to workload changes.
 
-**Availability**: AWS regions only (GA as of Jun 16, 2024). Azure and GCP support coming in future releases.
+**Availability**: AWS regions only (GA as of Jun 16, 2026). Azure and GCP support coming in future releases.
 
 ---
 
@@ -79,7 +79,7 @@ You want to set up or optimize warehouse scaling?
 | **Setup complexity** | Simple (one command, AWS only) | Simple (one command, all clouds) |
 | **Query latency** | Fast (scales out for burst traffic) | Predictable (fixed compute) |
 | **Workload fit** | Variable/unpredictable traffic | Predictable, steady traffic |
-| **Availability** | AWS regions only (as of Jun 16, 2024) | All regions (AWS, Azure, GCP) |
+| **Availability** | AWS regions only (as of Jun 16, 2026) | All regions (AWS, Azure, GCP) |
 | **Cost predictability** | Lower min, higher burst (dynamic) | Fixed cost (static sizing) |
 | **Operational burden** | Low (auto-scaling) | Medium (manual tuning required) |
 

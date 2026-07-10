@@ -549,7 +549,7 @@ Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.
      team_name="arch-<slug>", name="worker-<task_id>", prompt="...")
 
 # SecArch
-Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="openai_heavy",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
      run_in_background=True, team_name="arch-<slug>",
      name="secarch-<task_id>", prompt="...")
 

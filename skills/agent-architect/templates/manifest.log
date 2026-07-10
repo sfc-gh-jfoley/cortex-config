@@ -16,6 +16,8 @@
 #   FAIL — Tester found failures
 #   ESCALATED — exceeded retry budget, user notified
 #   SHIPPED — Phase 6 complete, project delivered
+#   STUCK — worker inactive >120s with no git activity (stuck retry loop or crash)
+#   TEAM_SHIPPED — all charter tasks complete, team workflow finished
 #
 # Recovery: If a session dies, read this log + git log to reconstruct state.
 # Rule: Never merge a branch whose worker has no DONE entry here.

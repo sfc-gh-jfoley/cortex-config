@@ -156,6 +156,8 @@ CALL budgets_db.budgets_schema.search_production_budget!SET_NOTIFICATION_THRESHO
 
 First create the stored procedure that will be called at the threshold:
 
+> **SECURITY NOTE:** `service_name` and `role_name` in these stored procedures must come from admin-controlled configuration (e.g., a config table or hardcoded values), NOT from user input or query parameters. String concatenation in `EXECUTE IMMEDIATE` creates SQL injection risk if inputs are user-supplied.
+
 ```sql
 CREATE OR REPLACE PROCEDURE budgets_db.budgets_schema.sp_revoke_and_suspend_search(
   service_name  STRING,

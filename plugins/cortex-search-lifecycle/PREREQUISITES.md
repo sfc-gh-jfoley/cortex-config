@@ -24,10 +24,6 @@ SELECT
   'CORTEX_SEARCH_SERVICES' as feature,
   SYSTEM$FEATURE_FLAG('CORTEX_SEARCH_SERVICES_ENABLED') as enabled
 UNION ALL
-SELECT 
-  'CORTEX_SEARCH_RESOURCE_BUDGETS',
-  SYSTEM$FEATURE_FLAG('CORTEX_SEARCH_RESOURCE_BUDGETS_ENABLED')
-UNION ALL
 SELECT
   'CORTEX_AI_GUARDRAILS_TRACKING',
   SYSTEM$FEATURE_FLAG('CORTEX_AI_GUARDRAILS_TRACKING_ENABLED');
@@ -79,20 +75,22 @@ GRANT SELECT ON ALL TABLES IN SCHEMA analytics.search TO ROLE DATA_ENGINEER;
 
 ### 4. Grant Privileges for CSS Budgets
 
-Role privileges needed to create and manage resource budgets:
+Role privileges needed to create and manage budgets:
 
 ```sql
 -- As ACCOUNTADMIN:
 
--- Grant CREATE RESOURCE BUDGET (account-level)
-GRANT CREATE RESOURCE BUDGET ON ACCOUNT TO ROLE <role_name>;
+-- Grant CREATE SNOWFLAKE.CORE.BUDGET (account-level)
+GRANT CREATE SNOWFLAKE.CORE.BUDGET ON SCHEMA <budget_schema> TO ROLE <role_name>;
 
--- Grant ALTER CORTEX SEARCH SERVICE (to attach budget)
-GRANT ALTER ON CORTEX SEARCH SERVICE IN SCHEMA <schema_name> TO ROLE <role_name>;
+-- Grant USAGE on budget schema
+GRANT USAGE ON DATABASE <budget_db> TO ROLE <role_name>;
+GRANT USAGE ON SCHEMA <budget_db>.<budget_schema> TO ROLE <role_name>;
 
 -- Example: Grant budget management to ADMIN role
-GRANT CREATE RESOURCE BUDGET ON ACCOUNT TO ROLE ADMIN;
-GRANT ALTER ON ALL CORTEX SEARCH SERVICES IN SCHEMA analytics.search TO ROLE ADMIN;
+GRANT CREATE SNOWFLAKE.CORE.BUDGET ON SCHEMA budgets_db.budgets_schema TO ROLE ADMIN;
+GRANT USAGE ON DATABASE budgets_db TO ROLE ADMIN;
+GRANT USAGE ON SCHEMA budgets_db.budgets_schema TO ROLE ADMIN;
 ```
 
 ### 5. Grant Privileges for CSS Monitor
@@ -223,21 +221,17 @@ target_lag = '24 hours'   -> Refresh daily (low cost, good for static data)
 If using css-budgets sub-skill, prepare budget configuration:
 
 ```sql
--- Create a resource budget: $100/month max (assume $2/credit = 50 credits)
-CREATE RESOURCE BUDGET search_budget
-  MONTHLY_LIMIT = 50
-  ON CORTEX_SEARCH_SERVICES;
+-- Create a budget: $100/month max (assume $2/credit = 50 credits)
+CREATE SNOWFLAKE.CORE.BUDGET search_budget()
+  SET MONTHLY_LIMIT = 50
+  SET CURRENCY = 'USD';
 
--- Set enforcement action: REVOKE = suspend service, NOTIFY = alert only, WEBHOOK = custom
--- Default: NOTIFY (alert, don't suspend)
-
--- Attach to search service
+-- Attach budget to search service via tag
 ALTER CORTEX SEARCH SERVICE product_search 
-SET RESOURCE_BUDGET = 'search_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';  -- Suspend if $100 spent
+SET TAG cortex_search_budget = 'search_budget';
 
 -- View budget status
-SELECT * FROM ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGETS;
+SELECT * FROM INFORMATION_SCHEMA.BUDGETS WHERE BUDGET_NAME = 'search_budget';
 ```
 
 ### 11. Cost Estimation
@@ -310,7 +304,7 @@ Before using any css-* sub-skill, verify:
 - [ ] Warehouse exists and has sufficient compute (SMALL to XL)
 - [ ] Role has `USAGE` on warehouse
 - [ ] Role has `SELECT` on source table
-- [ ] For budgets: Role has `CREATE RESOURCE BUDGET` privilege
+- [ ] For budgets: Role has `CREATE SNOWFLAKE.CORE.BUDGET` privilege
 - [ ] For monitoring: Role has `MONITOR` privilege
 - [ ] ACCOUNT_USAGE.CORTEX_SEARCH_SERVICES view is queryable
 - [ ] CORTEX_AI_GUARDRAILS_USAGE_HISTORY view is available (GA Jun 16, 2026)
@@ -342,7 +336,7 @@ GRANT SELECT ON TABLE analytics.search.products TO ROLE DATA_ENGINEER;
 
 **Minimal privilege set for css-budgets:**
 ```sql
-GRANT CREATE RESOURCE BUDGET ON ACCOUNT TO ROLE ADMIN;
+GRANT CREATE SNOWFLAKE.CORE.BUDGET ON SCHEMA <budget_schema> TO ROLE ADMIN;
 GRANT ALTER ON CORTEX SEARCH SERVICE IN SCHEMA analytics.search TO ROLE ADMIN;
 ```
 

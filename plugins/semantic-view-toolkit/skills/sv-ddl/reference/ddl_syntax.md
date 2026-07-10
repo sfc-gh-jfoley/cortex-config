@@ -158,7 +158,7 @@ FACTS (
   AS <sql_expr>
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ WITH SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
-  [ WITH ENUM_INDICATOR ]
+  [ IS_ENUM ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
   [ WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name> [ USING <col_name> ] ]
@@ -176,7 +176,7 @@ When to use these metadata clauses to guide AI generation:
 - Use valid SQL string literals (quoted values)
 - Example: `WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST' )`
 
-**ENUM_INDICATOR**
+**IS_ENUM**
 - Mark a dimension as an enumeration (finite, known set of values)
 - AI will prefer IN lists over LIKE patterns for query generation
 - Example: status dimension with values {ACTIVE, PENDING, INACTIVE}
@@ -186,7 +186,7 @@ When to use these metadata clauses to guide AI generation:
 ```sql
 orders.region AS region_code
   WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST', 'APAC' )
-  WITH ENUM_INDICATOR
+  IS_ENUM
   COMMENT = 'Region code for order fulfillment center'
 ```
 

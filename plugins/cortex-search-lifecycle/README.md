@@ -88,25 +88,27 @@ WHERE name = 'product_search';
 ### Budgets: Enforce $100/month Credit Limit
 
 ```sql
--- Create resource budget: $100 max per month (assume $2/credit)
-CREATE RESOURCE BUDGET product_search_budget
-  MONTHLY_LIMIT = 50  -- 50 credits = $100 at $2/credit
-  ON CORTEX_SEARCH_SERVICES;
+-- Create cost-attribution tag
+CREATE TAG IF NOT EXISTS cost_center
+  ALLOWED_VALUES 'search_production'
+  COMMENT = 'Cost center for Cortex Search budgets';
 
--- Attach budget to service: auto-suspend if limit exceeded
+-- Apply tag to search service
 ALTER CORTEX SEARCH SERVICE product_search 
-SET RESOURCE_BUDGET = 'product_search_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';  -- suspend service on overspend
+  SET TAG cost_center = 'search_production';
 
--- Track consumption
-SELECT 
-  service_name,
-  budget_name,
-  monthly_credits_used,
-  monthly_limit,
-  ROUND(100.0 * monthly_credits_used / monthly_limit, 1) as pct_used
-FROM ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGETS
-WHERE month = CURRENT_DATE::DATE;
+-- Create budget instance with monthly spending limit
+CREATE SNOWFLAKE.CORE.BUDGET product_search_budget();
+CALL product_search_budget!SET_SPENDING_LIMIT(50);  -- 50 credits = ~$100
+
+-- Associate tag with budget
+CALL product_search_budget!SET_RESOURCE_TAGS(
+  [(SELECT SYSTEM$REFERENCE('TAG', 'cost_center', 'SESSION', 'applybudget')), 'search_production'],
+  'UNION'
+);
+
+-- Track spending
+CALL product_search_budget!GET_SERVICE_TYPE_USAGE_V2('2026-07', '2026-07');
 ```
 
 ### Monitor: Check Service Health and Guardrails
@@ -169,7 +171,7 @@ WHERE name = 'product_search';
 - [ ] Source table exists with VARCHAR/STRING/TEXT columns
 - [ ] Warehouse available and has sufficient compute
 - [ ] Role has `CREATE CORTEX SEARCH SERVICE` privilege
-- [ ] For budgets: Role has `CREATE RESOURCE BUDGET` privilege
+- [ ] For budgets: Role has `CREATE SNOWFLAKE.CORE.BUDGET` privilege
 - [ ] For monitoring: Account has `MONITOR` grant (ACCOUNT_USAGE access)
 - [ ] For guardrails: CORTEX_AI_GUARDRAILS_USAGE_HISTORY is available (GA Jun 16, 2026)
 
