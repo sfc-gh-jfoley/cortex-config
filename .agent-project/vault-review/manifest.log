@@ -1,0 +1,3 @@
+2026-07-10T17:00:00Z | architect | INTAKE_COMPLETE | vault-review: security+accuracy review of all vault skills modified today
+2026-07-10T17:00:00Z | architect | DOMAIN_HINTS | 1. Never invented DDL — verify against Snowflake docs; 2. Least-privilege grants; 3. No SQL injection in string concatenation; 4. IF NOT EXISTS on all DDL; 5. Bidirectional cross-references; 6. No hardcoded credentials
+2026-07-10T17:00:00Z | architect | SPECBUILDER_PRESENT | false
