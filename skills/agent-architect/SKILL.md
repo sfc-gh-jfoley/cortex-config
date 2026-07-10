@@ -175,7 +175,7 @@ When all return → log `RESEARCH_COMPLETE`, commit, proceed to Phase 2.
 **Optional specbuilder handoff**: If `SPECBUILDER_PRESENT=true`, ask:
 "Formalize this plan as tracked spec modules before execution? (y/n)"
 - YES → write `spec/INTAKE.md` summarizing approved tasks (one requirement per task), load
-  skill `specbuilder` → route to `spec-generate` → proceed to Phase 3 only after key tasks
+  skill `specbuilder` → route to `generate-spec` → proceed to Phase 3 only after key tasks
   reach `status: accepted` in specbuilder.
 - NO → proceed directly to Phase 3.
 
