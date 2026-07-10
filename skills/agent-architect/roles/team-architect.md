@@ -90,6 +90,7 @@ Task(subagent_type="general-purpose", model="tester_model",  # resolve via ~/.sn
 ```
 
 - **PASS** → log DONE to manifest.log + commit (see Completion Logging)
+- **PASS_WITH_WARNINGS** → treat as PASS but append WARNING to manifest.log entry + commit
 - **FAIL** → re-spawn worker with Tester failure report (count against `retry_budget`)
 
 **Gates are never bypassed.** Every task must pass SecArch AND Tester before DONE.

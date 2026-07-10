@@ -124,6 +124,16 @@ If unsure which skill matches, ask the user.
 | workload-identity | Full Workload Identity Federation router — Snowflake as OIDC provider for external services (GA Jul 2026) | `plugins/workload-identity/` |
 | wif-setup | Create `WORKLOAD_IDENTITY_FEDERATION` secret, obtain issuer URL/subject, configure external service, test token issuance | `plugins/workload-identity/skills/wif-setup/` |
 | wif-troubleshoot | Diagnose WIF failures: expired tokens, wrong issuer URL, missing grants | `plugins/workload-identity/skills/wif-troubleshoot/` |
+| session-policy | Create and manage Session Policies (GA Apr 2026) — enforce max lifespan, UI idle timeouts, and session expiration | `plugins/workload-identity/skills/session-policy/` |
+
+### Cortex Search Service
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| cortex-search-lifecycle | Full Cortex Search Service lifecycle router (create, manage budgets, monitor) — semantic search over unstructured data (GA Jul 2, 2026) | `plugins/cortex-search-lifecycle/` |
+| css-setup | Create a Cortex Search Service, configure warehouses, source tables, and index freshness settings | `plugins/cortex-search-lifecycle/skills/css-setup/` |
+| css-budgets | Set monthly credit limits for search services and enforce automated budget actions | `plugins/cortex-search-lifecycle/skills/css-budgets/` |
+| css-monitor | Monitor search service health via ACCOUNT_USAGE, track guardrails violations, analyze performance | `plugins/cortex-search-lifecycle/skills/css-monitor/` |
 
 ### Collaboration
 
@@ -158,6 +168,7 @@ If unsure which skill matches, ask the user.
 |-------|-------------|------|
 | coco-usage | CoCo token/credit consumption analysis | `skills/coco-usage/` |
 | google-doc-formatter | Format markdown as Google Doc | `skills/google-doc-formatter/` |
+| snowflake-workspaces | Write Python in Snowflake Workspaces UI (GA Jun 18, 2026). Schedule Python jobs, create NPOs (Native Python Objects), integrate with Tasks. Understand when to use Workspaces vs. Notebooks | `skills/snowflake-workspaces/` |
 
 ---
 
@@ -168,6 +179,40 @@ For coding rules, first load rule-loader:
 Read: ~/.snowflake/cortex/vault/plugins/rule-governance/skills/rule-loader/SKILL.md
 ```
 Then follow its workflow to load specific rule files from `~/.snowflake/cortex/rules/`.
+
+---
+
+## Bundled Skills: Coverage Gaps & Entry Points
+
+Some bundled Snowflake skills have documentation limitations or incomplete feature coverage. These notes guide users to appropriate workarounds or reference information:
+
+### data-quality (DMF FILTER clause gap)
+
+**Gap:** The bundled `data-quality` skill does not document the `FILTER` clause for Data Metric Functions (DMFs), which allows dynamic filtering of metrics (GA Jul 2026).
+
+**Workaround:** 
+- Refer to [Snowflake DMF documentation](https://docs.snowflake.com/data-quality/data-quality-setup#filter-clause)
+- Use `FILTER (WHERE condition)` in DMF definitions to scope metrics to subsets of data
+- Example: `METRIC temperature UNIT 'C' FILTER (WHERE region = 'EU')`
+
+### snowflake-tasks (ACCOUNT_USAGE.TASKS view gap)
+
+**Gap:** The bundled `snowflake-tasks` skill does not document the `ACCOUNT_USAGE.TASKS` view, which provides account-level task history and execution metrics across multiple databases/schemas.
+
+**Workaround:**
+- Use `INFORMATION_SCHEMA.TASK_HISTORY()` for schema-level task diagnostics (scoped, real-time)
+- Use `ACCOUNT_USAGE.TASKS` for account-wide analytics and historical trends (delayed ~30 min)
+- Query example:
+  ```sql
+  SELECT
+    TASK_NAME,
+    OWNER_NAME,
+    DATABASE_NAME,
+    DEFINITION,
+    CREATED_ON
+  FROM SNOWFLAKE.ACCOUNT_USAGE.TASKS
+  ORDER BY CREATED_ON DESC;
+  ```
 
 ---
 

@@ -10,7 +10,7 @@ Right-size models per role. Not everything needs Opus.
 |---|---|---|
 | **Architect** | `current_opus` (currently resolves to `claude-opus-4-7`) | Complex reasoning: plan synthesis, cross-team consistency, decision records, escalation judgment |
 | **Researcher** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Fast read-only exploration. Doesn't need deep reasoning — gathers facts, reports structure |
-| **Security Architect** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Checklist-driven structured output. Security patterns are well-defined — Sonnet handles them correctly |
+| **Security Architect** | `openai_heavy` (currently resolves to `openai-gpt-5.2`) | Cross-model independence for security gates. GPT catches Claude blind spots in auth/crypto patterns. Checklist-driven output — different training = different failure modes caught |
 | **Worker** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Code generation + TDD loop. Sonnet is strong at implementation given clear specs |
 | **Tester** | `tester_model` (currently resolves to `openai-gpt-5.2`) | Cross-model independence: GPT catches Claude Worker blind spots. Checklist-driven structured output — different training = different failure modes caught |
 | **Team Architect** | `current_sonnet` (currently resolves to `claude-sonnet-4-6`) | Executes a pre-defined charter from the Primary Architect. Charter scope is bounded — Primary already did cross-team synthesis and decomposition |
@@ -49,9 +49,9 @@ Spawned teammates get their model explicitly set.
 | Architect | 1 (session) | Opus | 1x baseline |
 | Researchers | 3-5 | Sonnet | 0.1x each |
 | Workers | 5-15 | Sonnet | 0.1x each |
-| SecArch | 5-15 | Sonnet | 0.1x each |
+| SecArch | 5-15 | GPT (`openai_heavy`) | ~0.15x each (slight premium over Sonnet for cross-model depth) |
 | Testers | 5-15 | GPT (`tester_model`) | ~0.1x each (similar to Sonnet) |
 | Team Architects | 1-4 (multi-team headless) | Sonnet | 0.1x each |
 
-A typical 10-task project: 1 Opus session + ~30 Sonnet spawns + ~15 GPT Tester spawns.
+A typical 10-task project: 1 Opus session + ~30 Sonnet spawns + ~15 GPT SecArch/Tester spawns.
 Without right-sizing (all Opus): 10x+ cost increase with marginal quality gain.

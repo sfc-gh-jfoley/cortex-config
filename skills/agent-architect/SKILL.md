@@ -64,6 +64,7 @@ Describe what you want built:
 | `roles/security-gate.md` | SecArch checklist + verdict format |
 | `roles/worker.md` | Worker TDD protocol + ownership rules |
 | `roles/tester.md` | Spec-blind verification protocol |
+| `roles/team-architect.md` | Multi-team charter execution + Phase 1–5 mini-lifecycle |
 | `references/security-checklist.md` | Reusable security checklist (standalone) |
 | `references/escalation-format.md` | Structured escalation template |
 | `references/retrospective-protocol.md` | Post-project learning protocol |

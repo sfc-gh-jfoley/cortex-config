@@ -43,6 +43,16 @@ Diagnose and fix WIF authentication failures:
 - Token expiry and refresh issues
 - Audit failed authentication attempts
 
+### ⏱️ [session-policy](./skills/session-policy/SKILL.md)
+Create and manage Snowflake Session Policies (GA Apr 2026):
+1. Choose policy strategy: max lifespan vs. UI-specific idle timeout
+2. Create SESSION POLICY with constraints
+3. Apply policy to role
+4. Test and troubleshoot session expiration
+5. Monitor active sessions and audit policy violations
+
+**Use cases:** Enforce strict session expiration for compliance, protect against unattended UI sessions, enforce re-authentication policies.
+
 ---
 
 ## Quick Decision Tree

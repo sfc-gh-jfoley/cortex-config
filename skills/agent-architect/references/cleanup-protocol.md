@@ -16,7 +16,7 @@ A worker is STUCK when all of the following are true:
 1. Kill the agent: `kill_agent(agent_id)`
 2. Remove its worktree: `git worktree remove --force <worktree_path>`
 3. Commit the event: `git add .agent-project/manifest.log && git commit -m "STUCK: <task_id> — no git activity 120s"`
-4. Append to manifest.log: `STUCK | <task_id> | <timestamp> | retry <N>`
+4. Append to manifest.log: `<timestamp> | worker-<task_id> | STUCK | retry <N>`
 5. **If `retry_count < retry_budget`** → re-spawn worker with same task spec + DOMAIN_HINTS from manifest
 6. **If `retry_count >= retry_budget`** → escalate (see `escalation-format.md`)
 
