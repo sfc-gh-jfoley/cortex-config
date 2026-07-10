@@ -178,12 +178,6 @@ Additional tool types (configure manually if needed):
                     No setup required. Required if Agent Skills include code files.
                     Ask: "Does this agent need to run Python code or use Skills with scripts?"
 
-  analytical_search — Semantic search over large document collections with relevance ranking.
-                    Requires: Document collection with semantic embeddings enabled.
-                    Setup: CREATE DOCUMENT COLLECTION <name> WITH SEMANTIC EMBEDDINGS; 
-                           GRANT USAGE ON COLLECTION TO ROLE <role>
-                    Ask: "Should this agent search and analyze large document collections?"
-
   MCP connector   — Connect to an external MCP server (e.g., GitHub, Jira, Salesforce).
                     Requires an EXTERNAL MCP SERVER object in Snowflake.
                     Configured in spec under mcp_servers[], not in tools[].
@@ -191,9 +185,10 @@ Additional tool types (configure manually if needed):
 ```
 
 For each new tool type selected:
-- `web_search` / `data_to_chart` / `code_execution`: add to `CUSTOM_TOOLS` list with `{type: "<tool_type>", name: "<name>", tool_resources: null}`. These go in the `tools` array with no `tool_resources` entry.
-- `analytical_search`: add to `CUSTOM_TOOLS` list with `{type: "analytical_search", name: "<name>", tool_resources: {document_collection_id: "<collection_id>", max_results: <number>}}`. Extract `collection_id` from Step 2.4a check results.
+- `web_search` / `data_to_chart` / `code_execution`: add to `CUSTOM_TOOLS` list with `{type: "<tool_type>", name: "<name>", tool_resources: null}`.
 - MCP: store separately as `MCP_SERVERS` list — handled in Phase 4 spec assembly, not in `tool_resources`.
+
+> **Analytical search note**: Analytical search (corpus-wide analysis, counts, aggregates across documents) is NOT a separate tool type. It auto-triggers from a standard `cortex_search` tool when the query has analytical intent. To enable it, configure the `cortex_search` tool with `max_results: 1000` and rich `columns_and_descriptions`. See `skills/analytical-search/SKILL.md`.
 
 Store selected SVs as `SELECTED_SVS`, selected CSS as `SELECTED_CSS`, custom functions as `CUSTOM_TOOLS`.
 
@@ -204,7 +199,7 @@ More tools = harder routing decisions for the agent.
 Consider splitting into multiple specialized agents.
 Continue anyway? (yes/no)
 ```
-Note: `web_search`, `data_to_chart`, `code_execution`, and `analytical_search` each count as 1 tool toward this limit even though they need no `tool_resources` (or `analytical_search` requires collection config).
+Note: `web_search`, `data_to_chart`, and `code_execution` each count as 1 tool toward this limit.
 
 ---
 
@@ -252,46 +247,6 @@ If not enabled: warn the user that they need an account admin to run `ALTER ACCO
 **`code_execution`:** No prerequisite check needed — available by default.
 
 **`data_to_chart`:** No prerequisite check needed — available by default.
-
-**`analytical_search`:**
-
-For each `analytical_search` tool selected:
-
-```sql
--- Step 1: Verify collection exists and has semantic indexing
-SELECT COLLECTION_ID, NAME, HAS_SEMANTIC_INDEX
-FROM INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS
-WHERE NAME = '<collection_name>';
-```
-
-Expected: 1 row with `HAS_SEMANTIC_INDEX = TRUE`
-
-If 0 rows: "Collection not found. Create it first:"
-```sql
-CREATE DOCUMENT COLLECTION <collection_name> WITH SEMANTIC EMBEDDINGS;
-```
-
-If `HAS_SEMANTIC_INDEX = FALSE`: "Collection exists but semantic indexing is disabled. Enable it:"
-```sql
-ALTER DOCUMENT COLLECTION <collection_name> SET SEMANTIC EMBEDDINGS = TRUE;
-```
-
-```sql
--- Step 2: Verify role has USAGE on the collection
-DESCRIBE DOCUMENT COLLECTION <collection_name>;
-```
-
-If "permission denied": "Grant USAGE:"
-```sql
-GRANT USAGE ON DOCUMENT COLLECTION <collection_name> TO ROLE <current_role>;
-```
-
-```sql
--- Step 3: Verify collection is populated
-SELECT COUNT(*) FROM <collection_name>;
-```
-
-If 0 rows: Warn (but do not block): "Collection is empty. Populate it before deploying the agent."
 
 **MCP:**
 ```sql

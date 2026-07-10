@@ -124,7 +124,7 @@ If unsure which skill matches, ask the user.
 | workload-identity | Full Workload Identity Federation router — Snowflake as OIDC provider for external services (GA Jul 2026) | `plugins/workload-identity/` |
 | wif-setup | Create `WORKLOAD_IDENTITY_FEDERATION` secret, obtain issuer URL/subject, configure external service, test token issuance | `plugins/workload-identity/skills/wif-setup/` |
 | wif-troubleshoot | Diagnose WIF failures: expired tokens, wrong issuer URL, missing grants | `plugins/workload-identity/skills/wif-troubleshoot/` |
-| session-policy | Create and manage Session Policies (GA Apr 2026) — enforce max lifespan, UI idle timeouts, and session expiration | `plugins/workload-identity/skills/session-policy/` |
+| session-policy | Create and manage Session Policies (GA Apr 2026) — enforce max lifespan, UI idle timeouts, and session expiration | `skills/session-policy/` |
 
 ### Cortex Search Service
 

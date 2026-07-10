@@ -1,9 +1,9 @@
 ---
 name: css-budgets
 description: >
-  Manage Cortex Search Service budgets and resource governance. Set monthly credit limits,
-  configure enforcement actions (revoke/suspend, alert, webhook), track budget consumption.
-  GA as of Jul 3, 2026. Use when preventing runaway search costs or enforcing spend limits.
+  Set monthly credit spending limits on Cortex Search Services using Snowflake's
+  tag-based budget mechanism (SNOWFLAKE.CORE.BUDGET). Configure threshold-triggered
+  stored procedures to alert, revoke access, or suspend services. GA Jul 3, 2026.
 triggers:
   - search service budgets
   - css budgets
@@ -16,358 +16,258 @@ triggers:
   - search cost control
 ---
 
-# CSS Budgets: Manage Search Service Budgets
+# CSS Budgets: Spending Limits for Cortex Search Services
 
-Complete workflow for setting monthly credit limits and automating budget enforcement for Cortex Search Services (GA Jul 3, 2026).
-
----
-
-## When to Use This Sub-Skill
-
-Use **css-budgets** when:
-- Setting monthly credit limits per search service
-- Preventing runaway search costs
-- Automating budget enforcement actions (suspend, alert, webhook)
-- Tracking search spending against budgets
-- Managing cost governance across multiple search services
-
-**Do NOT use this sub-skill for:**
-- Creating search services (use `$cortex-search-lifecycle:css-setup`)
-- Monitoring guardrails violations (use `$cortex-search-lifecycle:css-monitor`)
-- Querying search results (use agents or cortex_search_result())
+Monthly credit budgets for Cortex Search Services using Snowflake's native
+`SNOWFLAKE.CORE.BUDGET` object with tag-based cost attribution. GA Jul 3, 2026.
 
 ---
 
-## Quick Start: Set a Monthly Budget in 3 Steps
+## How It Works
 
-### Step 1: Calculate Your Budget
+Snowflake's budget mechanism uses **tags** as the attribution bridge between an object and a budget:
 
-```sql
--- Estimate: How much do you want to spend per month on search services?
--- Example: $100/month budget, with search credits at $2/credit
-
--- $100 per month = 50 credits (assuming $2/credit)
--- Budget: 50 credits
-
--- Cost breakdown:
--- - High freshness (target_lag = 1 hour): ~$20-50/month per service
--- - Medium freshness (target_lag = 4 hours): ~$5-20/month per service
--- - Low freshness (target_lag = 24 hours): ~$1-5/month per service
-
--- You can set different budgets for different services
--- Service A (real-time): 30 credits/month ($60)
--- Service B (daily): 10 credits/month ($20)
--- Service C (archives): 5 credits/month ($10)
--- TOTAL: 45 credits/month ($90)
+```
+1. Create a cost-attribution tag
+2. Apply the tag to the Cortex Search service
+3. Create a SNOWFLAKE.CORE.BUDGET instance
+4. Set monthly spending limit on the budget
+5. Associate the tag with the budget (Snowflake tracks tagged service spend)
+6. Add stored procedures as threshold actions (alert at 80%, revoke at 100%)
 ```
 
-### Step 2: Create Resource Budget
+Budget enforcement runs periodically: standard budgets may take up to 8 hours after a threshold
+is breached to execute actions. Low-latency budgets reduce this to ~2 hours.
+
+---
+
+## Phase 0: Prerequisites
 
 ```sql
--- Create a named budget with monthly credit limit
-CREATE RESOURCE BUDGET product_search_budget
-  MONTHLY_LIMIT = 50  -- 50 credits = $100 at $2/credit
-  ON CORTEX_SEARCH_SERVICES;
+-- Requires ACCOUNTADMIN or BUDGET_ADMIN role for budget creation
+USE ROLE ACCOUNTADMIN;
 
--- You can create multiple budgets for different services
-CREATE RESOURCE BUDGET support_tickets_budget
-  MONTHLY_LIMIT = 100  -- Real-time support data = higher cost
-  ON CORTEX_SEARCH_SERVICES;
-
-CREATE RESOURCE BUDGET archives_budget
-  MONTHLY_LIMIT = 10  -- Static archives = low cost
-  ON CORTEX_SEARCH_SERVICES;
+-- The budget object lives in a schema you control
+-- Recommended: dedicated schema for budget management
+CREATE DATABASE IF NOT EXISTS budgets_db;
+CREATE SCHEMA IF NOT EXISTS budgets_db.budgets_schema;
+CREATE SCHEMA IF NOT EXISTS budgets_db.tags;
 ```
 
-### Step 3: Attach Budget to Service and Set Enforcement
-
+Grant required privileges to the role that will manage budgets:
 ```sql
--- Attach budget to search service with enforcement action
-ALTER CORTEX SEARCH SERVICE product_search
-SET RESOURCE_BUDGET = 'product_search_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';  -- Suspend service if budget exceeded
-
--- Or use NOTIFY (alert only, don't suspend)
-ALTER CORTEX SEARCH SERVICE support_tickets_search
-SET RESOURCE_BUDGET = 'support_tickets_budget'
-    ENFORCEMENT_ACTION = 'NOTIFY';  -- Alert but keep service running
-
--- Or use WEBHOOK (custom action via webhook)
-ALTER CORTEX SEARCH SERVICE archives_search
-SET RESOURCE_BUDGET = 'archives_budget'
-    ENFORCEMENT_ACTION = 'WEBHOOK'
-    WEBHOOK_URL = 'https://your-webhook-endpoint.com/budget-alert';
+GRANT CREATE SNOWFLAKE.CORE.BUDGET ON SCHEMA budgets_db.budgets_schema TO ROLE <budget_role>;
+GRANT USAGE ON DATABASE budgets_db TO ROLE <budget_role>;
+GRANT USAGE ON SCHEMA budgets_db.budgets_schema TO ROLE <budget_role>;
 ```
 
 ---
 
-## Resource Budget DDL Reference
-
-### CREATE RESOURCE BUDGET Syntax
+## Phase 1: Create and Apply a Cost Tag
 
 ```sql
-CREATE [OR REPLACE] RESOURCE BUDGET <budget_name>
-  MONTHLY_LIMIT = <credit_limit>
-  ON CORTEX_SEARCH_SERVICES
-  [COMMENT = 'description'];
+-- Create a tag to identify the cost center
+CREATE TAG IF NOT EXISTS budgets_db.tags.cost_center
+  ALLOWED_VALUES 'search_production', 'search_dev', 'search_analytics'
+  COMMENT = 'Cost center tag for Cortex Search budget attribution';
+
+-- Apply the tag to the Cortex Search service
+-- (Replace with your actual service FQN)
+ALTER CORTEX SEARCH SERVICE IF EXISTS <db>.<schema>.<search_service_name>
+  SET TAG budgets_db.tags.cost_center = 'search_production';
 ```
 
-### ALTER CORTEX SEARCH SERVICE with Budget
-
+Verify the tag was applied:
 ```sql
-ALTER CORTEX SEARCH SERVICE <service_name>
-SET RESOURCE_BUDGET = '<budget_name>'
-    ENFORCEMENT_ACTION = 'REVOKE' | 'NOTIFY' | 'WEBHOOK'
-    [WEBHOOK_URL = 'https://...']  -- Required if ENFORCEMENT_ACTION = 'WEBHOOK'
-    [WEBHOOK_HEADERS = '...']       -- Optional: custom headers
-    [WEBHOOK_BODY = '...'];         -- Optional: custom payload
+SELECT SYSTEM$GET_TAG(
+  'budgets_db.tags.cost_center',
+  '<db>.<schema>.<search_service_name>',
+  'CORTEX_SEARCH_SERVICE'
+);
 ```
 
-### Parameters
-
-| Parameter | Required | Options | Description |
-|-----------|----------|---------|-------------|
-| `budget_name` | Yes | String | Unique name for budget |
-| `MONTHLY_LIMIT` | Yes | Integer | Credit limit per month (1-1000000) |
-| `ENFORCEMENT_ACTION` | Yes | REVOKE, NOTIFY, WEBHOOK | Action when limit exceeded |
-| `WEBHOOK_URL` | Conditional | URL | Endpoint for WEBHOOK action |
-| `service_name` | Yes | String | Target search service name |
-
-### Enforcement Actions
-
-| Action | Behavior | Use Case |
-|--------|----------|----------|
-| `REVOKE` | Suspend service (stop new searches) | Strict cost control |
-| `NOTIFY` | Alert via email/webhook, keep running | Soft limit, monitoring |
-| `WEBHOOK` | POST to custom endpoint | Integration with billing system |
+Note: Tag changes can take up to 8 hours to be reflected in budget tracking.
 
 ---
 
-## Complete Examples
-
-### Example 1: Strict Budget (Suspend on Overspend)
+## Phase 2: Create the Budget and Set Spending Limit
 
 ```sql
--- Create budget: $100/month max (50 credits)
-CREATE RESOURCE BUDGET products_strict_budget
-  MONTHLY_LIMIT = 50
-  COMMENT = 'Product search: $100 max per month. Auto-suspend if exceeded.';
+-- Switch to the schema where the budget will live
+USE SCHEMA budgets_db.budgets_schema;
 
--- Attach to service with REVOKE (strict enforcement)
-ALTER CORTEX SEARCH SERVICE product_search
-SET RESOURCE_BUDGET = 'products_strict_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';
+-- Create the budget instance
+CREATE SNOWFLAKE.CORE.BUDGET search_production_budget();
 
--- Behavior: When monthly spend hits 50 credits, service is suspended
--- Users will see: "Service suspended due to budget limit"
--- Admin must manually resume: ALTER CORTEX SEARCH SERVICE product_search SET STATE = 'RUNNING'
+-- Set a monthly credit limit (e.g., 100 credits = roughly $200 at $2/credit)
+CALL search_production_budget!SET_SPENDING_LIMIT(100);
 ```
 
-### Example 2: Soft Budget (Alert Only)
-
+Optionally enable low-latency enforcement (2-hour enforcement vs. standard 8-hour):
 ```sql
--- Create budget: $500/month with alerts only
-CREATE RESOURCE BUDGET company_search_budget
-  MONTHLY_LIMIT = 250  -- 250 credits = $500
-  COMMENT = 'All search services combined budget with alerts.';
-
--- Attach with NOTIFY (soft limit)
-ALTER CORTEX SEARCH SERVICE product_search
-SET RESOURCE_BUDGET = 'company_search_budget'
-    ENFORCEMENT_ACTION = 'NOTIFY';
-
--- Behavior: Alerts sent when budget exceeded, but service keeps running
--- Owners can investigate and adjust if needed
-```
-
-### Example 3: Multiple Services with Separate Budgets
-
-```sql
--- Scenario: 3 search services, each with own budget
-
--- Service 1: Real-time support tickets ($100/month)
-CREATE RESOURCE BUDGET support_budget MONTHLY_LIMIT = 50 ON CORTEX_SEARCH_SERVICES;
-ALTER CORTEX SEARCH SERVICE support_tickets_search
-SET RESOURCE_BUDGET = 'support_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';
-
--- Service 2: Product catalog ($30/month)
-CREATE RESOURCE BUDGET products_budget MONTHLY_LIMIT = 15 ON CORTEX_SEARCH_SERVICES;
-ALTER CORTEX SEARCH SERVICE products_search
-SET RESOURCE_BUDGET = 'products_budget'
-    ENFORCEMENT_ACTION = 'REVOKE';
-
--- Service 3: Archives ($10/month)
-CREATE RESOURCE BUDGET archives_budget MONTHLY_LIMIT = 5 ON CORTEX_SEARCH_SERVICES;
-ALTER CORTEX SEARCH SERVICE archives_search
-SET RESOURCE_BUDGET = 'archives_budget'
-    ENFORCEMENT_ACTION = 'NOTIFY';
-```
-
-### Example 4: Custom Webhook for Billing Integration
-
-```sql
--- Create budget
-CREATE RESOURCE BUDGET webhook_budget
-  MONTHLY_LIMIT = 100
-  COMMENT = 'Send budget alerts to billing system webhook.';
-
--- Attach with WEBHOOK action
-ALTER CORTEX SEARCH SERVICE product_search
-SET RESOURCE_BUDGET = 'webhook_budget'
-    ENFORCEMENT_ACTION = 'WEBHOOK'
-    WEBHOOK_URL = 'https://billing.example.com/cortex-search-alerts'
-    WEBHOOK_HEADERS = '{"Authorization": "Bearer secret_token", "Content-Type": "application/json"}'
-    WEBHOOK_BODY = '{"service_name": "product_search", "credits_used": <credits>, "monthly_limit": 100, "alert_type": "budget_exceeded"}';
-
--- Webhook fires when service hits 100 credits
--- Billing system receives alert and can trigger downstream actions
+-- Low-latency option: set via Snowsight UI Admin > Cost Management > Budgets
+-- or via the budget API (check current docs for ENABLE_LOW_LATENCY_BUDGET parameter)
 ```
 
 ---
 
-## Monitoring Budget Consumption
-
-### View Budget Status
+## Phase 3: Associate the Tag with the Budget
 
 ```sql
--- Check all budgets and their consumption
-SELECT 
-  budget_name,
-  monthly_limit,
-  monthly_credits_used,
-  ROUND(100.0 * monthly_credits_used / monthly_limit, 1) as pct_of_limit,
-  CASE 
-    WHEN monthly_credits_used >= monthly_limit THEN 'EXCEEDED'
-    WHEN monthly_credits_used >= 0.9 * monthly_limit THEN 'WARNING (>90%)'
-    ELSE 'OK'
-  END as status,
-  month,
-  last_updated_at
-FROM ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGETS
-ORDER BY pct_of_limit DESC;
+-- Tell the budget to track spending for services tagged with our cost_center tag
+CALL budgets_db.budgets_schema.search_production_budget!SET_RESOURCE_TAGS(
+  [
+    [(SELECT SYSTEM$REFERENCE(
+        'TAG',
+        'budgets_db.tags.cost_center',
+        'SESSION',
+        'applybudget'
+      )),
+      'search_production']   -- the tag value on our service
+  ],
+  'UNION'
+);
 ```
 
-### Track Spending by Service
-
+Verify budget is tracking:
 ```sql
--- See which search services are using the most credits
-SELECT 
-  name as service_name,
-  cumulative_credits_used,
-  DATEDIFF(day, created_on, CURRENT_TIMESTAMP()) as days_deployed,
-  ROUND(cumulative_credits_used / DATEDIFF(day, created_on, CURRENT_TIMESTAMP()), 2) as avg_credits_per_day,
-  ROUND(avg_credits_per_day * 30, 2) as projected_monthly_credits
-FROM ACCOUNT_USAGE.CORTEX_SEARCH_SERVICES
-ORDER BY cumulative_credits_used DESC;
-```
-
-### Budget Alerts and Enforcement History
-
-```sql
--- Check if any services have been suspended due to budget limits
-SELECT 
-  service_name,
-  budget_name,
-  enforcement_action,
-  action_triggered_at,
-  credits_used_at_trigger,
-  monthly_limit
-FROM ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGET_ENFORCEMENT
-WHERE action_triggered_at >= CURRENT_DATE() - INTERVAL '30 days'
-ORDER BY action_triggered_at DESC;
+CALL budgets_db.budgets_schema.search_production_budget!GET_SERVICE_TYPE_USAGE_V2(
+  '<YYYY-MM>',   -- start month, e.g., '2026-07'
+  '<YYYY-MM>'    -- end month,   e.g., '2026-07'
+);
 ```
 
 ---
 
-## Best Practices
+## Phase 4: Add Threshold Actions
 
-### 1. Set Realistic Budgets
-
-**DO:**
-- Base budgets on actual usage or cost targets
-- Start conservative, adjust upward if needed
-- Use NOTIFY for initial limits, upgrade to REVOKE once you understand spending
+### Alert at 80% (email notification)
 
 ```sql
--- Start with soft limit to learn actual costs
-CREATE RESOURCE BUDGET products_soft MONTHLY_LIMIT = 100 ON CORTEX_SEARCH_SERVICES;
-ALTER CORTEX SEARCH SERVICE product_search
-SET RESOURCE_BUDGET = 'products_soft' ENFORCEMENT_ACTION = 'NOTIFY';
+CALL budgets_db.budgets_schema.search_production_budget!SET_EMAIL_NOTIFICATIONS(
+  'my_notification_integration',  -- existing NOTIFICATION INTEGRATION name
+  'admin@example.com, oncall@example.com'
+);
 
--- Monitor for a month, then tighten if safe
--- ALTER RESOURCE BUDGET products_soft SET MONTHLY_LIMIT = 50;
+CALL budgets_db.budgets_schema.search_production_budget!SET_NOTIFICATION_THRESHOLD(80);
 ```
 
-**DON'T:**
-- Set unrealistic limits (too low = frequent suspensions)
-- Use REVOKE without understanding your workload first
-- Forget to monitor budget consumption
+### Revoke access + suspend service at 100%
 
-### 2. Tiered Budgets by Freshness
+First create the stored procedure that will be called at the threshold:
 
 ```sql
--- Real-time services: higher budget
-CREATE RESOURCE BUDGET realtime_budget MONTHLY_LIMIT = 200 ON CORTEX_SEARCH_SERVICES;
+CREATE OR REPLACE PROCEDURE budgets_db.budgets_schema.sp_revoke_and_suspend_search(
+  service_name  STRING,
+  role_name     STRING
+)
+RETURNS STRING
+LANGUAGE SQL
+AS
+BEGIN
+  -- Revoke usage from the specified role
+  EXECUTE IMMEDIATE
+    'REVOKE USAGE ON CORTEX SEARCH SERVICE ' || :service_name ||
+    ' FROM ROLE ' || :role_name;
+  -- Suspend the service (stops indexing + serving charges)
+  EXECUTE IMMEDIATE
+    'ALTER CORTEX SEARCH SERVICE ' || :service_name || ' SUSPEND';
+  RETURN 'Budget threshold reached: access revoked and service suspended for ' || :service_name;
+END;
 
--- Regular services: medium budget
-CREATE RESOURCE BUDGET regular_budget MONTHLY_LIMIT = 50 ON CORTEX_SEARCH_SERVICES;
+-- Grant the SNOWFLAKE application access to call this procedure
+GRANT USAGE ON DATABASE budgets_db TO APPLICATION SNOWFLAKE;
+GRANT USAGE ON SCHEMA budgets_db.budgets_schema TO APPLICATION SNOWFLAKE;
+GRANT USAGE ON PROCEDURE budgets_db.budgets_schema.sp_revoke_and_suspend_search(STRING, STRING)
+  TO APPLICATION SNOWFLAKE;
 
--- Archives: low budget
-CREATE RESOURCE BUDGET archive_budget MONTHLY_LIMIT = 10 ON CORTEX_SEARCH_SERVICES;
-
--- Attach each to corresponding service based on target_lag
-```
-
-### 3. Coordinate with Accounting
-
-```sql
--- Work with finance to set budgets
--- Factors to consider:
--- - Search freshness requirements (target_lag)
--- - Table size and update frequency
--- - Number of concurrent users
--- - Acceptable cost per month
-
--- Example calculation:
--- - Small table, hourly refresh: ~$5/month
--- - Medium table, hourly refresh: ~$20/month
--- - Large table, real-time refresh: ~$100-500/month
+-- Register the action at 100%
+CALL budgets_db.budgets_schema.search_production_budget!ADD_CUSTOM_ACTION(
+  SYSTEM$REFERENCE(
+    'PROCEDURE',
+    'budgets_db.budgets_schema.sp_revoke_and_suspend_search(string, string)'
+  ),
+  ARRAY_CONSTRUCT('<db>.<schema>.<search_service_name>', '<role_to_revoke>'),
+  'ACTUAL',
+  100
+);
 ```
 
 ---
 
-## Troubleshooting
+## Phase 5: Configure Service Reinstatement at Cycle Reset
 
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| "CREATE RESOURCE BUDGET not allowed" | Missing privilege | GRANT CREATE RESOURCE BUDGET ON ACCOUNT to role |
-| "Service suspended unexpectedly" | Budget limit exceeded | Check ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGETS; increase limit or disable REVOKE |
-| "Webhook not firing" | Invalid URL or headers | Test webhook manually; check WEBHOOK_URL and headers syntax |
-| "Budget shows $0 spent" | Service just created or very new | Wait 24 hours for metrics to populate |
-| "Can't find budget in system" | Budget not attached to service | Confirm budget name and use ALTER CORTEX SEARCH SERVICE to attach |
+At the start of each new budget month, automatically reinstate access:
+
+```sql
+CREATE OR REPLACE PROCEDURE budgets_db.budgets_schema.sp_reinstate_search(
+  service_name  STRING,
+  role_name     STRING
+)
+RETURNS STRING
+LANGUAGE SQL
+AS
+BEGIN
+  EXECUTE IMMEDIATE
+    'ALTER CORTEX SEARCH SERVICE ' || :service_name || ' RESUME';
+  EXECUTE IMMEDIATE
+    'GRANT USAGE ON CORTEX SEARCH SERVICE ' || :service_name ||
+    ' TO ROLE ' || :role_name;
+  RETURN 'Service resumed and access reinstated for ' || :service_name;
+END;
+
+GRANT USAGE ON PROCEDURE budgets_db.budgets_schema.sp_reinstate_search(STRING, STRING)
+  TO APPLICATION SNOWFLAKE;
+
+CALL budgets_db.budgets_schema.search_production_budget!SET_CYCLE_START_ACTION(
+  SYSTEM$REFERENCE(
+    'PROCEDURE',
+    'budgets_db.budgets_schema.sp_reinstate_search(string, string)'
+  ),
+  ARRAY_CONSTRUCT('<db>.<schema>.<search_service_name>', '<role_to_reinstate>')
+);
+```
 
 ---
 
-## After Budgets: Next Steps
+## Monitoring
 
-1. **Monitor daily consumption** — Set up alerting for high spend
-   - See `$cortex-search-lifecycle:css-monitor` for query patterns
+```sql
+-- Current month spending
+CALL budgets_db.budgets_schema.search_production_budget!GET_SERVICE_TYPE_USAGE_V2(
+  '2026-07', '2026-07'
+);
 
-2. **Optimize search costs** — Adjust target_lag or columns if over budget
-   - See `$cortex-search-lifecycle:css-setup` for configuration options
+-- All configured threshold actions
+CALL budgets_db.budgets_schema.search_production_budget!GET_CUSTOM_ACTIONS();
 
-3. **Track trends** — Compare monthly spend to budget over time
-   - Use ACCOUNT_USAGE.CORTEX_SEARCH_SERVICE_BUDGETS for reports
+-- ACCOUNT_USAGE views for historical data
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.CORTEX_SEARCH_DAILY_USAGE_HISTORY
+WHERE SERVICE_NAME = '<search_service_name>'
+  AND USAGE_DATE >= DATEADD('day', -30, CURRENT_DATE());
 
-4. **Adjust budgets seasonally** — Increase during busy periods, decrease during slow times
-   - Use ALTER RESOURCE BUDGET to update limits
+SELECT * FROM SNOWFLAKE.ACCOUNT_USAGE.CORTEX_SEARCH_BATCH_QUERY_USAGE_HISTORY
+WHERE SERVICE_NAME = '<search_service_name>';
+```
 
 ---
 
-## Support and Related Skills
+## Important Limitations
 
-For more information:
-- `$cortex-search-lifecycle:css-setup` — Configure search service freshness
-- `$cortex-search-lifecycle:css-monitor` — Monitor usage and guardrails
-- `$cost-intelligence` — Track search costs alongside other Snowflake services
+| Limitation | Detail |
+|---|---|
+| Enforcement latency | Standard: up to 8h; low-latency: ~2h after threshold breach |
+| Tag propagation | Tag changes take up to 8h to appear in budget tracking |
+| Monthly period only | Budget periods cannot be changed from monthly |
+| Scope is per-service | Each service must be tagged individually |
+| CoWork attribution | Requests starting in CoWork and invoking a CSS tool are attributed to CoWork, not the CSS — budget may not capture this usage |
+
+---
+
+## Related Skills
+
+| Skill | Use for |
+|---|---|
+| `css-setup` | Create the Cortex Search service before adding a budget |
+| `css-monitor` | Detailed ACCOUNT_USAGE analysis and guardrails monitoring |
+| `cortex-agent-toolkit` | Agents that use Cortex Search as a tool (can also have budgets) |

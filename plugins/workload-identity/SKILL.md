@@ -25,7 +25,7 @@ This is **fundamentally different from OAuth**, where Snowflake acts as a *consu
 
 ## Sub-Skills
 
-### 🔧 [wif-setup](./skills/wif-setup/SKILL.md)
+### [wif-setup](./skills/wif-setup/SKILL.md)
 Set up Workload Identity Federation end-to-end:
 1. Create WIF secret in Snowflake
 2. Retrieve issuer URL
@@ -35,7 +35,7 @@ Set up Workload Identity Federation end-to-end:
 
 **Supported providers:** AWS IAM, GCP Workload Identity, Azure Managed Identity, generic OIDC.
 
-### 🔍 [wif-troubleshoot](./skills/wif-troubleshoot/SKILL.md)
+### [wif-troubleshoot](./skills/wif-troubleshoot/SKILL.md)
 Diagnose and fix WIF authentication failures:
 - Token rejected by external service
 - Secret not found or insufficient grants
@@ -43,15 +43,8 @@ Diagnose and fix WIF authentication failures:
 - Token expiry and refresh issues
 - Audit failed authentication attempts
 
-### ⏱️ [session-policy](./skills/session-policy/SKILL.md)
-Create and manage Snowflake Session Policies (GA Apr 2026):
-1. Choose policy strategy: max lifespan vs. UI-specific idle timeout
-2. Create SESSION POLICY with constraints
-3. Apply policy to role
-4. Test and troubleshoot session expiration
-5. Monitor active sessions and audit policy violations
-
-**Use cases:** Enforce strict session expiration for compliance, protect against unattended UI sessions, enforce re-authentication policies.
+> **Session Policies** (SESSION_MAX_LIFESPAN_MINS, idle timeouts) are unrelated to WIF.
+> Use the standalone `session-policy` skill: `skills/session-policy/SKILL.md`
 
 ---
 

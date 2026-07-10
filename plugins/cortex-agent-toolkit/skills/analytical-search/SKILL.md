@@ -1,248 +1,155 @@
 ---
 name: analytical-search
 description: >
-  Semantic search over large document collections using AI-powered ranking.
-  Use when building agents that need to search and analyze extensive document corpus
-  with natural language queries and relevance ranking.
+  Configure Cortex Search tools for analytical search — corpus-wide analysis across large
+  document collections (counts, aggregates, trends). Analytical search is an orchestration
+  capability that auto-triggers from a standard cortex_search tool; it is NOT a separate
+  tool type. Use this skill to set up the cortex_search configuration that enables it.
 triggers:
   - analytical search
-  - document collection search
-  - semantic search
-  - search documents
-  - find documents
+  - corpus-wide analysis
+  - document aggregation
+  - analyze all documents
+  - count across documents
+  - trend detection in documents
+  - AI_FILTER AI_EXTRACT AI_AGG
 ---
 
-# Analytical Search Tool for Cortex Agents
+# Analytical Search — Configuration Guide
 
-Use `analytical_search` tools in Cortex Agents to enable semantic search over large document collections with AI-powered relevance ranking.
+Analytical search is an **orchestration capability** in Cortex Agents (Public Preview, Jun 30 2026).
+It automatically triggers when a query requires corpus-wide analysis — counts, aggregates, trends,
+comparisons across many documents — rather than simple retrieval of a few relevant passages.
 
----
-
-## When to Use analytical_search
-
-**Use analytical_search when**:
-- Querying **large document collections** (1M+ documents)
-- Searching **mixed structured/unstructured data** with natural language
-- Results need **relevance ranking**, not just keyword matches
-- Building **investigative agents** that reason over document context
-
-**Example use cases**:
-- "Search company policies and find all sections mentioning seasonal discounts"
-- "Find customer complaints about refunds and rank by severity"
-- "Locate technical documentation related to API authentication"
-- "Search incident reports for patterns involving outage recovery"
+**There is no `analytical_search` tool type.** You configure a standard `cortex_search` tool.
+The agent auto-routes between standard RAG and analytical search based on query intent.
 
 ---
 
-## Comparison: analytical_search vs. cortex_search vs. cortex_analyst
+## How It Works
 
-| Scenario | Tool Type | Why |
-|----------|-----------|-----|
-| "Find all refund policies" in 500-doc corpus | `cortex_search` | Keyword indexing is sufficient; simple relevance works |
-| "Show me refund policies mentioning 'seasonal'" + rank by relevance | `analytical_search` | Semantic ranking + keyword filtering needed |
-| "Total refunds by region" (structured data) | `cortex_analyst_text_to_sql` | Aggregation requires SQL; structured query |
-| "What are the top 3 policies that address seasonal returns?" | `analytical_search` | Semantic ranking + ranking logic |
-| "Find policies AND calculate impact on Q1 revenue" | Hybrid (both tools) | Use `cortex_analyst` for SQL, `analytical_search` for doc retrieval |
-
-**Key difference**: `cortex_search` ranks by keyword match; `analytical_search` ranks by semantic relevance (AI understands meaning).
-
----
-
-## Agent Tool Spec Reference
-
-When defining a `analytical_search` tool in your agent DDL, use this specification:
-
-```json
-{
-  "name": "policy_search",
-  "type": "analytical_search",
-  "description": "Search company policies with semantic ranking. Returns top 10 results ranked by relevance to the query. Results include document title, excerpt, and relevance score.",
-  "tool_resources": {
-    "document_collection_id": "<collection_id>",
-    "max_results": 10
-  }
-}
+```
+User query → Agent classifies intent
+                │
+                ├─ Simple/lookup → Standard RAG (top-k retrieval)
+                └─ Analytical    → Analytical search loop:
+                                    1. Cortex Search: prune corpus with adaptive depth
+                                    2. AI_FILTER / AI_EXTRACT / AI_AGG on result set
+                                    3. SQL aggregation + ranking
+                                    → Precise, data-backed answer
 ```
 
-**Required fields**:
-- `type`: Must be `"analytical_search"`
-- `tool_resources.document_collection_id`: Snowflake document collection ID (from `INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS`)
-- `tool_resources.max_results`: Maximum number of results to return (1–100, typically 10–20)
-
-**Optional**:
-- `description`: Use to guide the agent on when to invoke this tool. Mention the document domain (e.g., "company policies", "customer feedback", "technical docs")
+**Adaptive depth**: Instead of fixed top-k, the agent extends search depth while results stay relevant, then stops — avoiding both truncation and wasted compute on irrelevant documents.
 
 ---
 
-## Prerequisites
+## Analytical vs. Standard RAG vs. SQL
 
-### 1. Document Collection Must Exist
+| Query type | Right approach | Why |
+|---|---|---|
+| "Find the refund policy section" | Standard RAG | Single passage retrieval |
+| "How many support tickets mentioned latency in May?" | Analytical search | Count across full corpus |
+| "What % of EMEA sales calls mentioned product X?" | Analytical search | Aggregate across documents |
+| "Total revenue by region" (structured data) | cortex_analyst_text_to_sql | Aggregation over structured tables |
+| "What new themes emerged in 2025 vs 2024?" | Analytical search | Trend detection across documents |
 
-Create a document collection with semantic embeddings:
+---
+
+## Setup: Configure cortex_search for Analytical Search
+
+Analytical search uses your existing Cortex Search service. **No new service type required.**
+
+### Step 1: Create a multi-index Cortex Search service
 
 ```sql
-CREATE DOCUMENT COLLECTION my_policies
-  WITH SEMANTIC EMBEDDINGS;
+CREATE OR REPLACE CORTEX SEARCH SERVICE <db>.<schema>.<name>
+  TEXT INDEXES CHUNK, DOC_ID [, <other_text_columns>]
+  VECTOR INDEXES CHUNK (model = 'snowflake-arctic-embed-l-v2.0')
+  ATTRIBUTES <date_col>, <category_col> [, <other_filter_columns>]
+  WAREHOUSE = <warehouse_name>
+  TARGET_LAG = '1 day'
+AS
+  SELECT chunk, doc_id, doc_title, date, category, <other_columns>
+  FROM <chunks_table>;
 ```
 
-### 2. Collection Must Be Indexed
+Multi-index services (both TEXT and VECTOR indexes) perform best for analytical search.
 
-Verify the collection has semantic embeddings enabled:
+### Step 2: Add the tool to your agent with high max_results
 
-```sql
-SELECT COLLECTION_ID, NAME, HAS_SEMANTIC_INDEX
-FROM INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS
-WHERE NAME = 'my_policies';
+```yaml
+tools:
+  - tool_spec:
+      type: "cortex_search"
+      name: "policy_search"
+      description: "Search company policies and support cases. Use for analytical questions requiring counts, aggregations, or trends across the full document corpus."
+
+tool_resources:
+  policy_search:
+    name: "<db>.<schema>.<search_service_name>"
+    max_results: "1000"           # High limit enables corpus-wide analysis
+    title_column: "doc_title"
+    id_column: "doc_id"
+    columns_and_descriptions:
+      chunk:
+        description: "Full text of the document chunk. Searchable content for retrieval."
+        type: "string"
+        searchable: true
+        filterable: false
+      category:
+        description: "Document category. Values: policy, guide, support_case, contract."
+        type: "string"
+        searchable: false
+        filterable: true
+      date:
+        description: "Document creation date in YYYY-MM-DD format. Use for time-range filters."
+        type: "date"
+        searchable: false
+        filterable: true
 ```
 
-Expected: `HAS_SEMANTIC_INDEX = TRUE`
-
-### 3. Agent Role Must Have USAGE Privilege
-
-Grant the agent execution role access to the collection:
-
-```sql
-GRANT USAGE ON DOCUMENT COLLECTION my_policies TO ROLE agent_executor;
-```
-
-### 4. Populate the Collection
-
-Load documents into the collection (via INSERT, COPY, or connectors):
-
-```sql
-INSERT INTO my_policies (DOCUMENT_BODY, METADATA)
-VALUES
-  ('Policy text here...', '{"title": "Refund Policy", "type": "policy"}'),
-  ('More policy text...', '{"title": "Return Procedures", "type": "policy"}');
-```
+**`max_results: 1000` is required for analytical search.** Adaptive depth limits actual compute — the agent stops when results are no longer relevant — so a high limit does not mean high cost on every query.
 
 ---
 
-## Phase 0 Collection Verification
+## The Single Most Impactful Configuration: columns_and_descriptions
 
-Before creating the agent, verify the collection is ready:
+The agent uses column descriptions to decide which columns to filter on, how to interpret values, and how to frame `AI_EXTRACT` and `AI_FILTER` calls. Every column should describe:
 
-```sql
--- Step 1: Check collection exists
-SELECT COLLECTION_ID, HAS_SEMANTIC_INDEX
-FROM INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS
-WHERE NAME = '<collection_name>';
--- Expected: 1 row, HAS_SEMANTIC_INDEX = TRUE
+- What the column contains and its expected format
+- Sample values or enumerations (`"Values: policy, guide, support_case"`)
+- Whether the column is suitable for filtering, searching, or extraction
+- Any relationships to other columns
 
--- Step 2: Check row count
-SELECT COUNT(*) FROM <collection_name>;
--- Expected: > 0
-
--- Step 3: Check current role has access
-DESCRIBE DOCUMENT COLLECTION <collection_name>;
--- Expected: no "permission denied" error
-```
-
-**If collection not found**: Create it with `CREATE DOCUMENT COLLECTION ... WITH SEMANTIC EMBEDDINGS`
-
-**If no semantic index**: Add it with `ALTER DOCUMENT COLLECTION ... SET SEMANTIC EMBEDDINGS = TRUE`
-
-**If permission denied**: Grant with `GRANT USAGE ON DOCUMENT COLLECTION <name> TO ROLE <role>`
+Columns without descriptions are largely invisible to the analytical search orchestration layer.
 
 ---
 
-## Best Practices
+## Performance and Cost
 
-### 1. Keep max_results Reasonable
-
-- `max_results = 5-10`: Fast, focused results (for precise queries)
-- `max_results = 10-20`: Balanced (default)
-- `max_results = 50+`: Exhaustive, slower (use only for broad "get everything" queries)
-
-**Recommendation**: Start at 10; increase only if agent needs broad context.
-
-### 2. Provide Rich Document Metadata
-
-Include metadata fields that help ranking:
-
-```json
-{
-  "title": "Q3 Financial Report",
-  "category": "finance",
-  "date": "2026-07-01",
-  "source": "internal_wiki",
-  "priority": "high"
-}
-```
-
-AI uses metadata to improve relevance ranking — results labeled "high priority" or recent dates score higher.
-
-### 3. Test with Representative Queries
-
-Before deploying the agent, test the collection against typical questions:
-
-```sql
-SELECT * FROM SEARCH_DOCUMENT_COLLECTION(
-  collection => my_policies,
-  query => 'What is the refund policy for seasonal items?',
-  max_results => 10
-);
-```
-
-Verify:
-- Top 1-3 results are actually relevant
-- Irrelevant documents are ranked low
-- Collection contains documents that answer the question
-
-### 4. Set up Multiple Collections for Specialized Domains
-
-If your documents span multiple domains (policies, technical docs, customer feedback), create separate collections:
-
-```sql
-CREATE DOCUMENT COLLECTION policies WITH SEMANTIC EMBEDDINGS;
-CREATE DOCUMENT COLLECTION technical_docs WITH SEMANTIC EMBEDDINGS;
-CREATE DOCUMENT COLLECTION customer_feedback WITH SEMANTIC EMBEDDINGS;
-```
-
-Then create separate `analytical_search` tools in the agent (one per collection).
-
-### 5. Monitor Query Performance
-
-Document searches can be slower than SQL queries. If agent response time degrades:
-- Reduce `max_results`
-- Split large collections into domain-specific ones
-- Archive old/low-priority documents to separate collections
-
----
-
-## Related Tools
-
-| Tool | When to use instead |
+| Aspect | Guidance |
 |---|---|
-| `cortex_search` | Simple keyword-based search on indexed collections; lower latency |
-| `cortex_analyst_text_to_sql` | Querying structured data (tables, views, semantic views); aggregations |
-| `web_search` | Real-time web search; external public information |
+| Response time | 2–6 min typical; up to 15 min for large corpora |
+| Cost drivers | Agent orchestration + AI_FILTER / AI_EXTRACT / AI_AGG calls |
+| Cost control | Adaptive depth limits unnecessary AI calls |
+| CoWork integration | Adds plan mode, clarification questions, chart generation, artifact saving |
 
 ---
 
-## Troubleshooting
+## Limitations (Public Preview)
 
-**"Collection not found" error**
-- Verify the collection exists: `SHOW DOCUMENT COLLECTIONS;`
-- Check spelling matches `INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS`
-
-**"Permission denied" error**
-- Grant USAGE: `GRANT USAGE ON DOCUMENT COLLECTION <name> TO ROLE <agent_role>;`
-
-**"Search returned no results"**
-- Verify collection is populated: `SELECT COUNT(*) FROM <collection>;`
-- Check documents have semantic embeddings: `SELECT HAS_SEMANTIC_INDEX FROM INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS;`
-- Try a simpler query to isolate scope
-
-**"Slow search performance"**
-- Reduce `max_results` (default 10 is usually sufficient)
-- Filter collection by category/date metadata before search
-- Archive old documents to separate collection
+- Analytical search does not produce PDF documents
+- Intermediate results are not auto-persisted — save before ending session
+- Works through CoWork and programmatic agent calls
+- If requests originate in CoWork and invoke an agent, usage is attributed to CoWork (affects resource budgets scoping — see css-budgets)
 
 ---
 
-## Further Reading
+## Related Skills
 
-- `cortex-agent-ddl` SKILL.md: Full agent creation workflow (includes analytical_search tool spec examples)
-- `cortex-agent-toolkit` SKILL.md: Agent lifecycle overview and routing
-- `INFORMATION_SCHEMA.DOCUMENT_COLLECTIONS`: System view for collection metadata
+| Skill | Use when |
+|---|---|
+| `cortex-agent-ddl` | Creating the agent itself |
+| `css-setup` | Creating the Cortex Search service backing this tool |
+| `css-budgets` | Controlling costs for the underlying search service |
+| `cowork-deep-research` | Running analytical search interactively through CoWork |
