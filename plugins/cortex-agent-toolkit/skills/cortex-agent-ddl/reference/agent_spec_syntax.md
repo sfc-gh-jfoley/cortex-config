@@ -100,7 +100,7 @@ Only Claude and OpenAI models are supported for agent orchestration. Open-weight
 
 ### `cortex_analyst_text_to_sql`
 
-Translates natural language questions into SQL against a Semantic View.
+Translates natural language questions into SQL against a Semantic View or YAML semantic model.
 
 ```json
 {
@@ -112,10 +112,22 @@ Translates natural language questions into SQL against a Semantic View.
 }
 ```
 
-`tool_resources` entry:
+`tool_resources` entry — exactly one of `semantic_view` or `semantic_model_file` is required:
 ```json
 "MyAnalyticsTool": {
   "semantic_view": "DB.SCHEMA.SEMANTIC_VIEW_NAME",
+  "execution_environment": {
+    "type": "warehouse",
+    "warehouse": "MY_WH",
+    "query_timeout": 60
+  }
+}
+```
+
+Or using a YAML file on a Snowflake Stage:
+```json
+"MyAnalyticsTool": {
+  "semantic_model_file": "@DB.SCHEMA.MY_STAGE/semantic_model.yaml",
   "execution_environment": {
     "type": "warehouse",
     "warehouse": "MY_WH"
@@ -124,15 +136,17 @@ Translates natural language questions into SQL against a Semantic View.
 ```
 
 **Requirements**:
-- `semantic_view` must be a fully-qualified 3-part name pointing to a **Semantic View** object — NOT a regular SQL view, table, or materialized view.
-- Run `SHOW SEMANTIC VIEWS LIKE '<name>'` to confirm the object exists and is of type SEMANTIC_VIEW.
-- `execution_environment.type` must be `"warehouse"` and `execution_environment.warehouse` must be set. Omitting `execution_environment` from a tool's tool_resources entry causes `DATA_AGENT_RUN` error 399504 ("missing execution environment").
+- `semantic_view` must be a fully-qualified 3-part name pointing to a **Semantic View** object.
+- `semantic_model_file` is the alternative for stage-based YAML semantic models.
+- Exactly one of the two must be provided — not both.
+- Run `SHOW SEMANTIC VIEWS LIKE '<name>'` to confirm a Semantic View object exists.
+- Omitting `execution_environment` from the tool_resources entry causes `DATA_AGENT_RUN` error 399504.
 
 ---
 
 ### `cortex_search`
 
-Semantic/keyword search over a Cortex Search Service (CSS).
+Semantic/keyword search over a Cortex Search Service.
 
 ```json
 {
@@ -148,50 +162,109 @@ Semantic/keyword search over a Cortex Search Service (CSS).
 ```json
 "MySearchTool": {
   "name": "DB.SCHEMA.CSS_SERVICE_NAME",
-  "max_results": 5
+  "max_results": 5,
+  "title_column": "document_title",
+  "id_column": "document_id",
+  "filter": {
+    "@eq": { "region": "North America" }
+  }
 }
 ```
 
+> ⚠️ **Field naming discrepancy**: The YAML/DDL spec uses `name` for the service FQN; the REST API
+> JSON schema uses `search_service`. Both appear in official docs. Use `name` for DDL/YAML specs;
+> use `search_service` when constructing the spec via the REST API directly.
+
+| Field | Required | Notes |
+|---|---|---|
+| `name` / `search_service` | Yes | FQN of the Cortex Search Service |
+| `max_results` | No | Defaults to 5 |
+| `title_column` | No | Column to use as document title in results |
+| `id_column` | No | Column to use as document ID |
+| `filter` | No | Filter object; use `@eq`, `@contains`, etc. operators |
+
 **Requirements**:
-- `name` must be a fully-qualified 3-part name pointing to a **Cortex Search Service**.
-- Run `SHOW CORTEX SEARCH SERVICES LIKE '<name>'` to confirm.
-- `max_results` optional, defaults to 5.
+- Run `SHOW CORTEX SEARCH SERVICES LIKE '<name>'` to confirm the service exists.
 
 ---
 
 ### `generic`
 
-Calls a custom Snowflake UDF or stored procedure.
+Calls a Snowflake UDF or stored procedure server-side.
 
 ```json
 {
   "tool_spec": {
     "type": "generic",
     "name": "MyCustomTool",
+    "description": "...",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "param1": { "type": "string", "description": "..." }
+      },
+      "required": ["param1"]
+    }
+  }
+}
+```
+
+`tool_resources` entry:
+```json
+"MyCustomTool": {
+  "type": "function",
+  "identifier": "DB.SCHEMA.MY_UDF_OR_PROC",
+  "execution_environment": {
+    "type": "warehouse",
+    "warehouse": "MY_WH",
+    "query_timeout": 60
+  }
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `type` | Yes | `"function"` (UDF) or `"stored_procedure"` |
+| `identifier` | Yes | Fully qualified name of the UDF or stored procedure |
+| `execution_environment` | Yes | Warehouse to execute on |
+
+> ⚠️ **Correct `tool_resources` schema uses `type` + `identifier`**, not `"function": "..."` or
+> `"procedure": "..."` key names. The latter will be silently ignored or error at runtime.
+
+---
+
+### `web_search`
+
+Performs a web search and returns results. No `tool_spec.input_schema` required.
+
+```json
+{
+  "tool_spec": {
+    "type": "web_search",
+    "name": "MyWebSearch",
     "description": "..."
   }
 }
 ```
 
-`tool_resources` entry — function:
+`tool_resources` entry:
 ```json
-"MyCustomTool": {
-  "function": "DB.SCHEMA.FUNCTION_NAME"
+"MyWebSearch": {
+  "max_results": 10
 }
 ```
 
-`tool_resources` entry — procedure:
-```json
-"MyCustomTool": {
-  "procedure": "DB.SCHEMA.PROC_NAME"
-}
-```
+| Field | Required | Notes |
+|---|---|---|
+| `max_results` | No | Maximum web results to return |
 
 ---
 
-### `sql`
+### `sql` *(unconfirmed — not in official API schema)*
 
-Executes a parameterized SQL statement.
+Executes a parameterized SQL statement. This type appears in third-party references but is **not
+listed in the official Snowflake API ToolSpec schema**. Use `generic` with a stored procedure as
+the confirmed alternative.
 
 ```json
 {
@@ -203,7 +276,7 @@ Executes a parameterized SQL statement.
 }
 ```
 
-`tool_resources` entry:
+`tool_resources` entry (if supported):
 ```json
 "MySqlTool": {
   "statement": "SELECT * FROM MY_DB.MY_SCHEMA.MY_TABLE WHERE id = ?",
@@ -213,9 +286,10 @@ Executes a parameterized SQL statement.
 
 ---
 
-### `code_interpreter`
+### `code_interpreter` *(unconfirmed — not in official API schema)*
 
-Executes code in a sandboxed container (requires SPCS + account-level parameter).
+Executes code in a sandboxed container. **Not listed in the official Snowflake API ToolSpec
+schema.** Requires SPCS and an account-level parameter; confirm availability before using.
 
 ```json
 {
@@ -258,20 +332,27 @@ These go inside `"experimental": {}`.
 
 Warehouse configuration is specified **per tool** inside `tool_resources`, not at the spec root.
 
-For each `cortex_analyst_text_to_sql` tool, include inside its `tool_resources` entry:
+For each `cortex_analyst_text_to_sql` or `generic` tool, include inside its `tool_resources` entry:
 
 ```json
 "<tool_name>": {
   "semantic_view": "<DB>.<SCHEMA>.<SV_NAME>",
   "execution_environment": {
     "type": "warehouse",
-    "warehouse": "MY_WAREHOUSE"
+    "warehouse": "MY_WAREHOUSE",
+    "query_timeout": 60
   }
 }
 ```
 
-> ⚠️ Do **not** put `execution_environment` at the spec root — it will be rejected as an unrecognized field and cause CREATE to fail.  
-> Do **not** use a flat `"warehouse"` key directly in the tool_resources entry — this causes `DATA_AGENT_RUN` error 399504 (missing execution environment) at query time even if CREATE succeeds.
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `type` | string | Yes | Always `"warehouse"` (only supported value) |
+| `warehouse` | string | Yes | Case-sensitive — use ALL_CAPS for unquoted identifiers |
+| `query_timeout` | integer | No | Per-query timeout in seconds; overrides warehouse default |
+
+> ⚠️ Do **not** put `execution_environment` at the spec root — rejected as an unrecognized field.  
+> Do **not** use a flat `"warehouse"` key directly in the tool_resources entry — causes error 399504 at query time even if CREATE succeeds.
 
 ---
 
@@ -318,9 +399,16 @@ Controls max execution time and token spend per request.
 
 ## profile (display settings for Snowflake Intelligence)
 
-Set via `ALTER AGENT ... SET PROFILE` after creation (not in the spec JSON):
+Can be set in `CREATE AGENT` directly or updated later via `ALTER AGENT SET PROFILE`:
 
 ```sql
+-- In CREATE AGENT (optional, alongside COMMENT):
+CREATE OR REPLACE AGENT DB.SCHEMA.MY_AGENT
+  COMMENT = 'My agent'
+  PROFILE = '{"display_name": "My Business Agent", "avatar": "robot", "color": "#0057B8"}'
+  FROM SPECIFICATION $$ ... $$;
+
+-- Or update after creation:
 ALTER AGENT DB.SCHEMA.MY_AGENT SET PROFILE = '{
   "display_name": "My Business Agent",
   "avatar": "robot",
@@ -404,6 +492,7 @@ SHOW AGENTS IN SCHEMA <db>.<schema>;
 | `Invalid specification: unrecognized field 'execution_environment'` | `execution_environment` placed at spec root level | Move it into each `tool_resources[name]` entry as `execution_environment: {type: "warehouse", warehouse: "..."}` |
 | `DATA_AGENT_RUN error 399504: missing execution environment` | Flat `"warehouse"` key in tool_resources instead of nested `execution_environment` | Change to `execution_environment: {type: "warehouse", warehouse: "..."}` inside the tool_resources entry |
 | `Tool '<name>' defined in tools but not in tool_resources` | tool_resources key missing or misspelled | Ensure tool_resources has a key matching exactly `tool_spec.name` |
+| `generic` tool returns no results / wrong data | Using `"function": "..."` or `"procedure": "..."` keys in tool_resources (old incorrect schema) | Use `"type": "function"` + `"identifier": "DB.SCHEMA.NAME"` + `"execution_environment"` |
 | `Invalid model name` | Unsupported string in `models.orchestration` | Use a model from the valid model names list above |
 | `Agent not found` | Wrong FQN or missing privilege | Check SHOW AGENTS; verify role has USAGE on schema |
 | `Timeout exceeded` | `budget.seconds` too low for complex multi-tool question | Increase to 120-180 |
