@@ -44,6 +44,10 @@ After identifying the error:
 
 ## Step 6.3: Structural validation with DESCRIBE
 
+> ⚠️ **FQN required** — `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name.
+> A bare name or two-part name will not match the object and produces a misleading error.
+> Always use `<DATABASE>.<SCHEMA>.<SV_NAME>`.
+
 ```sql
 DESCRIBE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>;
 ```
@@ -71,14 +75,38 @@ If any counts are lower than expected, find the missing element and fix.
 
 ## Step 6.3.1: Post-deploy structural validation
 
-Run these SQL checks immediately after the DESCRIBE in Step 6.3, using RESULT_SCAN on that output:
+Run these SQL checks immediately after the DESCRIBE in Step 6.3, using RESULT_SCAN on that output.
+
+> ⚠️ **Column-name pre-flight required** — the RESULT_SCAN queries below reference column names
+> from the DESCRIBE output. These names vary by account version and must be verified before
+> running the trap checks. Immediately after the DESCRIBE in Step 6.3, run:
+> ```sql
+> SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) LIMIT 0;
+> ```
+> Look at the column headers returned. The queries below expect **four columns** (case-insensitive,
+> unquoted):
+> - `object_kind` — the type of object (TABLE, FACT, DIMENSION, METRIC, RELATIONSHIP)
+> - `object_table` — which logical table the object belongs to
+> - `left_table` — left-hand table of a relationship
+> - `right_table` — right-hand table of a relationship
+>
+> If the actual column names differ (e.g. `kind`, `table_name`, `parent_entity`), update every
+> occurrence in the three queries below to match the actual names before running them. Using
+> quoted lowercase names that don't match the actual uppercase column names will silently return
+> 0 rows, making every topology look clean.
 
 **Check 1: Fan trap** — metric reachable to dimension only via bridge table (inflates results)
+
+> ⚠️ **Star-topology fan trap** (not auto-detected): if two tables W and C are both children of a
+> shared parent A (W→A and C→A), queries crossing W↔C via A are a theoretical fan trap. The check
+> below only catches one-hop bridge paths (M→bridge→dim). Verify star topologies manually: "Can
+> a metric in W be joined to a dimension in C through A? If so, does that inflate results?"
+
 ```sql
 WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
-metric_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'),
-dim_tbl    AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'DIMENSION'),
-rels       AS (SELECT "left_table" AS lt, "right_table" AS rt FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+metric_tbl AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind = 'METRIC'),
+dim_tbl    AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind = 'DIMENSION'),
+rels       AS (SELECT left_table AS lt, right_table AS rt FROM sv_meta WHERE object_kind = 'RELATIONSHIP')
 SELECT 'FAN_TRAP' AS issue_type, m.t AS metric_table, d.t AS dim_table, r1.rt AS bridge_table,
        'SUM/COUNT on ' || m.t || ' inflated when grouped by ' || d.t || ' dims (bridge: ' || r1.rt || ')' AS detail
 FROM metric_tbl m JOIN rels r1 ON r1.lt = m.t JOIN rels r2 ON r2.lt = r1.rt
@@ -88,8 +116,8 @@ JOIN dim_tbl d ON d.t = r2.rt WHERE d.t != m.t;
 **Check 2: Chasm trap** — two fact tables converging on shared dimension (double counting)
 ```sql
 WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
-metric_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'),
-rels       AS (SELECT "left_table" AS lt, "right_table" AS rt FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+metric_tbl AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind = 'METRIC'),
+rels       AS (SELECT left_table AS lt, right_table AS rt FROM sv_meta WHERE object_kind = 'RELATIONSHIP')
 SELECT 'CHASM_TRAP' AS issue_type, m1.t AS metric_1, m2.t AS metric_2, r1.rt AS shared_table,
        'Pre-aggregate both ' || m1.t || ' and ' || m2.t || ' to ' || r1.rt || ' grain separately' AS detail
 FROM metric_tbl m1 JOIN rels r1 ON r1.lt = m1.t
@@ -100,9 +128,9 @@ JOIN rels r2 ON r2.lt = m2.t AND r2.rt = r1.rt;
 **Check 3: Orphan tables** — tables with no RELATIONSHIP entry
 ```sql
 WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
-all_tbl AS (SELECT DISTINCT "object_table" AS t FROM sv_meta WHERE "object_kind" = 'TABLE'),
-rel_tbl AS (SELECT "left_table" AS t FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP'
-            UNION ALL SELECT "right_table" FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP')
+all_tbl AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind = 'TABLE'),
+rel_tbl AS (SELECT left_table AS t FROM sv_meta WHERE object_kind = 'RELATIONSHIP'
+            UNION ALL SELECT right_table FROM sv_meta WHERE object_kind = 'RELATIONSHIP')
 SELECT 'ORPHAN' AS issue_type, t, 'Table has no RELATIONSHIP — queries using its columns will fail' AS detail
 FROM all_tbl WHERE t NOT IN (SELECT t FROM rel_tbl);
 ```
@@ -112,7 +140,8 @@ FROM all_tbl WHERE t NOT IN (SELECT t FROM rel_tbl);
 | FAN_TRAP row returned | **STOP** — return to Phase 4/5, move metric to bridge-table grain |
 | CHASM_TRAP row returned | **STOP** — return to Phase 4/5, aggregate each fact to shared dimension grain in separate CTEs |
 | ORPHAN row returned | **WARN** — surface to user; add missing RELATIONSHIP or remove orphaned table |
-| All return 0 rows | ✓ Proceed to Step 6.4 |
+| All return 0 rows | ✓ Proceed to Step 6.4 — but also verify star-topology paths manually (see fan-trap note above) |
+| Any query errors with "invalid identifier" | Column names in the pre-flight didn't match; re-read Step 6.3.1 preamble and remap column names |
 
 ---
 

@@ -182,6 +182,19 @@ When to use these metadata clauses to guide AI generation:
 - Example: status dimension with values {ACTIVE, PENDING, INACTIVE}
 - Improves natural language question matching — AI understands that "all regions" queries should map to `IN ('US_EAST', 'US_WEST', ...) ` not `LIKE '%REGION%'`
 
+> ⚠️ **Preview / tier gate**: `WITH SAMPLE_VALUES` and `IS_ENUM` may not be available on all
+> accounts. If you see a parse error such as `unexpected 'SAMPLE_VALUES'` or `unexpected 'IS_ENUM'`
+> when executing the DDL, these clauses are not yet enabled on this account.
+>
+> **Fallback**: Remove `WITH SAMPLE_VALUES (...)` and `IS_ENUM` from the dimension definition, and
+> encode the representative values and enum intent in the `COMMENT` instead:
+> ```sql
+> orders.region AS region_code
+>   COMMENT = 'Region code for order fulfillment center. Finite enum — known values: US_EAST, US_WEST, EU_WEST, APAC. Use IN lists, not LIKE patterns.'
+> ```
+> Cortex Analyst reads COMMENT content at query time; documenting values there is an effective
+> fallback when SAMPLE_VALUES is unavailable.
+
 **Best-practice example**:
 ```sql
 orders.region AS region_code
@@ -258,6 +271,9 @@ Window function metrics apply a window function over an existing metric. Key con
 | 11 | `LABELS = ( FILTER )` requires the `AS` expression to resolve to BOOLEAN | Applying FILTER label to a VARCHAR or numeric column |
 | 12 | Window function metrics cannot reference aggregates or subqueries in `PARTITION BY` | `PARTITION BY SUM(x)` → use a PRIVATE metric for the inner aggregate |
 | 13 | `DISTINCT RANGE BETWEEN` columns must belong to the same logical table as the constraint | Referencing columns from a different table in the range constraint |
+| 14 | `LABELS = ( FILTER )` must appear **before** the `AS` keyword — unlike every other modifier (SYNONYMS, TAG, COMMENT) which come after `AS` | Writing `<alias> AS <expr> LABELS = ( FILTER )` → syntax error; must be `<alias> LABELS = ( FILTER ) AS <expr>` |
+| 15 | `WITH SAMPLE_VALUES` and `IS_ENUM` may not be available on all accounts (preview/tier-gated) — if you see `unexpected 'SAMPLE_VALUES'`, remove these clauses and encode values in COMMENT instead | Assuming these parse everywhere; no fallback causes a hard DDL failure with no clear recovery path |
+| 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |
 
 ---
 
