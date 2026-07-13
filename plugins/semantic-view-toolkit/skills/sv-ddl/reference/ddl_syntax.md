@@ -8,19 +8,37 @@ description: Complete CREATE SEMANTIC VIEW DDL syntax with all pitfalls, example
 ## Top-level template
 
 ```sql
+-- Standard replace:
 CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
   TABLES ( logicalTable [ , ... ] )
   [ VARIABLES ( variableDefinition [ , ... ] ) ]
   [ RELATIONSHIPS ( relationshipDef [ , ... ] ) ]
   [ FACTS ( factExpression [ , ... ] ) ]
   [ DIMENSIONS ( dimensionExpression [ , ... ] ) ]
-  [ METRICS ( metricExpression [ , ... ] ) ]
+  [ METRICS ( { metricExpression | windowFunctionMetricExpression } [ , ... ] ) ]
   [ COMMENT = '<comment_about_semantic_view>' ]
+  [ AI_SQL_GENERATION '<instructions_for_sql_generation>' ]
+  [ AI_QUESTION_CATEGORIZATION '<instructions_for_question_categorization>' ]
+  [ AI_VERIFIED_QUERIES ( verifiedQuery [ , ... ] ) ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
+  [ COPY GRANTS ]
+
+-- In-place alter (Preview — Open, available all accounts):
+-- Creates if not exists; adds/removes/modifies tables, rels, facts, dims, metrics, VQs, AI instructions.
+-- Does NOT support tags. Any property absent from the statement is unset.
+CREATE OR ALTER SEMANTIC VIEW <db>.<schema>.<name>
+  TABLES ( logicalTable [ , ... ] )
+  [ RELATIONSHIPS ( relationshipDef [ , ... ] ) ]
+  [ FACTS ( factExpression [ , ... ] ) ]
+  [ DIMENSIONS ( dimensionExpression [ , ... ] ) ]
+  [ METRICS ( { metricExpression | windowFunctionMetricExpression } [ , ... ] ) ]
+  [ COMMENT = '<comment_about_semantic_view>' ]
   [ AI_SQL_GENERATION '<instructions_for_sql_generation>' ]
   [ AI_QUESTION_CATEGORIZATION '<instructions_for_question_categorization>' ]
   [ AI_VERIFIED_QUERIES ( verifiedQuery [ , ... ] ) ]
 ```
+
+> **TAG clause position**: TAG must appear **after** AI_VERIFIED_QUERIES (last clause), not before AI_SQL_GENERATION. Placing TAG before AI_SQL_GENERATION will cause a syntax error.
 
 ---
 
@@ -146,9 +164,12 @@ FACTS (
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
+  [ SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
 ```
 
 `LABELS = ( FILTER )` marks a fact as usable in WHERE clauses. The `AS` expression **must** resolve to BOOLEAN. Cannot be used on metrics.
+
+`SAMPLE_VALUES` also applies to facts — provide representative values to guide AI query generation.
 
 ### dimensionExpression
 
@@ -157,7 +178,7 @@ FACTS (
   [ LABELS = ( FILTER ) ]
   AS <sql_expr>
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
-  [ WITH SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
+  [ SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
   [ IS_ENUM ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
@@ -171,34 +192,25 @@ FACTS (
 When to use these metadata clauses to guide AI generation:
 
 **SAMPLE_VALUES**
-- Provide 3–5 representative values for the dimension to guide AI generation
+- Provide 3–5 representative values for the dimension or fact to guide AI generation
 - Helps AI understand the domain of acceptable values
 - Use valid SQL string literals (quoted values)
-- Example: `WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST' )`
+- Syntax: `SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST' )` — **no `WITH` prefix**
 
 **IS_ENUM**
-- Mark a dimension as an enumeration (finite, known set of values)
+- Mark a dimension as an enumeration (finite, known set of values) — dimensions only, not facts
+- `IS_ENUM` can be used without `SAMPLE_VALUES`; if both are present, `SAMPLE_VALUES` must appear first
 - AI will prefer IN lists over LIKE patterns for query generation
-- Example: status dimension with values {ACTIVE, PENDING, INACTIVE}
-- Improves natural language question matching — AI understands that "all regions" queries should map to `IN ('US_EAST', 'US_WEST', ...) ` not `LIKE '%REGION%'`
+- Improves natural language question matching
 
-> ⚠️ **Preview / tier gate**: `WITH SAMPLE_VALUES` and `IS_ENUM` may not be available on all
-> accounts. If you see a parse error such as `unexpected 'SAMPLE_VALUES'` or `unexpected 'IS_ENUM'`
-> when executing the DDL, these clauses are not yet enabled on this account.
->
-> **Fallback**: Remove `WITH SAMPLE_VALUES (...)` and `IS_ENUM` from the dimension definition, and
-> encode the representative values and enum intent in the `COMMENT` instead:
-> ```sql
-> orders.region AS region_code
->   COMMENT = 'Region code for order fulfillment center. Finite enum — known values: US_EAST, US_WEST, EU_WEST, APAC. Use IN lists, not LIKE patterns.'
-> ```
-> Cortex Analyst reads COMMENT content at query time; documenting values there is an effective
-> fallback when SAMPLE_VALUES is unavailable.
+> ⚠️ **Correct syntax is `SAMPLE_VALUES (...)` without a `WITH` prefix.** Using `WITH SAMPLE_VALUES`
+> will cause a DDL parse error. The COMMENT-based fallback is only needed if the feature is
+> unavailable on an older account deployment.
 
 **Best-practice example**:
 ```sql
 orders.region AS region_code
-  WITH SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST', 'APAC' )
+  SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST', 'APAC' )
   IS_ENUM
   COMMENT = 'Region code for order fulfillment center'
 ```
@@ -211,12 +223,20 @@ This tells the AI that:
 ### metricExpression
 
 ```sql
+-- Regular metric (scoped to a logical table):
 [ PRIVATE | PUBLIC ] <table_alias>.<metric_name>
-  [ USING ( <relationship_name> [ , ... ] ) ]
-  [ NON ADDITIVE BY ( <dim> [ ASC | DESC ] [ , ... ] ) ]
+  [ USING ( <relationship_name> [ , ... ] ) ]     -- Preview — Open; required when multiple rel paths exist
+  [ NON ADDITIVE BY ( <dim> [ ASC | DESC ] [ NULLS { FIRST | LAST } ] [ , ... ] ) ]
   AS <aggregate_sql_expr>
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
+  [ COMMENT = '<description>' ]
+
+-- Derived metric (scoped to the semantic view, not a single table):
+-- Combines metrics from multiple logical tables. Omit <table_alias>.
+[ PRIVATE | PUBLIC ] <metric_name>
+  AS <scalar_expr_of_metrics_or_aggregations>
+  [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
 ```
 
@@ -261,11 +281,14 @@ Window function metrics apply a window function over an existing metric. Key con
 ```sql
 <vq_name> AS (
   QUESTION '<natural language question>'
-  [ VERIFIED_AT <timestamp> ]
+  [ VERIFIED_AT <timestamp_unix_seconds> ]
   [ ONBOARDING_QUESTION TRUE | FALSE ]
+  [ VERIFIED_BY '( <purpose> = <contact> )' ]
   SQL '<sql_query>'
 )
 ```
+
+`VERIFIED_BY` references a Snowflake Contact object. `<purpose>` is a predefined purpose (e.g. `STEWARD`). Example: `VERIFIED_BY '(STEWARD = data_stewards)'`.
 
 ---
 
@@ -280,17 +303,19 @@ Window function metrics apply a window function over an existing metric. Key con
 | 5 | A column with the same name appearing in multiple tables → define as fact/dim from **ONE table only**, skip the others | Defining `CUSTOMER_ID` from both orders and customers tables |
 | 6 | The **right-hand table** in a REFERENCES clause needs `PRIMARY KEY` or `UNIQUE` on the join column | Referencing a table with no key constraint → join fails |
 | 7 | `PRIVATE` is valid on facts and metrics; dimensions only support `PUBLIC` | Using `PRIVATE` on a dimension |
-| 8 | When two relationship paths exist between the same pair of tables, use `USING (rel_name)` on the metric | Ambiguous routing causes query errors |
+| 8 | When two relationship paths exist between the same pair of tables, use `USING (rel_name)` on the metric (Preview — Open) | Ambiguous routing causes query errors |
 | 9 | `NON ADDITIVE BY` marks a metric as non-additive along the given dimensions (e.g. DISTINCT COUNT by user) | Omitting this causes incorrect roll-up aggregation |
 | 10 | `AI_VERIFIED_QUERIES` SQL must reference the logical alias names (not physical table.col), and use the SV's fact/dim/metric names | Using physical table names in VQ SQL |
 | 11 | `LABELS = ( FILTER )` requires the `AS` expression to resolve to BOOLEAN | Applying FILTER label to a VARCHAR or numeric column |
 | 12 | Window function metrics cannot reference aggregates or subqueries in `PARTITION BY` | `PARTITION BY SUM(x)` → use a PRIVATE metric for the inner aggregate |
-| 13 | `DISTINCT RANGE BETWEEN` columns must belong to the same logical table as the constraint | Referencing columns from a different table in the range constraint |
+| 13 | `DISTINCT RANGE BETWEEN` (range joins) is a **Preview Feature — Open** (available all accounts); `USING` is also Preview — Open | Treating these as GA; they may not be available on older account versions |
 | 14 | `LABELS = ( FILTER )` must appear **before** the `AS` keyword — unlike every other modifier (SYNONYMS, TAG, COMMENT) which come after `AS` | Writing `<alias> AS <expr> LABELS = ( FILTER )` → syntax error; must be `<alias> LABELS = ( FILTER ) AS <expr>` |
-| 15 | `WITH SAMPLE_VALUES` and `IS_ENUM` may not be available on all accounts (preview/tier-gated) — if you see `unexpected 'SAMPLE_VALUES'`, remove these clauses and encode values in COMMENT instead | Assuming these parse everywhere; no fallback causes a hard DDL failure with no clear recovery path |
+| 15 | `SAMPLE_VALUES (...)` uses **no `WITH` prefix** — `WITH SAMPLE_VALUES` is a syntax error; also valid on facts, not just dimensions | Writing `WITH SAMPLE_VALUES (...)` causes a DDL parse error |
 | 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |
 | 17 | Metric `AS` expressions can only reference columns that physically belong to the metric's own table — cross-table references (e.g. `a.col` inside a metric on `w`) are not resolved even through a defined relationship | Writing `SUM(CASE WHEN a.eligible THEN w.amount END)` on a metric on `w` — fails; workaround: `LABELS = (FILTER)` on the parent-table dimension + `AI_SQL_GENERATION` instructions, or denormalize the column into `w` |
-| 18 | `ALTER SEMANTIC VIEW` supports only `RENAME` and `SET COMMENT` — all structural sub-commands (ADD/ALTER METRIC, ADD RELATIONSHIP, ALTER COLUMN, ADD FILTER) do not exist | Using `ALTER METRIC ... SET EXPR` to update a metric expression — it fails; use `CREATE OR REPLACE SEMANTIC VIEW` with the full updated DDL |
+| 18 | `ALTER SEMANTIC VIEW` supports only `RENAME`, `SET/UNSET COMMENT`, and `SET/UNSET TAG` — all structural sub-commands do not exist; use `CREATE OR ALTER SEMANTIC VIEW` for structural changes | Using `ALTER METRIC ... SET EXPR` — it fails; use `CREATE OR ALTER SEMANTIC VIEW` or `CREATE OR REPLACE SEMANTIC VIEW` |
+| 19 | TAG clause must appear **after** `AI_VERIFIED_QUERIES` in the CREATE statement — not before `AI_SQL_GENERATION` | Placing TAG between COMMENT and AI_SQL_GENERATION causes a syntax error |
+| 20 | Derived metrics (view-scoped, combining multiple tables) omit `<table_alias>.` from the name and cannot use USING, window functions, or non-aggregated references | Adding a table prefix to a derived metric or trying to use it in a regular metric expression |
 
 ---
 
@@ -533,13 +558,12 @@ DROP SEMANTIC VIEW IF EXISTS <db>.<schema>.__FILTER_PROBE;
 
 ## ALTER SEMANTIC VIEW — sub-command reference
 
-> ⚠️ **Confirmed-working ALTER operations are limited.** `ALTER SEMANTIC VIEW` is confirmed to
-> support only `RENAME` and `SET COMMENT` at the object level. All structural sub-commands
-> below (ADD/ALTER RELATIONSHIP, ALTER COLUMN, ADD/ALTER METRIC, ADD FILTER) are **unverified
-> — most produce syntax errors in practice**. They are retained here for reference but you
-> must assume any structural change requires `CREATE OR REPLACE SEMANTIC VIEW` with the full
-> updated DDL. Do not rely on ALTER for metric changes; `ALTER METRIC ... SET EXPR` does not
-> exist and will fail.
+> ⚠️ **Confirmed-working ALTER operations are limited.** `ALTER SEMANTIC VIEW` supports object-level
+> metadata operations only: `RENAME TO`, `SET/UNSET COMMENT`, and `SET/UNSET TAG`. All structural
+> sub-commands below (ADD/ALTER RELATIONSHIP, ALTER COLUMN, ADD/ALTER METRIC, ADD FILTER) are
+> **unverified — most produce syntax errors in practice**. For structural changes, use
+> `CREATE OR ALTER SEMANTIC VIEW` (Preview — Open) or `CREATE OR REPLACE SEMANTIC VIEW`.
+> `ALTER METRIC ... SET EXPR` does not exist and will always fail.
 
 **Confirmed working:**
 ```sql
@@ -548,6 +572,15 @@ ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> RENAME TO <db>.<schema>.<new_name>;
 
 -- Update the top-level comment
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> SET COMMENT = '<new description>';
+
+-- Remove the comment
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> UNSET COMMENT;
+
+-- Set a tag on the semantic view
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> SET TAG <tag_name> = '<tag_value>' [, ...];
+
+-- Remove a tag from the semantic view
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> UNSET TAG <tag_name> [, ...];
 ```
 
 **For any structural change (metrics, relationships, columns, facts, dimensions):**
