@@ -220,6 +220,21 @@ This tells the AI that:
   [ COMMENT = '<description>' ]
 ```
 
+> ⚠️ **Cross-table column references in metric expressions are not supported.** A metric
+> defined on table `w` can only reference columns that physically belong to `w` in its
+> `AS <aggregate_sql_expr>`. Even when a relationship `w → a` is defined, you cannot write
+> `SUM(CASE WHEN a.some_col THEN w.amount END)` — the engine does not resolve cross-table
+> column paths inside aggregate expressions.
+>
+> **Workaround for self-filtering metrics** (e.g. "sum revenue only where eligible = TRUE"):
+> 1. If the filter column is in a **parent table** (`a`): define it as `LABELS = (FILTER)` in
+>    the DIMENSIONS clause of `a`, then add an `AI_SQL_GENERATION` instruction telling Cortex
+>    Analyst to always apply that filter when answering questions about this metric.
+> 2. If the filter column can be **denormalized** into `w` (via a view or pre-aggregated
+>    dynamic table), add it there and reference it directly in the metric expression.
+> 3. If neither option works: define a pre-filtered source object using `SQL ( <query> )` in
+>    the TABLES clause, where the query already applies the filter join.
+
 ### windowFunctionMetricExpression
 
 ```sql
@@ -274,6 +289,8 @@ Window function metrics apply a window function over an existing metric. Key con
 | 14 | `LABELS = ( FILTER )` must appear **before** the `AS` keyword — unlike every other modifier (SYNONYMS, TAG, COMMENT) which come after `AS` | Writing `<alias> AS <expr> LABELS = ( FILTER )` → syntax error; must be `<alias> LABELS = ( FILTER ) AS <expr>` |
 | 15 | `WITH SAMPLE_VALUES` and `IS_ENUM` may not be available on all accounts (preview/tier-gated) — if you see `unexpected 'SAMPLE_VALUES'`, remove these clauses and encode values in COMMENT instead | Assuming these parse everywhere; no fallback causes a hard DDL failure with no clear recovery path |
 | 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |
+| 17 | Metric `AS` expressions can only reference columns that physically belong to the metric's own table — cross-table references (e.g. `a.col` inside a metric on `w`) are not resolved even through a defined relationship | Writing `SUM(CASE WHEN a.eligible THEN w.amount END)` on a metric on `w` — fails; workaround: `LABELS = (FILTER)` on the parent-table dimension + `AI_SQL_GENERATION` instructions, or denormalize the column into `w` |
+| 18 | `ALTER SEMANTIC VIEW` supports only `RENAME` and `SET COMMENT` — all structural sub-commands (ADD/ALTER METRIC, ADD RELATIONSHIP, ALTER COLUMN, ADD FILTER) do not exist | Using `ALTER METRIC ... SET EXPR` to update a metric expression — it fails; use `CREATE OR REPLACE SEMANTIC VIEW` with the full updated DDL |
 
 ---
 
@@ -516,83 +533,83 @@ DROP SEMANTIC VIEW IF EXISTS <db>.<schema>.__FILTER_PROBE;
 
 ## ALTER SEMANTIC VIEW — sub-command reference
 
-Sub-commands for modifying an existing semantic view in-place. Documented as used in
-`skills/sv-evaluation/references/failure-analysis.md`.
+> ⚠️ **Confirmed-working ALTER operations are limited.** `ALTER SEMANTIC VIEW` is confirmed to
+> support only `RENAME` and `SET COMMENT` at the object level. All structural sub-commands
+> below (ADD/ALTER RELATIONSHIP, ALTER COLUMN, ADD/ALTER METRIC, ADD FILTER) are **unverified
+> — most produce syntax errors in practice**. They are retained here for reference but you
+> must assume any structural change requires `CREATE OR REPLACE SEMANTIC VIEW` with the full
+> updated DDL. Do not rely on ALTER for metric changes; `ALTER METRIC ... SET EXPR` does not
+> exist and will fail.
 
-> ⚠️ **Syntax not fully confirmed against Snowflake docs.** Commands below are
-> derived from usage in failure-analysis.md. Verify with `SHOW COMMANDS LIKE 'ALTER SEMANTIC VIEW'`
-> or Snowflake documentation before using in production. If a command fails, use
-> `CREATE OR REPLACE SEMANTIC VIEW` with the full updated DDL instead.
+**Confirmed working:**
+```sql
+-- Rename the semantic view
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> RENAME TO <db>.<schema>.<new_name>;
 
-> **Note on ADD VERIFIED QUERY:** `ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY` is **not supported**
-> (syntax error). To add VQRs, use `CREATE OR REPLACE SEMANTIC VIEW` with the updated
-> `AI_VERIFIED_QUERIES` clause appended. See `vqr-generator/SKILL.md` Phase 5 for the workflow.
+-- Update the top-level comment
+ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> SET COMMENT = '<new description>';
+```
 
-### Relationship sub-commands
+**For any structural change (metrics, relationships, columns, facts, dimensions):**
+```sql
+-- The only reliable path — replace the entire DDL
+CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<sv_name>
+  ... -- full updated DDL
+```
+
+---
+
+### Relationship sub-commands *(unverified — may not work)*
 
 ```sql
--- Add a new relationship
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ADD RELATIONSHIP <rel_name>
     FROM <left_table> (<fk_col>) REFERENCES <right_table> (<pk_col>)
     RELATIONSHIP_TYPE = MANY_TO_ONE;
 
--- Modify relationship type
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ALTER RELATIONSHIP <rel_name>
     SET RELATIONSHIP_TYPE = MANY_TO_ONE;
 ```
 
-### Column sub-commands
+### Column sub-commands *(unverified — may not work)*
 
 ```sql
--- Set or update a column description
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ALTER COLUMN <table_alias>.<column_name>
     SET COMMENT = '<new description>';
 
--- Set or replace synonyms on a column
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ALTER COLUMN <table_alias>.<column_name>
     SET SYNONYMS = ('<syn1>', '<syn2>');
 
--- Mark a column as a time dimension
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ALTER COLUMN <table_alias>.<column_name>
     SET IS_TIME_DIMENSION = TRUE;
 
--- Drop a column from the SV
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   DROP COLUMN <table_alias>.<column_name>;
 ```
 
-### Metric sub-commands
+### Metric sub-commands *(confirmed NOT supported — use CREATE OR REPLACE)*
+
+`ADD METRIC` and `ALTER METRIC SET EXPR` do not exist. There is no in-place way to add or
+modify a metric's expression. The only path is `CREATE OR REPLACE SEMANTIC VIEW` with the
+updated `METRICS` clause.
+
+### Filter sub-commands *(unverified — may not work)*
 
 ```sql
--- Add a new metric
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ADD METRIC <table_alias>.<metric_name>
-    EXPR = '<aggregate_sql_expr>'
-    DESCRIPTION = '<description>'
-    DEFAULT_AGGREGATION = <AGG_FUNC>;
-
--- Modify an existing metric's expression or aggregation
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ALTER METRIC <table_alias>.<metric_name>
-    SET EXPR = '<new_aggregate_expr>'
-    SET DEFAULT_AGGREGATION = <AGG_FUNC>;
-```
-
-### Filter sub-commands
-
-```sql
--- Add a named filter (boolean predicate usable as a WHERE clause hint)
 ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
   ADD FILTER <filter_name>
     ON <table_alias>
     EXPR = '<boolean_sql_expr>'
     DESCRIPTION = '<description>';
 ```
+
+> **Note on ADD VERIFIED QUERY:** `ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY` is **not
+> supported** (syntax error). To add verified queries, use `CREATE OR REPLACE SEMANTIC VIEW`
+> with the updated `AI_VERIFIED_QUERIES` clause. See `vqr-generator/SKILL.md` Phase 5.
 
 ---
 

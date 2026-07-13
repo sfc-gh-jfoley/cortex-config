@@ -172,6 +172,22 @@ For each entry in `PROPOSED_METRICS`:
 
 Add `USING` clause for any metric that is ambiguous due to multiple relationship paths (from `MULTI_REL_PAIRS`).
 
+> ⚠️ **Cross-table column references in metric expressions are not supported.** A metric on
+> table `w` can only reference columns belonging to `w` in its `AS <aggregate_expr>`. You
+> cannot use `a.col` inside a metric on `w` even if a `w → a` relationship exists.
+>
+> If a `PROPOSED_METRIC` depends on a column from a related table (e.g.
+> `SUM(CASE WHEN a.eligible THEN w.revenue END)`), **do not generate this as a metric
+> expression**. Instead, choose one of these options and flag it to the user:
+>
+> - **Option A (preferred)**: Mark the filter column as `LABELS = (FILTER)` in the parent
+>   table's DIMENSIONS clause, and add an `AI_SQL_GENERATION` instruction like:
+>   `"When asked about <metric_name>, always apply the filter <a.eligible = TRUE> unless the user asks for all records."`
+> - **Option B**: Denormalize the column into `w` by redefining `w` as a view or SQL-query
+>   logical table that joins the filter condition in.
+> - **Option C**: Define a `SQL ( <query> )` logical table in TABLES that pre-applies the
+>   join and filter, then define the metric on that virtual table.
+
 ---
 
 ## Step 5.5.5: Build Window Function Metrics
