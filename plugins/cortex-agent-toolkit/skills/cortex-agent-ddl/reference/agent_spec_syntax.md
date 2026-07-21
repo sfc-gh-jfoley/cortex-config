@@ -1,7 +1,7 @@
 ---
 name: cortex-agent-ddl-spec-reference
 description: Complete Cortex Agent spec JSON syntax — all fields, valid model names, tool types, experimental flags, execution_environment, profile, error cheat sheet
-last_verified: 2026-05-21
+last_verified: 2026-07-21
 ---
 
 # Cortex Agent Spec — Full Reference
@@ -141,6 +141,8 @@ Or using a YAML file on a Snowflake Stage:
 - Exactly one of the two must be provided — not both.
 - Run `SHOW SEMANTIC VIEWS LIKE '<name>'` to confirm a Semantic View object exists.
 - Omitting `execution_environment` from the tool_resources entry causes `DATA_AGENT_RUN` error 399504.
+
+> ⚠️ **Breaking change (Apr 13, 2026)**: Tool use and tool result blocks emitted by this tool type changed from `cortex_analyst_text_to_sql` to `system_execute_sql`. If your application parses agent responses for `cortex_analyst_text_to_sql` blocks, update it to look for `system_execute_sql` instead. See [invocation_patterns.md](invocation_patterns.md) for the full block schema and migration notes.
 
 ---
 
@@ -286,26 +288,63 @@ the confirmed alternative.
 
 ---
 
-### `code_interpreter` *(unconfirmed — not in official API schema)*
+### `code_execution` *(Private Preview)*
 
-Executes code in a sandboxed container. **Not listed in the official Snowflake API ToolSpec
-schema.** Requires SPCS and an account-level parameter; confirm availability before using.
+Built-in tool that executes Python in a secure, isolated sandbox. The agent decides at runtime whether to invoke it based on the user's query. Also used when executing Python scripts as part of an agent skill.
 
 ```json
 {
   "tool_spec": {
-    "type": "code_interpreter",
-    "name": "code_interpreter"
+    "type": "code_execution",
+    "name": "code_execution"
   }
 }
 ```
 
-`tool_resources` entry:
+`tool_resources` entry — bare minimum:
 ```json
-"code_interpreter": {
-  "enabled": "true"
+"code_execution": {}
+```
+
+With PyPI package access:
+```json
+"code_execution": {
+  "artifact_repositories": [
+    "SNOWFLAKE.SNOWPARK.PYPI_SHARED_REPOSITORY"
+  ]
 }
 ```
+
+With external internet access:
+```json
+"code_execution": {
+  "external_access_integrations": [
+    "my_integration"
+  ]
+}
+```
+
+**Default environment**: Python 3.12, `numpy` and `pandas` pre-installed. The sandbox persists within a session — imports, variables, and intermediate results survive across multiple tool invocations in the same session.
+
+**PyPI access**: Requires the database role `SNOWFLAKE.PYPI_REPOSITORY_USER` granted to the agent owner role. Check current grants:
+
+```sql
+SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.PYPI_REPOSITORY_USER;
+```
+
+If the owner role is not listed (directly or via `PUBLIC`), grant it:
+
+```sql
+GRANT DATABASE ROLE SNOWFLAKE.PYPI_REPOSITORY_USER TO ROLE <agent_owner_role>;
+```
+
+> **Note**: Many accounts grant this to `PUBLIC` by default — check before granting redundantly.
+
+**External access**: Create a network rule and external access integration, then reference the integration name in `external_access_integrations`. See [Snowflake docs](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-code-execution-tool) for the full setup.
+
+**Limitations**:
+- Sandbox is session-scoped — state does not persist across separate `DATA_AGENT_RUN` invocations.
+- Code execution operates under the agent owner role's privileges.
 
 ---
 
@@ -498,6 +537,9 @@ SHOW AGENTS IN SCHEMA <db>.<schema>;
 | `Timeout exceeded` | `budget.seconds` too low for complex multi-tool question | Increase to 120-180 |
 | Blank response / no tools called | Instructions too vague, tool descriptions too short | Improve tool descriptions (>100 chars, add "When NOT to use") |
 | Profile not visible in SI | `ALTER AGENT SET PROFILE` not run | Run ALTER AGENT SET PROFILE with display_name/avatar/color |
+| `DATA_AGENT_RUN` returns "agent not found" with `!VERSION$N` suffix | Version was dropped or wrong identifier | Run `SHOW VERSIONS IN AGENT <fqn>` to confirm the version exists |
+| `ALTER AGENT ... COMMIT` fails with "no live version" | No live version exists (already committed or never created) | Run `ALTER AGENT ... ADD LIVE VERSION FROM LAST` first |
+| `ALTER AGENT ... ADD LIVE VERSION` fails | A live version already exists | Each agent can have at most one live version — commit the existing one first |
 
 ---
 
