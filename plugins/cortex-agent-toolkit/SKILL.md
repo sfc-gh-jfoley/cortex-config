@@ -41,6 +41,7 @@ Tell me where you are in your agent journey, or pick from the options below:
 5. I've hit a plateau — try evolutionary search       → agent-gepa-optimizer
 6. I want to query my agent programmatically          → query-cortex-agent
 7. I need the flags reference                         → cortex-agent-flags
+8. I need to version, alias, or roll back my agent    → agent-versioning
 
 Or just describe what you need — I'll figure out where to route you.
 ```
@@ -106,6 +107,7 @@ Based on findings, recommend next action:
 | "query", "invoke", "DATA_AGENT_RUN", "call my agent", "test question" | **query-cortex-agent** | `skills/query-cortex-agent/SKILL.md` |
 | "flags reference", "what flags exist", "experimental flags" | **cortex-agent-flags** | `skills/cortex-agent-flags/SKILL.md` |
 | "analytical search", "document collection", "semantic search", "search documents", "find information in documents" | **analytical-search** | `skills/analytical-search/SKILL.md` |
+| "version", "alias", "rollback", "commit agent", "CI/CD agent", "named version", "production alias", "LIVE version" | **agent-versioning** | `skills/cortex-agent-ddl/reference/agent-versioning.md` |
 
 ---
 
