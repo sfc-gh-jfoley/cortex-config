@@ -203,14 +203,17 @@ What would you like to do next?
       Return to Phase 3 (instructions) or Phase 2 (tool descriptions)
       based on the failure type identified above.
 
-  [6] CI/CD deployment pipeline
-      Set up automated deployment from a Git-tracked spec file.
-      GitHub Actions / GitLab CI / Azure Pipelines with OIDC auth,
-      environment promotion (DEV → TEST → PROD), rollback, and
-      drift detection.
-      Best when: you want to deploy this agent across environments
-      from a CI/CD pipeline instead of manual SQL execution.
-      → Proceeds to Phase 8
+   [6] CI/CD deployment pipeline + versioning
+       Set up automated deployment from a Git-tracked spec file.
+       GitHub Actions / GitLab CI / Azure Pipelines with OIDC auth,
+       environment promotion (DEV → TEST → PROD), rollback, and
+       drift detection.
+       Includes agent versioning: commit live → alias 'production' →
+       rollback by reassigning the alias. See agent-versioning.md.
+       Best when: you want to deploy this agent across environments
+       from a CI/CD pipeline instead of manual SQL execution.
+       → Proceeds to Phase 8; see reference/agent-versioning.md for
+         version SQL commands
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 

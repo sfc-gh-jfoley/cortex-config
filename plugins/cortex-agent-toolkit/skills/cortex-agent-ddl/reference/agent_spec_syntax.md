@@ -537,6 +537,9 @@ SHOW AGENTS IN SCHEMA <db>.<schema>;
 | `Timeout exceeded` | `budget.seconds` too low for complex multi-tool question | Increase to 120-180 |
 | Blank response / no tools called | Instructions too vague, tool descriptions too short | Improve tool descriptions (>100 chars, add "When NOT to use") |
 | Profile not visible in SI | `ALTER AGENT SET PROFILE` not run | Run ALTER AGENT SET PROFILE with display_name/avatar/color |
+| `DATA_AGENT_RUN` returns "agent not found" with `!VERSION$N` suffix | Version was dropped or wrong identifier | Run `SHOW VERSIONS IN AGENT <fqn>` to confirm the version exists |
+| `ALTER AGENT ... COMMIT` fails with "no live version" | No live version exists (already committed or never created) | Run `ALTER AGENT ... ADD LIVE VERSION FROM LAST` first |
+| `ALTER AGENT ... ADD LIVE VERSION` fails | A live version already exists | Each agent can have at most one live version — commit the existing one first |
 
 ---
 
