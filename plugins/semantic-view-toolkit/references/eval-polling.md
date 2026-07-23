@@ -46,6 +46,86 @@ CALL EXECUTE_AI_EVALUATION(
 );
 ```
 
+## ANALYST_PREVIEW Eval Path (Primary — use when EXECUTE_AI_EVALUATION returns 392700)
+
+> **⚠ EXECUTE_AI_EVALUATION BROKEN FOR SV TYPE (error 392700)**
+>
+> `EXECUTE_AI_EVALUATION` with `analyst_type="SEMANTIC VIEW"` currently returns error 392700
+> on all accounts. Root cause: the procedure passes the SV FQN as a plain string to the
+> internal `ANALYST_PREVIEW` call; the CA API requires a JSON object. **Use `ANALYST_PREVIEW`
+> directly until Snowflake fixes the procedure.** Verified broken as of 2026-07-23.
+
+### Working Call Pattern
+
+> **⚠ ANALYST_PREVIEW requires a constant string argument.** Do NOT use `OBJECT_CONSTRUCT(...)`
+> — the SQL compiler rejects it (error 001015: "argument needs to be constant"). Build the
+> JSON payload as a string literal and pass it directly.
+
+```sql
+-- Build payload as a JSON string literal (not OBJECT_CONSTRUCT)
+SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
+  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question>"}]}],
+  "semantic_model_file": "@<DB>.<SCHEMA>.<STAGE>/<model>.yaml"
+}')
+```
+
+> **Note:** When using the `snow` CLI, pass `--format json` to avoid double-quote escaping
+> issues in the response string.
+
+> **⚠ Python string building — use `json.dumps` for question text.** If building the payload
+> programmatically, always use `json.dumps(question)` to produce the JSON-safe string for the
+> question field. Raw f-string interpolation breaks JSON if the question contains `"` characters
+> or backslashes.
+> ```python
+> import json
+> question = 'What is the "total" revenue?'  # contains quotes
+> payload = json.dumps({
+>     "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
+>     "semantic_model_file": f"@{db}.{schema}.{stage}/{model}.yaml"
+> })
+> # Use payload as the string literal in: SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW(payload)
+> # (via snow sql -q or a Snowflake Python connector parameterized query)
+> ```
+
+### YAML Stage Upload Requirements
+
+The YAML uploaded to the stage must satisfy two requirements:
+
+1. **Top-level `name:` field required** — the CA API rejects YAML files that lack a `name:`
+   key at the document root.
+2. **Primary key columns must appear in the table's `columns:` section** — if a column is
+   listed only in `primary_key:` but omitted from `columns:`, the CA API will fail silently
+   or return validation errors. Add each PK column explicitly to `columns:` as well.
+
+### Parsing the ANALYST_PREVIEW Response
+
+`ANALYST_PREVIEW` returns a JSON string. Parse it in Python to extract results:
+
+```python
+import json
+
+def parse_analyst_preview_response(raw_response: str) -> dict:
+    """Extract SQL and VQR match from an ANALYST_PREVIEW JSON response."""
+    data = json.loads(raw_response)
+    result = {"sql": None, "matched_vqr": None}
+
+    # Walk message content items — find type == "sql"
+    for msg in data.get("messages", []):
+        for item in msg.get("content", []):
+            if item.get("type") == "sql":
+                result["sql"] = item.get("statement") or item.get("text")
+
+    # Extract matched VQR name from confidence block if present
+    confidence = data.get("confidence", {})
+    vqr = confidence.get("verified_query_used", {})
+    if vqr:
+        result["matched_vqr"] = vqr.get("name")
+
+    return result
+```
+
+---
+
 ## Polling Pattern
 
 ### Method 1: STATUS Call (Recommended)
@@ -158,6 +238,35 @@ SELECT
 FROM raw;
 ```
 
+## GET_DDL Output Escaping
+
+`GET_DDL('SEMANTIC VIEW', '<fqn>')` returns a CSV-escaped string. All `"` characters
+inside the DDL are doubled to `""`. This is especially relevant when parsing the
+CA extension JSON blob.
+
+**Always unescape before parsing:**
+
+```python
+# Using snow CLI with --format json
+result = subprocess.run(
+    ['snow', 'sql', '-c', connection, '--format', 'json', '-q',
+     f"SELECT GET_DDL('SEMANTIC VIEW', '{sv_fqn}')"],
+    capture_output=True, text=True
+)
+data = json.loads(result.stdout)
+ddl = data[0][list(data[0].keys())[0]]
+ddl = ddl.replace('""', '"')  # Unescape CSV double-quotes
+```
+
+**Validate CA extension JSON after unescape:**
+
+```python
+import re, json
+ext_match = re.search(r"with extension \(CA='(\{.*?\})'\)", ddl, re.DOTALL)
+if ext_match:
+    ca_json = json.loads(ext_match.group(1))  # Raises if malformed
+```
+
 ## Timeout Handling
 
 **Maximum wait:** 15 minutes (900 seconds)
@@ -172,6 +281,54 @@ If evaluation hasn't completed within 15 minutes:
 - Very large VQR set (>50 questions)
 - Complex SQL generation (many joins, subqueries)
 - System load (shared Cortex Analyst capacity)
+
+## Concurrency Constraint
+
+> **One evaluation per SV at a time.** Snowflake enforces a single concurrent
+> evaluation per semantic view. If you launch a second evaluation while one is
+> running against the same SV, the second run will fail immediately with status
+> `FAILED` and `["Invocation failed"]`.
+>
+> **Parallel launch is valid only across _different_ SVs.** For GEPA multi-candidate
+> runs (N different SVs), launch all N in parallel and drain sequentially. For a
+> single SV with many VQRs, use the `verified_queries:` subset list to run sequential batches.
+
+### Concurrent-launch error pattern
+
+`CALL EXECUTE_AI_EVALUATION('STATUS', ...)` returns:
+
+```
+STATUS = FAILED, STATUS_DETAILS = ["Invocation failed"]
+```
+
+This error occurs when a second eval was launched while the first was still in
+`INVOCATION_IN_PROGRESS`. Wait for `COMPLETED` before re-launching.
+
+## Batching Large Eval Sets (single SV)
+
+For SVs with more than 15 VQRs, **run evaluations in subsets of 15 or fewer per batch**.
+Large eval sets have longer total latency and make it harder to isolate failures.
+
+Use the `verified_queries:` list in your config YAML to subset by exact question text
+(case-sensitive match against what is stored in the SV).
+
+Steps:
+1. Split into batches of the recommended size (see table below)
+2. Launch batch 1 → wait for COMPLETED → launch batch 2
+3. Aggregate scores across batches after all complete
+
+### Recommended Batch Sizes
+
+| Scenario | Batch Size | Rationale |
+|---|---|---|
+| Simple single-table questions | 15–20 | Fast, low timeout risk |
+| Multi-table joins | 10–12 | Higher per-question latency |
+| Complex CTEs or subqueries | 8–10 | Timeout risk per question |
+| Mixed (default) | 10 | Safe default |
+
+For a 50-question eval set with mixed complexity: use 5 sequential batches of 10.
+
+---
 
 ## Parallel Evaluation (Multiple Candidates)
 
@@ -203,7 +360,8 @@ def poll_all_candidates(eval_names, connection):
 ### Launch in Parallel, Poll Sequentially
 
 ```python
-# Launch all evaluations (parallel is fine for launch)
+# Launch all evaluations (parallel is fine ONLY when each candidate targets a DIFFERENT SV FQN)
+# Do NOT launch multiple evals against the same SV — use sequential batching instead (see above)
 for candidate in candidates:
     launch_evaluation(candidate.eval_name, candidate.sv_fqn, eval_config)
 
@@ -256,3 +414,24 @@ Example: MY_DB__MY_SCHEMA__REVENUE_SV__gen3__cand_7
 ```
 
 This allows querying historical evaluations and correlating with GEPA state.
+
+---
+
+## SQL Authoring Caveats
+
+> ⚠️ **Avoid GROUP BY alias in VQR SQL**
+> The eval framework rewrites VQR SQL using CTEs internally. GROUP BY alias references
+> (e.g., `GROUP BY order_month` where `order_month` is a SELECT alias) fail after CTE
+> expansion with errors like:
+> `'__ORDERS.O_ORDERDATE' in select clause is neither an aggregate nor in the group by clause`
+>
+> Use the full expression instead:
+> ```sql
+> -- BAD (breaks after CTE expansion):
+> SELECT DATE_TRUNC('month', O_ORDERDATE) AS order_month, SUM(amount) AS rev
+> GROUP BY order_month
+>
+> -- GOOD:
+> SELECT DATE_TRUNC('month', O_ORDERDATE) AS order_month, SUM(amount) AS rev
+> GROUP BY DATE_TRUNC('month', O_ORDERDATE)
+> ```

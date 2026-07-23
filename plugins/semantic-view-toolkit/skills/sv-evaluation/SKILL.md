@@ -88,6 +88,96 @@ B) Exclude contaminated VQRs from this eval run
 
 ---
 
+**Step 3d: Full VQR and SV Health Check**
+
+> **Naming Convention for SV Columns in VQR SQL**
+>
+> In a semantic view DIMENSIONS clause: `TABLE.logical_name AS physical_expr`
+> - **logical_name**: used internally by the SV for relationships and metrics
+> - **physical_expr**: the actual column name (or expression) VQR SQL must reference
+>
+> `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG`
+> → VQR SQL uses `DELETED_FLAG` (right side), not `IS_DELETED` (left side)
+>
+> DESCRIBE SEMANTIC VIEW shows property `PHYSICAL_EXPR` per dimension.
+> Always cross-check VQR SQL column references against PHYSICAL_EXPR, not the logical name.
+
+Run all pre-flight checks from `references/vqr-eval-health.md` (Checks 1–7). This catches
+every known category of silent eval failure before any compute is spent.
+
+```
+Checks to run:
+  Check 1 — VQR table reference format (FQN vs logical alias)
+  Check 2 — VQR column existence (logical name vs physical)
+  Check 3 — CA extension presence + column completeness  ← CRITICAL if found
+  Check 4 — GROUP BY alias (breaks CTE expansion)
+  Check 5 — Metric coverage (metrics with no VQR)
+  Check 6 — Table/dimension coverage
+  Check 7 — Aggregation mismatch (VQR agg ≠ SV metric expression)
+```
+
+- **Check 2 — physical column name mismatch**: The SV DIMENSIONS clause uses syntax
+  `LOGICAL_TABLE.logical_column_name AS physical_expr`. VQR SQL must reference the
+  **physical_expr** (right side of AS), not the logical name (left side).
+  Example: `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG` → VQR SQL must use `DELETED_FLAG`.
+  `DESCRIBE SEMANTIC VIEW` exposes a `PHYSICAL_EXPR` property per dimension — cross-check
+  all VQR SQL column references against `PHYSICAL_EXPR` values, not the logical names.
+
+**STOP Gate — Check 3 CRITICAL:**
+When `with extension (CA='...')` is found in GET_DDL output:
+
+  A) Create a DDL-only eval copy (recommended):
+     ```python
+     # From vqr-eval-health.md Check 3
+     strip_ca_extension('DB.SCHEMA.SV_NAME', 'DB.SCHEMA.SV_NAME_EVAL_COPY')
+     ```
+     Eval against `SV_NAME_EVAL_COPY`. Drop it after eval completes.
+
+  B) Proceed — flag all results with RESULTS_MAY_BE_UNRELIABLE.
+     Columns absent from CA extension will score 0 regardless of model quality.
+     Do NOT interpret score differences between VQR styles as accuracy signals.
+
+  C) Abort.
+
+  **GUIDED mode:** Pause here and present options A/B/C to the user.
+  **AUTOPILOT mode:** Default to A, log the clone FQN, and continue.
+
+**STOP Gate:** Wait for user choice on CRITICAL findings. Warn and continue for HIGH/MEDIUM.
+
+---
+
+**Step 3e: VQR SQL Dry-Run**
+
+Before launching eval, execute each VQR's SQL directly against the SV to confirm
+it compiles and returns rows without error. Failures here will silently inflate
+eval scores downward — the eval framework counts execution errors as score 0.
+
+```sql
+-- For each VQR:
+SELECT COUNT(*) FROM (
+    <vqr_sql>
+) LIMIT 0;
+-- LIMIT 0: only checks compilation, no data scan cost
+```
+
+Classify each VQR:
+- **EXECUTES**: dry-run returned without error
+- **COMPILE_ERROR**: SQL fails to compile (fix before launching)
+- **EMPTY_RESULT**: compiled but no rows (check time window / filters)
+
+Report before launching:
+```
+Dry-run summary:
+  EXECUTES:      N VQRs
+  COMPILE_ERROR: N VQRs → [list names + errors]
+  EMPTY_RESULT:  N VQRs → [list names]
+```
+
+If any COMPILE_ERROR: offer to skip them or abort eval.
+**STOP Gate (GUIDED mode):** Wait for user confirmation if COMPILE_ERROR > 0.
+
+---
+
 **Step 4: Validate Eval Prerequisites**
 
 Run grant checks:
@@ -190,6 +280,24 @@ metrics:
 
 If ALL VQRs selected, omit the `verified_queries` list (evaluates all embedded VQRs).
 
+**Step 7a: SV Eval Target Check**
+
+Confirm which SV you are evaluating against:
+
+- **Original SV (no CA extension):** proceed to Step 8.
+- **Original SV (has CA extension / Snowsight-built):** Step 3d should have routed you to a
+  DDL-only eval copy. If you chose to proceed anyway, note results may be unreliable.
+- **Variant / test SV (created for A/B comparison):** Confirm it was created using the strip
+  procedure from `references/vqr-eval-health.md` Check 3. A variant SV that retains a CA
+  extension from the original will have the same column-drop bug.
+
+> If the variant SV was created by hand (not from the strip procedure), run the CA extension
+> detection check now before proceeding:
+> ```sql
+> SELECT CASE WHEN REGEXP_INSTR(GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>'),
+>   'with extension') > 0 THEN 'CA_EXTENSION_PRESENT' ELSE 'CLEAN' END AS ca_status;
+> ```
+
 **Step 8: Create Stage and Upload Config**
 
 ```sql
@@ -217,6 +325,32 @@ PUT file:///tmp/sv_eval_config_<run_name>.yaml
 Format: `<SV_NAME>_eval_<YYYYMMDD_HHMMSS>`
 
 Example: `REVENUE_SV_eval_20260522_143022`
+
+**Step 9b: Pre-Launch Dry-Run Gate**
+
+Spot-check 3–5 VQRs before committing compute. For each, substitute logical table aliases with
+physical FQNs (from DESCRIBE `BASE_TABLE_*` properties) and run EXPLAIN:
+
+```sql
+-- Substitute __LOGICAL_ALIAS → DB.SCHEMA.TABLE, then:
+EXPLAIN USING TABULAR <vqr_sql_with_fqn_substituted>;
+```
+
+Also validate CA extension JSON if present (from `references/vqr-eval-health.md` Check 3 strip
+procedure):
+```sql
+SELECT PARSE_JSON('<ca_json_here>') IS NOT NULL AS ca_json_valid;
+```
+
+Abort and fix if any VQR EXPLAIN fails — a bad VQR scores 0 without consuming meaningful compute,
+but a run where most VQRs fail wastes the full eval budget before you see a single real comparison.
+
+> ⚠ **EXECUTE_AI_EVALUATION BROKEN FOR SV TYPE (error 392700)**
+> The procedure passes the SV FQN as a plain string to the internal CA call, which
+> requires a JSON object. All SV-type eval attempts will fail immediately.
+>
+> **Use ANALYST_PREVIEW + stage YAML instead** — see `references/eval-polling.md` §
+> "ANALYST_PREVIEW Eval Path". This is the verified workaround as of 2026-07-23.
 
 **Step 10: Launch Evaluation**
 
@@ -481,6 +615,9 @@ FROM raw;
 | Eval CANCELLED | System issue or manual cancel | Retry once |
 | Permission denied on EXECUTE_AI_EVALUATION | Missing CORTEX_USER or EXECUTE TASK | Run grant remediation |
 | Timeout (>15min) | Too many VQRs or system load | Use subset, retry later |
+| Near-zero mean score across all VQRs | CA extension column-drop bug, FQN table refs, or wrong SV target | Run failure diagnosis — see `references/vqr-eval-health.md` Patterns A–C |
+| `invalid identifier` in ground-truth errors | CA extension drops columns from CTE construction | Check 3 in vqr-eval-health.md — create DDL-only eval copy |
+| Score asymmetry between VQR styles (e.g. 34% vs 6% pre-scoring failure rate) | CA extension column-drop, not a naming-style signal | Do not interpret as model accuracy difference — see Pattern A in vqr-eval-health.md |
 
 ---
 
@@ -502,3 +639,7 @@ FROM raw;
 - **Cost:** Each evaluation invokes Cortex Analyst once per VQR. Budget approximately: N VQRs × (analyst inference + SQL execution for correctness check).
 - **Idempotency:** Run names must be unique. Re-running with the same name will fail. Always generate a fresh timestamp-based name.
 - **Concurrency:** Only one evaluation can run against the same SV at a time. Wait for completion before launching another.
+- **AVG() on TEXT column fails**: Some SVs declare a column as `data_type: text` but the
+  physical column contains numeric strings (e.g., `GEN_FUELLEVEL VARCHAR`). Calling
+  `AVG(col)` directly fails. Use `AVG(TRY_CAST(col AS NUMBER))` or `AVG(col::NUMBER)`.
+  Catch this in the VQR SQL dry-run (Step 3e) before it causes silent eval failures.
