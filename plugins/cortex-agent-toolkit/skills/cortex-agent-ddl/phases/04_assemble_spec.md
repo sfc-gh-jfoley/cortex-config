@@ -125,9 +125,32 @@ For each generic tool:
 
 ### MCP Connector Tools
 
-For `web_search`, `data_to_chart`, and `code_execution` tools discovered in Phase 2:
-- These tools have **no `tool_resources` entry** — include them in the `tools` array only
+For `web_search`, `data_to_chart`, `code_execution`, and `code_toolset_all` tools discovered in Phase 2:
+- These tools do **not require a `tool_resources` entry** — include them in the `tools` array at minimum
 - Format: `{"tool_spec": {"type": "<tool_type>", "name": "<tool_name>"}}`
+
+**Optional `code_execution` config block** — add to `tool_resources` when the user needs PyPI packages or external network access:
+
+```json
+"tool_resources": {
+  "code_execution": {
+    "permission_policy": {
+      "type": "always_ask"
+    },
+    "artifact_repositories": [
+      "SNOWFLAKE.SNOWPARK.PYPI_SHARED_REPOSITORY"
+    ],
+    "external_access_integrations": [
+      "<EAI_NAME>"
+    ]
+  }
+}
+```
+
+Fields (all optional — omit any you don't need):
+- `permission_policy.type`: `"always_ask"` (default — prompts user before state-modifying code) or `"always_allow"` (skip approval — use only in trusted automated workflows)
+- `artifact_repositories`: include only when PyPI packages needed; requires agent owner role = `SNOWFLAKE.PYPI_REPOSITORY_USER`
+- `external_access_integrations`: list of External Access Integration FQNs for outbound network access
 
 For MCP connectors (stored in `MCP_SERVERS` from Phase 2):
 - MCP connectors are NOT in the `tools` array — they use a separate `mcp_servers` section

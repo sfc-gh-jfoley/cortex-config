@@ -218,6 +218,24 @@ Stage operations are **read-only** — useful for auditing, diffing versions, an
 
 ---
 
+## Versioning UI (Snowsight)
+
+The Versioning UI is available in public preview in Snowsight. It provides a visual history of agent configurations — compare versions side by side, roll back, and promote without editing YAML.
+
+**Navigation:** Snowsight → AI & ML → Agents → select agent → **Versions** tab
+
+**When to prefer the UI:**
+- Ops teams and on-call engineers who need fast rollback without SQL access
+- Regulated environments that require a visual audit chain (who changed what, when)
+- Non-technical stakeholders reviewing prompt/instruction changes before promotion
+
+**When to prefer SQL commands:**
+- CI/CD pipelines and scripted promotions (programmatic, repeatable)
+- Git-first import flow (`ADD VERSION FROM @stage`)
+- When the alias reassignment must be part of a larger transaction or script
+
+---
+
 ## Limitations
 
 - Each agent has **at most one live version** at a time.

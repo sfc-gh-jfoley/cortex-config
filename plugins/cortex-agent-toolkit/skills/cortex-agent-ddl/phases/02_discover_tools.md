@@ -174,9 +174,22 @@ Additional tool types (configure manually if needed):
                     extended chart types (area, dual-axis, boxplots, etc.).
                     Ask: "Should this agent produce charts/visualizations?"
 
-  code_execution  — Python sandbox for calculations and data processing.
-                    No setup required. Required if Agent Skills include code files.
-                    Ask: "Does this agent need to run Python code or use Skills with scripts?"
+  code_execution  — Python 3.12 sandbox (numpy + pandas preinstalled). No tool_resources entry
+                    required by default. An optional config block unlocks PyPI packages and
+                    external network access (see Phase 4 Step 4.5.1).
+                    Optional prerequisites:
+                      - PyPI packages: grant SNOWFLAKE.PYPI_REPOSITORY_USER to agent owner role
+                      - External network: create NETWORK RULE + EXTERNAL ACCESS INTEGRATION
+                    Ask: "Does this agent need to run Python code, perform calculations, or
+                         process data? Does it need additional pip packages or external URLs?"
+
+  code_toolset_all — Full Cortex Code toolset (bash, file ops, grep, glob, web search, SQL,
+                    skills). Autonomous coding agent backed by the CoCo runtime.
+                    ⚠️  MUTUALLY EXCLUSIVE with code_execution — cannot use both in one agent.
+                    ⚠️  PRIVATE PREVIEW — available only on selected accounts.
+                    No tool_resources entry required.
+                    Ask: "Does this agent need autonomous coding capabilities beyond basic
+                         Python execution (file editing, bash, SQL execution, full toolset)?"
 
   MCP connector   — Connect to an external MCP server (e.g., GitHub, Jira, Salesforce).
                     Requires an EXTERNAL MCP SERVER object in Snowflake.
@@ -185,7 +198,8 @@ Additional tool types (configure manually if needed):
 ```
 
 For each new tool type selected:
-- `web_search` / `data_to_chart` / `code_execution`: add to `CUSTOM_TOOLS` list with `{type: "<tool_type>", name: "<name>", tool_resources: null}`.
+- `web_search` / `data_to_chart` / `code_execution` / `code_toolset_all`: add to `CUSTOM_TOOLS` list with `{type: "<tool_type>", name: "<name>", tool_resources: null}`.
+  - If user selects `code_toolset_all`, deselect `code_execution` (mutually exclusive — flag an error if both are selected).
 - MCP: store separately as `MCP_SERVERS` list — handled in Phase 4 spec assembly, not in `tool_resources`.
 
 > **Analytical search note**: Analytical search (corpus-wide analysis, counts, aggregates across documents) is NOT a separate tool type. It auto-triggers from a standard `cortex_search` tool when the query has analytical intent. To enable it, configure the `cortex_search` tool with `max_results: 1000` and rich `columns_and_descriptions`. See `skills/analytical-search/SKILL.md`.
@@ -199,7 +213,7 @@ More tools = harder routing decisions for the agent.
 Consider splitting into multiple specialized agents.
 Continue anyway? (yes/no)
 ```
-Note: `web_search`, `data_to_chart`, and `code_execution` each count as 1 tool toward this limit.
+Note: `web_search`, `data_to_chart`, `code_execution`, and `code_toolset_all` each count as 1 tool toward this limit.
 
 ---
 
