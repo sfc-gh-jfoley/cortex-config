@@ -1,25 +1,11 @@
----
-name: sv-optimization-eval-data
-description: >
-  Manage VQRs needed to bootstrap and sustain the optimization loop. Routes to
-  vqr-generator to create initial verified queries, expand coverage, or rebalance
-  the guide/eval split for optimization runs.
-triggers:
-  - manage VQRs
-  - add VQRs
-  - rebalance VQRs
-  - VQR split
-  - bootstrap evaluation data
-  - create verified queries for optimization
-  - not enough VQRs
----
-
 # SV Optimization — Eval Data
+
+> Procedural reference for the `sv-optimization` skill. Loaded by the router in `SKILL.md` (EVAL-DATA intent). Not independently invokable.
 
 ## Purpose
 
-The optimization loop (`optimize/SKILL.md`) needs VQRs to evaluate candidate mutations.
-This sub-skill helps bootstrap, expand, or rebalance VQRs before or during optimization.
+The optimization loop (`references/optimize.md`) needs VQRs to evaluate candidate mutations.
+This reference helps bootstrap, expand, or rebalance VQRs before or during optimization.
 
 ---
 
@@ -73,7 +59,7 @@ Provide vqr-generator with:
 ## Step 3: Guide vs Eval Split (After VQRs Are Created)
 
 VQRs serve dual purpose in the optimization loop. After vqr-generator has run, recommend
-a split per the guide in `../SKILL.md` (VQR Split Strategy section):
+a split per the guide in `SKILL.md` (VQR Split Strategy section):
 
 | Total VQRs | Eval (holdout) | Guide (in-SV) |
 |---|---|---|
@@ -91,8 +77,8 @@ track "guide-quality" VQRs (those that teach the SV by example) vs "eval-quality
 
 After VQRs are in place:
 1. Run `sv-evaluation` to establish or refresh the baseline score
-2. Return to `sv-optimization → setup` to record the new baseline
-3. Then proceed with `sv-optimization → optimize`
+2. Return to `references/setup.md` to record the new baseline
+3. Then proceed with `references/optimize.md`
 
 ```
 VQR setup complete:

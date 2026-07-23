@@ -1,8 +1,6 @@
----
-name: cortex-agent-optimization-iterate
-description: "Run a single optimization iteration: analyze DEV failures, edit instructions, build/deploy, eval."
-parent_skill: cortex-agent-optimization
----
+# Cortex Agent Optimization — Optimize (One Iteration)
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 ## Step 1: Read Context
 
@@ -19,7 +17,7 @@ Load project context:
 
 ### Pre-flight: Ground Truth Completeness
 
-**MANDATORY before firing any eval runs.** Run the GT completeness check from `eval-data/SKILL.md` Workflow E against the DEV view:
+**MANDATORY before firing any eval runs.** Run the GT completeness check from `references/eval-data.md` Workflow E against the DEV view:
 
 ```sql
 SELECT 
@@ -31,7 +29,7 @@ FROM <DATABASE>.<SCHEMA>.AGENT_EVAL_DEV;
 ```
 
 - If `MISSING_GT = 0`: proceed to fire eval runs.
-- If `MISSING_GT > 0`: **HARD STOP**. List the questions with `eval-data/SKILL.md` Workflow E Step 2 query. Do NOT fire eval runs — missing GT scores 0 and silently corrupts all metrics.
+- If `MISSING_GT > 0`: **HARD STOP**. List the questions with `references/eval-data.md` Workflow E Step 2 query. Do NOT fire eval runs — missing GT scores 0 and silently corrupts all metrics.
 
 ### Quick Iterate Mode (Optional)
 
@@ -298,7 +296,7 @@ DESCRIBE AGENT <AGENT_FQN>;
 
 Fire all `<RUNS_PER_SPLIT>` DEV runs simultaneously using the same slot configs as Step 2, with post-edit run names (e.g., `<ITER_NAME>_dev_post_r1` through `<ITER_NAME>_dev_post_r<RUNS_PER_SPLIT>`). Poll all in parallel until every slot reports completion.
 
-Apply the paired t-test to check for regression vs the previous accepted iteration's DEV means (same formula as `review/SKILL.md` Step 2, using DEV per-run means). If t < the critical value for `<RUNS_PER_SPLIT>` on any metric, the edit likely degraded performance — return to Step 5 and adjust. Otherwise proceed to TEST.
+Apply the paired t-test to check for regression vs the previous accepted iteration's DEV means (same formula as `references/review.md` Step 2, using DEV per-run means). If t < the critical value for `<RUNS_PER_SPLIT>` on any metric, the edit likely degraded performance — return to Step 5 and adjust. Otherwise proceed to TEST.
 
 ## Step 8: Run TEST Eval (only if DEV is satisfactory)
 
@@ -339,11 +337,11 @@ If `<AGENT_NAME>_QUESTION_MANIFEST` exists, INSERT TEST results per run using th
 
 Append the iteration to `optimization_log.md` with: run names, changes made, files changed, score table (DEV Mean ± StdDev | TEST Mean ± StdDev | Combined Mean per metric), comparison delta vs previous accepted iteration, and `Decision: PENDING`.
 
-Continue to `review/SKILL.md` for the accept/reject decision.
+Continue to `references/review.md` for the accept/reject decision.
 
 ## Step 10: Flag Re-validation Check (after review accepts)
 
-**This step runs ONLY after `review/SKILL.md` returns an ACCEPT decision.**
+**This step runs ONLY after `references/review.md` returns an ACCEPT decision.**
 
 Check if a flag sweep baseline exists:
 ```bash
@@ -367,7 +365,7 @@ ls <WORKSPACE_ROOT>/flag_sweep_baseline.json 2>/dev/null && echo "EXISTS" || ech
    > 2. **Skip for now** — continue optimizing, ask again after next accept
    > 3. **Disable** — never auto-check (remove flag_sweep_baseline.json)
 
-   If **Yes:** Route to `flag-sweep/SKILL.md` with `mode=REVALIDATE`. That workflow will:
+   If **Yes:** Route to `references/flag-sweep.md` with `mode=REVALIDATE`. That workflow will:
    - Re-use the existing variant agents (listed in `variant_agents_kept`)
    - Apply the CURRENT instructions to all variants (rebuild each variant with latest instructions + its flag config)
    - Run fresh evals and compare to the baseline scores

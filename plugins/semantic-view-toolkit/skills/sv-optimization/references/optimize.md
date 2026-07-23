@@ -1,23 +1,10 @@
----
-name: sv-optimization-optimize
-description: >
-  Run one iteration of semantic view optimization: select a mutation operator based on
-  eval failures, apply it to SV DDL, re-evaluate via sv-evaluation, compare against
-  baseline, accept or reject, and write the result to OPTIMIZATION_LOG.
-triggers:
-  - run optimization iteration
-  - optimize sv
-  - improve sv
-  - next iteration
-  - fix sv failures
-  - apply mutation
----
-
 # SV Optimization — Optimize (One Iteration)
+
+> Procedural reference for the `sv-optimization` skill. Loaded by the router in `SKILL.md` (OPTIMIZE intent). Not independently invokable.
 
 ## Prerequisites
 
-Setup phase must be complete (`setup/SKILL.md` has run):
+Setup phase must be complete (`references/setup.md` has run):
 - `SV_FQN`, `BASELINE_SCORE`, `ACCEPT_THRESHOLD`, `OPTIMIZATION_LOG_TABLE` are set
 - `_SV_TOOLKIT_META.OPTIMIZATION_LOG` exists
 
@@ -63,7 +50,7 @@ WHERE sql_correctness < 1.0
 ORDER BY sql_correctness ASC;
 ```
 
-Map failures to mutation operators using the table in `../SKILL.md` (Mutation Strategy section).
+Map failures to mutation operators using the table in `SKILL.md` (Mutation Strategy section).
 Select the operator that addresses the most common failure pattern.
 
 ---
@@ -181,7 +168,7 @@ Decision:    ACCEPTED / REJECTED
 ────────────────────────────────
 ```
 
-Check termination conditions (from `../SKILL.md`):
+Check termination conditions (from `SKILL.md`):
 - Target reached → celebrate and stop
 - 3 consecutive rejections → suggest sv-gepa-optimizer
 - Otherwise → offer to run another iteration

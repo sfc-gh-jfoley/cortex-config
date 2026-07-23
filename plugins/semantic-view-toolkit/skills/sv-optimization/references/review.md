@@ -1,19 +1,6 @@
----
-name: sv-optimization-review
-description: >
-  Review optimization iteration history for a semantic view. Queries OPTIMIZATION_LOG
-  to show score trajectory, accepted/rejected mutations, and recommends next action
-  (continue iterating, escalate to GEPA, or declare done).
-triggers:
-  - review optimization results
-  - show optimization history
-  - accept or reject changes
-  - compare scores
-  - optimization progress
-  - sv iteration history
----
-
 # SV Optimization — Review
+
+> Procedural reference for the `sv-optimization` skill. Loaded by the router in `SKILL.md` (REVIEW intent). Not independently invokable.
 
 ## Purpose
 

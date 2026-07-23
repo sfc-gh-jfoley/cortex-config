@@ -1,22 +1,11 @@
----
-name: sv-optimization-setup
-description: >
-  One-time setup for semantic view iterative optimization. Collects target SV, creates
-  _SV_TOOLKIT_META.OPTIMIZATION_LOG if absent, records baseline eval score, and
-  configures accept/reject thresholds for the optimization loop.
-triggers:
-  - set up optimization
-  - initialize sv optimization
-  - scaffold optimization
-  - start optimization
----
-
 # SV Optimization — Setup
+
+> Procedural reference for the `sv-optimization` skill. Loaded by the router in `SKILL.md` (SETUP intent). Not independently invokable.
 
 ## Purpose
 
 Initialize the optimization workspace for a semantic view before running iterations.
-Run this once per SV before using `optimize/SKILL.md`.
+Run this once per SV before using `references/optimize.md`.
 
 ---
 
@@ -97,7 +86,7 @@ Accuracy Target:  <ACCURACY_TARGET>%
 Accept Threshold: +<ACCEPT_THRESHOLD>% minimum improvement
 OPTIMIZATION_LOG: <DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG ✓
 ─────────────────────────────────────────
-Ready to optimize. Run: sv-optimization → optimize
+Ready to optimize. Run: sv-optimization → optimize (references/optimize.md)
 ```
 
 **STOP GATE (GUIDED mode):** Wait for user confirmation before proceeding.

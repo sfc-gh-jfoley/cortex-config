@@ -1,8 +1,6 @@
----
-name: cortex-agent-optimization-review
-description: "Review iteration results and make accept/reject decision."
-parent_skill: cortex-agent-optimization
----
+# Cortex Agent Optimization — Review
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 ## Step 1: Compute Per-Run Means
 
@@ -114,8 +112,8 @@ Update the summary section of `optimization_log.md`:
 - [What worked or didn't work in this iteration]
 ```
 
-If accepted, the project is ready for the next iteration. Continue to `optimize/SKILL.md` when ready.
+If accepted, the project is ready for the next iteration. Continue to `references/optimize.md` when ready.
 
-If rejected and consecutive-rejection counter < 3, revert is complete. Continue to `optimize/SKILL.md` with a different approach targeting the same or different failures.
+If rejected and consecutive-rejection counter < 3, revert is complete. Continue to `references/optimize.md` with a different approach targeting the same or different failures.
 
 If rejected and consecutive-rejection counter = 3, the optimization loop is terminated. Present the final summary and recommend next steps.

@@ -62,10 +62,10 @@ A VQR that uses the wrong fact table may produce correct-looking SQL against a t
 
 | Intent | Trigger Patterns | Action |
 |--------|-----------------|--------|
-| **SETUP** | "set up optimization", "initialize", "scaffold" | Load `setup/SKILL.md` |
-| **OPTIMIZE** | "run iteration", "optimize", "improve", "next iteration", "fix failures" | Load `optimize/SKILL.md` |
-| **REVIEW** | "review results", "accept or reject", "compare scores" | Load `review/SKILL.md` |
-| **EVAL-DATA** | "manage VQRs", "add VQRs", "rebalance", "VQR split" | Load `eval-data/SKILL.md` |
+| **SETUP** | "set up optimization", "initialize", "scaffold" | Load `references/setup.md` |
+| **OPTIMIZE** | "run iteration", "optimize", "improve", "next iteration", "fix failures" | Load `references/optimize.md` |
+| **REVIEW** | "review results", "accept or reject", "compare scores" | Load `references/review.md` |
+| **EVAL-DATA** | "manage VQRs", "add VQRs", "rebalance", "VQR split" | Load `references/eval-data.md` |
 
 ---
 

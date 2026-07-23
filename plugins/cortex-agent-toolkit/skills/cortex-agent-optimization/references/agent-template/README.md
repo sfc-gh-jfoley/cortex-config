@@ -46,7 +46,7 @@ When implementing or debugging the build script, use these files to verify corre
 The `test-fixture-example/agent/` directory symlinks here. Running the build script in test-fixture-example validates that the script correctly processes these minimal templates.
 
 ### Referenced by skill
-The setup workflow mentions `references/agent-template/` once as a validation reference (setup/SKILL.md line 62), allowing developers to check format expectations.
+The setup workflow mentions `references/agent-template/` once as a validation reference (references/setup.md line 62), allowing developers to check format expectations.
 
 ## Structure Requirements
 

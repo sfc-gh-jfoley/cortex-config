@@ -58,7 +58,7 @@ Repeat for each run in a batch (UNION ALL or sequential INSERTs).
 ### 1. Transfer Opportunities — "What worked under one config but fails under another?"
 
 Find questions that scored well under a different flag variant but poorly under the current one.
-Use this during `optimize/SKILL.md` Step 4 to identify instruction patterns worth borrowing.
+Use this during `references/optimize.md` Step 4 to identify instruction patterns worth borrowing.
 
 ```sql
 WITH best AS (

@@ -658,3 +658,32 @@ The `__<table_alias>` prefix is added internally by the semantic view engine at 
 - Do NOT manually add `__table.` prefixes — the engine handles this
 - Use the logical table alias (not source object name) when disambiguating: `orders.amount` not `MY_DB.MY_SCHEMA.ORDERS.AMOUNT`
 - If the engine's auto-transform produces invalid SQL, the verified query will silently fail to match at query time — verify by running `SHOW SEMANTIC FACTS IN <sv>` and checking the verified query SQL
+
+---
+
+## GET_DDL Output Escaping
+
+When retrieving DDL with `GET_DDL('SEMANTIC VIEW', '<fqn>')`, the result is returned as a
+CSV-quoted string. Double-quote characters within the DDL (common in CA extension JSON and
+string literals) are escaped as `""`.
+
+**Always unescape before re-executing or parsing:**
+
+```python
+ddl = cursor.execute(
+    "SELECT GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')"
+).fetchone()[0]
+
+# Unescape CSV double-quotes → real double-quotes
+ddl = ddl.replace('""', '"')
+
+# Validate CA extension JSON if present:
+import re, json
+ext_match = re.search(r"with extension \(CA='(\{.*?\})'\)", ddl, re.DOTALL)
+if ext_match:
+    json.loads(ext_match.group(1))  # raises json.JSONDecodeError if malformed
+```
+
+> Scope the `.replace('""', '"')` to the CA extension JSON substring if the full DDL contains
+> legitimate `""` patterns (e.g., double-quoted empty string identifiers). In practice,
+> blanket replacement is safe for standard Snowflake-generated DDL.

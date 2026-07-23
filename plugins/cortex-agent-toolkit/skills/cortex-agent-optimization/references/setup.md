@@ -1,8 +1,6 @@
----
-name: cortex-agent-optimization-setup
-description: "Scaffold an optimization project for a Cortex Agent."
-parent_skill: cortex-agent-optimization
----
+# Cortex Agent Optimization — Setup
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 ## Step 1: Discover Agent and Workspace
 
@@ -101,7 +99,7 @@ Interpret results:
   - Option B: `'DEV'` (DEV) / `'TEST'` (TEST)
   - Option C: Custom values (user specifies)
   Set `<DEV_SPLIT_VALUE>` and `<TEST_SPLIT_VALUE>` accordingly.
-  Proceed to split assignment (load `eval-data/SKILL.md` Create Split workflow).
+  Proceed to split assignment (load `references/eval-data.md` Create Split workflow).
 
 - **3+ values returned:** ERROR
   Show: "Found invalid SPLIT values: [list values]. Eval table must have exactly 2 split values. Please fix and re-run."
@@ -121,7 +119,7 @@ Interpret results:
 
 Note: Bundled skill creates OBJECT-type GROUND_TRUTH columns; this skill uses OBJECT columns for ground truth. Ensure format compatibility.
 
-For split assignment (~45% DEV, ~55% TEST, stratified by category), load `eval-data/SKILL.md` and run its Create Split workflow.
+For split assignment (~45% DEV, ~55% TEST, stratified by category), load `references/eval-data.md` and run its Create Split workflow.
 
 Create views for each split:
 ```sql
@@ -135,7 +133,7 @@ SELECT * FROM <EVAL_TABLE> WHERE SPLIT = '<TEST_SPLIT_VALUE>';
 
 ### Ground Truth Completeness Gate
 
-**MANDATORY before proceeding to Step 5.** Run `eval-data/SKILL.md` Workflow E (Validate Ground Truth Completeness) against `<EVAL_TABLE>`. This checks that every question has a non-empty `ground_truth_output` in its GROUND_TRUTH JSON.
+**MANDATORY before proceeding to Step 5.** Run `references/eval-data.md` Workflow E (Validate Ground Truth Completeness) against `<EVAL_TABLE>`. This checks that every question has a non-empty `ground_truth_output` in its GROUND_TRUTH JSON.
 
 - If **PASS**: proceed to Step 5.
 - If **HARD STOP**: list the questions with missing GT. The user must fill them before eval configs are created. Do NOT skip this — missing GT produces score 0 per question and silently corrupts all aggregate metrics.
@@ -221,4 +219,4 @@ Run TEST eval `<RUNS_PER_SPLIT>` times in parallel (`baseline_test_r1` through `
 
 Compute mean and stddev per metric across all `<RUNS_PER_SPLIT>` runs for each split: build a UNION ALL query with one SELECT block per run (`baseline_dev_r1` through `baseline_dev_r<RUNS_PER_SPLIT>`), GROUP BY METRIC_NAME, AVG + STDDEV of EVAL_AGG_SCORE. Run for both DEV and TEST. Record baseline scores in `optimization_log.md`.
 
-**⚠️ STOP**: Present baseline scores (mean ± stddev for each split), confirm pipeline works end-to-end. The optimization project is now ready. Continue to `optimize/SKILL.md` for the first iteration.
+**⚠️ STOP**: Present baseline scores (mean ± stddev for each split), confirm pipeline works end-to-end. The optimization project is now ready. Continue to `references/optimize.md` for the first iteration.

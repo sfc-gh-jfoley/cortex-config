@@ -8,7 +8,7 @@ description: Present prioritized audit findings with improvement recommendations
 ## Purpose
 Compile all findings from Phase 11 into a structured audit report, rank recommendations by impact, and present to the user for approval before any modifications are made.
 
-**Inputs required from Phase 10:** `SV_FQN`, `SV_TABLES`, `SV_COLUMNS`, `SV_RELATIONSHIPS`, `TOTAL_SV_COLUMNS`, `TOTAL_SOURCE_COLUMNS`
+**Inputs required from Phase 10:** `SV_FQN`, `SV_TABLES`, `SV_COLUMNS`, `SV_RELATIONSHIPS`, `TOTAL_SV_COLUMNS`, `TOTAL_SOURCE_COLUMNS`, `VQR_HEALTH_FINDINGS`, `TOPOLOGY_FINDINGS`, `METRIC_INTEGRITY_FINDINGS`, `METADATA_QUALITY_FINDINGS`
 **Inputs required from Phase 11:** `MISSING_TABLE_CANDIDATES`, `MISSING_COLUMNS`, `UNUSED_COLUMNS`, `RELATIONSHIP_GAPS`, `FILTER_COLUMNS`, `GROUPBY_COLUMNS`, `AGGREGATE_COLUMNS`, `NEIGHBORING_TABLES`, `ACCESS_HISTORY_AVAILABLE`, `QUERY_COUNT`, `DISTINCT_USERS`
 
 ---
@@ -25,7 +25,76 @@ Build the full audit report. Use the exact structure below, omitting any section
 
 ---
 
-## 1. Missing Tables
+## 1. Structural Topology
+
+**Only include this section if `TOPOLOGY_FINDINGS` contains issues.**
+
+| Issue Type | Severity | Details |
+|---|---|---|
+| Fan trap | CRITICAL | Metric `<table>` inflated when grouped by `<dim_table>` dims (bridge: `<bridge>`) |
+| Chasm trap | CRITICAL | Metrics `<m1>` and `<m2>` double-count when joined through `<shared_table>` |
+| Orphan table | HIGH | `<table>` has no RELATIONSHIP — queries against its columns will fail at runtime |
+| Missing USING | HIGH | Table pair `<A>↔<B>` has 2+ relationship paths — metrics need USING clause |
+
+**Fan trap fix:** Move the metric to the bridge-table grain, or pre-aggregate.
+**Chasm trap fix:** Pre-aggregate each fact to the shared dimension grain separately in CTEs before joining.
+**Orphan fix:** Add the missing RELATIONSHIP or remove the orphaned table.
+**USING fix:** Add `USING (<rel_name>)` to every metric on the ambiguous table.
+
+---
+
+## 2. Source Object Accessibility
+
+**Only include this section if `METADATA_QUALITY_FINDINGS.inaccessible_source_tables` is non-empty.**
+
+The current role cannot SELECT from one or more source tables. The SV will fail at query time.
+
+| # | Table FQN | Error |
+|---|---|---|
+| 1 | `<TABLE>` | `<error message>` |
+
+**Fix:** Grant `SELECT` on the inaccessible table(s) to the role that owns or queries the SV, or update the SV definition to remove/replace the inaccessible source.
+
+---
+
+## 3. VQR Health
+
+**Only include this section if `VQR_HEALTH_FINDINGS` contains at least one issue.**
+
+Checked <N> verified queries for structural compliance with the [Snowflake VQR specification](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst/verified-query-repository).
+
+| Issue Type | Severity | Count | VQRs Affected |
+|---|---|---|---|
+| FQN table references (use `__logical_name` instead) | HIGH | <N> | <list> |
+| Bare physical table names (use `__logical_name` instead) | MEDIUM | <N> | <list> |
+| Columns not in SV | MEDIUM | <N> | <list> |
+| Duplicate VQR name keys | LOW | <N> | <list> |
+
+**Why this matters:**  
+Per the Snowflake VQR spec, SQL in verified queries must reference logical table names with the `__` prefix (e.g., `__FCT_TRANSACTIONS`), not physical FQNs (`DB.SCHEMA.FCT_TRANSACTIONS`) or bare table names. Non-compliant VQR SQL can cause Cortex Analyst to generate SQL that bypasses the SV's defined relationships, leading to incorrect joins or missing filter logic.
+
+**Fix:**  
+Replace every `DB.SCHEMA.table_name` or bare `table_name` table reference in VQR SQL with `__TABLE_LOGICAL_NAME`, where `TABLE_LOGICAL_NAME` is the `name:` field defined for that table in the semantic view. Column names do not change if the SV `expr` matches the column name.
+
+---
+
+## 4. Metric Integrity
+
+**Only include this section if `METRIC_INTEGRITY_FINDINGS` contains issues.**
+
+| Issue Type | Severity | Metric / Fact | Table | Detail |
+|---|---|---|---|---|
+| Semi-additive SUM | HIGH | `<metric>` | `<table>` | Expression `<expr>` on snapshot-indicating table — may need `NON ADDITIVE BY` |
+| Non-boolean FILTER fact | HIGH | `<fact>` | `<table>` | DATA_TYPE is not BOOLEAN — confirm via `SELECT GET_DDL('SEMANTIC VIEW', '<fqn>')` |
+| PK cardinality suspect | MEDIUM | — | `<table>` | PK column `<col>` also appears as FK — run `SELECT COUNT(*), COUNT(DISTINCT <col>) FROM <table>` |
+
+**Semi-additive fix:** Add `NON ADDITIVE BY (<time_dimension> DESC)` to the metric.
+**Non-boolean FILTER fix:** Confirm via `GET_DDL('SEMANTIC VIEW', ...)` and ensure the FACT expression resolves to BOOLEAN.
+**PK cardinality fix:** Run the cardinality check. If counts differ, declare the actually-unique column as PRIMARY KEY instead.
+
+---
+
+## 5. Missing Tables
 
 Tables frequently joined with SV tables in user queries but not included in the SV.
 
@@ -41,7 +110,7 @@ Recommendation logic:
 
 ---
 
-## 2. Missing Columns
+## 6. Missing Columns
 
 Columns frequently accessed by users but not defined in the SV.
 
@@ -59,7 +128,7 @@ Suggested role logic:
 
 ---
 
-## 3. Unused Columns
+## 7. Unused Columns
 
 Columns defined in the SV but with zero access in the last 30 days.
 
@@ -78,7 +147,7 @@ Recommendation logic:
 
 ---
 
-## 4. Relationship Gaps
+## 8. Relationship Gaps
 
 JOIN patterns observed in user queries that have no corresponding RELATIONSHIP in the SV.
 
@@ -91,7 +160,7 @@ All relationship gaps are recommended as **ADD** — without relationships, Cort
 
 ---
 
-## 5. Metric Opportunities
+## 9. Metric Opportunities
 
 Aggregate patterns found in user queries that could be defined as SV metrics.
 
@@ -107,7 +176,27 @@ Aggregate patterns found in user queries that could be defined as SV metrics.
 
 ---
 
-## 6. Size Assessment
+## 10. Metadata Quality
+
+**Only include this section if `METADATA_QUALITY_FINDINGS` contains issues.**
+
+| Issue | Severity | Count | Detail |
+|---|---|---|---|
+| AI\_SQL\_GENERATION missing | HIGH | — | No `CUSTOM_INSTRUCTIONS` row with `property='AI_SQL_GENERATION'` in DESCRIBE output |
+| Tables missing COMMENT | MEDIUM/HIGH | `<N>` | `<list of table names>` |
+| Columns missing COMMENT | MEDIUM | `<N>` | >30% of facts/dims/metrics uncovered |
+| Tables or columns missing synonyms | LOW | `<N>` | `<list>` |
+| VARCHAR dims missing SAMPLE\_VALUES | MEDIUM | `<N>` | Requires DDL inspection: `GET_DDL('SEMANTIC VIEW', ...)` |
+
+**AI\_SQL\_GENERATION fix:** Add via `CREATE OR ALTER SEMANTIC VIEW` with guidance on: which date column to use, gross vs net revenue distinction, filters to always/never apply, column disambiguation rules. For YAML models: use `module_custom_instructions.sql_generation` (modern) or `custom_instructions` (legacy).
+
+**COMMENT fix:** Add COMMENT to every table and key column. Prioritize tables first, then facts/metrics, then dimensions.
+
+**SAMPLE\_VALUES fix:** Retrieve the full DDL with `SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>')` or the YAML with `SELECT SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW(...)`. For each VARCHAR dimension with enumerated values (status codes, region codes, categories), add `SAMPLE_VALUES ('val1', 'val2', 'val3') IS_ENUM` to the dimension in the DDL.
+
+---
+
+## 11. Size Assessment
 
 | Metric | Current | After Changes |
 |--------|---------|---------------|
@@ -146,30 +235,51 @@ Order all recommendations by impact, highest first:
 Priority Ranking
 ════════════════
 
- PRIORITY 1 — Relationship Gaps  [HIGH IMPACT]
-   Without relationships, Cortex Analyst cannot join tables automatically.
-   Users are forced to write manual SQL for cross-table questions.
-   → <N> gaps found
+ PRIORITY 1 — Structural Topology  [CRITICAL — wrong numbers or runtime errors]
+   Fan traps inflate metrics by the cardinality of the bridge table.
+   Chasm traps double-count metrics sharing a dimension.
+   Orphan tables cause runtime query failures ("must be related to...").
+   → See Section 1
 
- PRIORITY 2 — Missing Tables (ADD-classified)  [HIGH IMPACT]
+ PRIORITY 2 — Source Object Accessibility  [CRITICAL — SV silently breaks]
+   If the current role cannot SELECT from an underlying table, the SV fails
+   at query time even though DESCRIBE SEMANTIC VIEW succeeds.
+   → See Section 2
+
+ PRIORITY 3 — VQR Format Issues  [HIGH — spec violation, bypasses SV relationships]
+   VQR SQL using FQN or bare physical table names violates the VQR specification.
+   Reproducible fix: replace table refs with __LOGICAL_TABLE_NAME.
+   → See Section 3
+
+ PRIORITY 4 — Metric Integrity  [HIGH — silent wrong results]
+   Semi-additive SUM metrics on snapshot data inflate numbers across time.
+   FILTER facts on non-boolean expressions produce runtime errors.
+   PK declared on a non-unique column disables fan-trap guards silently.
+   → See Section 4
+
+ PRIORITY 5 — Missing Tables (ADD-classified)  [HIGH — users bypass the SV]
    Tables frequently joined by users but invisible to the SV.
-   Every query requiring these tables bypasses the semantic layer.
-   → <N> tables recommended to add
+   → See Section 5
 
- PRIORITY 3 — Missing Columns (high access count)  [MEDIUM IMPACT]
-   Common query patterns not served by the SV. Users must know column
-   names and write SQL manually for these fields.
-   → <N> columns recommended to add
+ PRIORITY 6 — Relationship Gaps  [HIGH — Analyst cannot auto-join]
+   JOIN patterns from user queries that have no SV RELATIONSHIP defined.
+   → See Section 8
 
- PRIORITY 4 — Metric Opportunities  [MEDIUM IMPACT]
-   Pre-defining common aggregations improves Analyst accuracy and
-   ensures consistent calculation across users.
-   → <N> metrics suggested
+ PRIORITY 7 — Missing Columns (high access count)  [MEDIUM]
+   Frequently accessed columns not in the SV.
+   → See Section 6
 
- PRIORITY 5 — Unused Columns  [LOW IMPACT]
-   Cleanup opportunity. Reduces SV complexity but does not unlock
-   new capabilities.
-   → <N> columns flagged for removal
+ PRIORITY 8 — Metadata Quality  [MEDIUM — degrades question matching]
+   Missing AI_SQL_GENERATION, COMMENTs, SYNONYMS, SAMPLE_VALUES.
+   → See Section 10
+
+ PRIORITY 9 — Metric Opportunities  [MEDIUM]
+   Common aggregations that could be defined as SV metrics.
+   → See Section 9
+
+ PRIORITY 10 — Unused Columns  [LOW — cleanup only]
+   SV columns with zero access in last 30 days.
+   → See Section 7
 ```
 
 ---
@@ -185,9 +295,9 @@ What would you like to do?
      → I'll generate ALTER SEMANTIC VIEW / CREATE OR REPLACE DDL
         using $semantic-view-ddl with these modifications
 
-  B) Apply selected recommendations
-     → Tell me which items to include/exclude by number
-        (e.g., "Apply all except Missing Tables #3 and Unused Columns #1")
+   B) Apply selected recommendations
+      → Tell me which items to include/exclude by section number
+         (e.g., "Apply all except Section 5 item #3 and Section 7 item #1")
 
   C) Export report only
      → I'll save this audit report for offline review
@@ -265,7 +375,7 @@ Audit complete for <SV_FQN>.
 
   Next steps:
     → Invoke $semantic-view-ddl to rebuild the SV with approved improvements
-    → Re-run $semantic-view-discovery audit in 30 days to measure improvement
+    → Re-run $sv-audit in 30 days to measure improvement
 ```
 
 ---

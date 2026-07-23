@@ -1,8 +1,6 @@
----
-name: cortex-agent-optimization-eval-data
-description: "Create, validate, and re-balance dev/test eval splits for a Cortex Agent."
-parent_skill: cortex-agent-optimization
----
+# Cortex Agent Optimization — Eval Data
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 This sub-skill has four workflows. Detect which the user wants, or default to **Validate** if an eval table already exists with a SPLIT column.
 
@@ -17,7 +15,7 @@ Read `metadata.yaml` for parameters if not already loaded (`<DATABASE>`, `<SCHEM
 This skill assumes the eval table already exists and focuses on split assignment and validation. For creating the initial dataset:
 - **From scratch:** Create table with TEST_ID, TEST_CATEGORY, INPUT_QUERY, GROUND_TRUTH, SPLIT columns
 - **From production data:** See bundled `dataset-curation` skill (Option B) for Agent Events Explorer workflow
-- **From user feedback:** Use `feedback-pipeline/SKILL.md` to curate thumbs up/down feedback into eval rows
+- **From user feedback:** Use `references/feedback-pipeline.md` to curate thumbs up/down feedback into eval rows
 - **Complex curation needs:** See bundled `dataset-curation` skill for Streamlit-based annotation and format conversion
 
 This skill handles splitting existing data; the bundled skill handles collecting and curating that data.

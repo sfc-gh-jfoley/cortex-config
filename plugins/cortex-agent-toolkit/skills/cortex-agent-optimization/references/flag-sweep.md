@@ -1,22 +1,6 @@
----
-name: flag-sweep
-description: >
-  Re-validate or run a flag/model variant comparison within an active optimization project.
-  Creates model comparison variants (_MODEL_A/B/C) and optional conditional flag variants,
-  runs DEV/TEST evaluations, and compares results across variants.
-  Use when: revalidate flags after instruction changes, re-run flag comparison, model sweep
-  within optimization loop, confirm flag choice still holds.
-  Note: for standalone first-sweep use agent-flag-tester instead.
-triggers:
-  - flag sweep
-  - revalidate flags
-  - re-run flag comparison
-  - model sweep optimization
-  - flag recheck
-  - confirm flag choice
----
-
 # Flag Sweep — Multi-Agent Flag Comparison Evaluation
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 ## Purpose
 

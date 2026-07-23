@@ -1,8 +1,6 @@
----
-name: cortex-agent-optimization-feedback-pipeline
-description: "Curate user feedback into eval dataset rows for the optimization loop."
-parent_skill: cortex-agent-optimization
----
+# Cortex Agent Optimization — Feedback Pipeline
+
+> Procedural reference for the `cortex-agent-optimization` skill, loaded by the router in `SKILL.md`. Not independently invokable.
 
 This sub-skill converts production user feedback (thumbs up/down from Snowflake Intelligence or the Feedback REST API) into eval dataset rows. It applies include/exclude filters to ensure only high-quality, actionable feedback enters the eval dataset.
 

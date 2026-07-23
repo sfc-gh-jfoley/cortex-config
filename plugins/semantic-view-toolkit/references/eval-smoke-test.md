@@ -27,6 +27,35 @@ Before running this smoke test, ensure:
 
 ## Smoke Test Steps
 
+### Step 0: CA Extension Detection
+
+Check whether the SV has a CA extension before running any eval. SVs built through the Snowsight
+UI contain a `with extension (CA='...')` block. The eval framework has a known bug with these SVs:
+columns in VQR SQL not in the CA extension's declared column list are silently dropped from CTEs,
+causing ground-truth SQL failures before any model comparison happens.
+
+```sql
+-- Detect CA extension presence
+SELECT
+    CASE
+        WHEN REGEXP_INSTR(
+            GET_DDL('SEMANTIC VIEW', 'MY_DB.MY_SCHEMA.MY_SV'),
+            'with extension'
+        ) > 0 THEN 'CA_EXTENSION_PRESENT — eval results may be unreliable (see vqr-eval-health.md Check 3)'
+        ELSE 'CLEAN — no CA extension, eval will run reliably'
+    END AS ca_extension_check;
+```
+
+**If `CA_EXTENSION_PRESENT`:**
+- For reliable eval: create a DDL-only eval copy using the strip procedure in
+  `references/vqr-eval-health.md` Check 3. Run the smoke test against the copy.
+- To proceed anyway: note that column-drop failures may cause near-zero scores regardless of
+  model quality. Results are not interpretable until the eval framework is patched.
+
+**If `CLEAN`:** proceed to Step 1.
+
+---
+
 ### Step 1: Verify VQR Count Gate
 
 Confirm the semantic view has at least 5 VQRs registered.

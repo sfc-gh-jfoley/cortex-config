@@ -41,13 +41,13 @@ Detect the user's intent and route to the appropriate sub-skill:
 
 | Intent | Trigger Patterns | Action |
 |--------|-----------------|--------|
-| **SETUP** | "set up optimization", "scaffold", "initialize optimization", "set up eval" | Load `setup/SKILL.md` and follow its workflow |
-| **OPTIMIZE** | "run iteration", "optimize", "improve agent", "next iteration", "run eval", "analyze failures", "resume iteration" | Load `optimize/SKILL.md` and follow its workflow |
-| **REVIEW** | "review results", "accept or reject", "compare iterations", "check test scores", "finalize iteration" | Load `review/SKILL.md` and follow its workflow |
-| **EVAL DATA** | "create eval split", "validate split", "check eval balance", "split quality", "re-balance eval", "eval dataset" | Load `eval-data/SKILL.md` and follow its workflow |
-| **FLAG SWEEP** | "flag sweep", "revalidate flags", "re-run flag comparison", "compare EnableAgenticAnalyst", "compare feature flags" | Load `flag-sweep/SKILL.md` and follow its workflow. **Note:** for standalone 3-variant comparison from scratch (no active optimization project), route to `agent-flag-tester` instead. |
-| **FLAG REVALIDATION** | "revalidate flags", "re-test flags", "flag recheck", "confirm flag choice", "flags still hold", auto-triggered after 3 accepted iterations | Load `flag-sweep/SKILL.md` with `mode=REVALIDATE` (see below) |
-| **FEEDBACK** | "pull feedback", "feedback to eval", "grow eval from feedback", "curate feedback", "promote feedback", "user feedback" | Load `feedback-pipeline/SKILL.md` and follow its workflow |
+| **SETUP** | "set up optimization", "scaffold", "initialize optimization", "set up eval" | Load `references/setup.md` and follow its workflow |
+| **OPTIMIZE** | "run iteration", "optimize", "improve agent", "next iteration", "run eval", "analyze failures", "resume iteration" | Load `references/optimize.md` and follow its workflow |
+| **REVIEW** | "review results", "accept or reject", "compare iterations", "check test scores", "finalize iteration" | Load `references/review.md` and follow its workflow |
+| **EVAL DATA** | "create eval split", "validate split", "check eval balance", "split quality", "re-balance eval", "eval dataset" | Load `references/eval-data.md` and follow its workflow |
+| **FLAG SWEEP** | "flag sweep", "revalidate flags", "re-run flag comparison", "compare EnableAgenticAnalyst", "compare feature flags" | Load `references/flag-sweep.md` and follow its workflow. **Note:** for standalone 3-variant comparison from scratch (no active optimization project), route to `agent-flag-tester` instead. |
+| **FLAG REVALIDATION** | "revalidate flags", "re-test flags", "flag recheck", "confirm flag choice", "flags still hold", auto-triggered after 3 accepted iterations | Load `references/flag-sweep.md` with `mode=REVALIDATE` (see below) |
+| **FEEDBACK** | "pull feedback", "feedback to eval", "grow eval from feedback", "curate feedback", "promote feedback", "user feedback" | Load `references/feedback-pipeline.md` and follow its workflow |
 | **DIAGNOSE** | "diagnose agent failures", "why is my agent failing", "is it the SV or the agent", "root cause", "debug failures", "what's wrong with my agent" | Run inline diagnostic below |
 | **RESUME_AFTER_SV_CHANGE** | "I fixed the semantic view", "SV was updated", "semantic view changed", "resume after SV fix", "SV is fixed now" | Run inline re-entry workflow below |
 | **LIFECYCLE** | "full optimization", "end-to-end optimize", "optimize from scratch", "full lifecycle", "model sweep + optimize", "optimize everything", "complete agent optimization" | Load `references/full-lifecycle.md` and follow its phased workflow. This covers the full improvement lifecycle: Creation → Baseline → Model Sweep → Flags → Iterative Opt → GEPA → Validate & Ship. |

@@ -251,3 +251,30 @@ When scanning a schema for SV candidates, prioritize:
 2. Tables with declared relationships (FK/PK)
 3. Tables with meaningful column names (not generic staging tables)
 4. Exclude: staging tables (`STG_`), temporary tables, system tables
+
+---
+
+## Domain-Specific Column Caveats
+
+Some source tables have columns whose SQL type does not match their semantic type. These cause
+silent failures in VQR SQL, eval scoring, and any arithmetic query.
+
+### PSPS Domain (`PSPS_HISTORICAL`)
+
+| Column | Stored Type | Semantic Type | Symptom | Correct Usage |
+|---|---|---|---|---|
+| `GEN_FUELLEVEL` | `TEXT` | Numeric percentage | `AVG()`, comparisons return NULL or error | `TRY_TO_DECIMAL(GEN_FUELLEVEL)` |
+
+```sql
+-- AVG fuel level (TEXT → DECIMAL required):
+ROUND(AVG(TRY_TO_DECIMAL(GEN_FUELLEVEL)), 1) AS avg_fuel_pct
+
+-- Filter by fuel level:
+WHERE TRY_TO_DECIMAL(GEN_FUELLEVEL) < 50
+```
+
+Use `TRY_TO_DECIMAL` not `TO_DECIMAL` — returns NULL on non-numeric rows rather than erroring.
+
+If this column appears in a VQR or eval SQL, the VQR health check (Check 2 in
+`references/vqr-eval-health.md`) will not catch the type mismatch — add an explicit CAST in
+the VQR SQL.

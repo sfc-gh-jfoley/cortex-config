@@ -167,3 +167,28 @@ To migrate from custom TSA/TEA scripts:
 3. Run both native and custom on the same dataset to establish your delta baseline, then choose one going forward
 
 **Recommendation**: Run both methods on a small test dataset (10–20 questions) to verify the ±5–10% delta is within your acceptable tolerance. Then standardize on native metrics for future evaluations.
+
+---
+
+## 7. GROUP BY alias fails after eval framework CTE expansion
+
+**Symptom**: Eval run fails or scores incorrectly on questions that use time-based grouping or
+computed dimensions. Error references a column alias used in GROUP BY.
+
+**Root cause**: The eval framework rewrites ground-truth SQL using CTEs. GROUP BY alias
+references break after CTE expansion in some Snowflake contexts:
+
+```sql
+-- BAD (breaks after CTE expansion):
+SELECT DATE_TRUNC('month', event_ts) AS event_month, COUNT(*) AS cnt
+FROM ...
+GROUP BY event_month   -- alias — broken after CTE rewrite
+
+-- GOOD:
+SELECT DATE_TRUNC('month', event_ts) AS event_month, COUNT(*) AS cnt
+FROM ...
+GROUP BY DATE_TRUNC('month', event_ts)  -- full expression — safe
+```
+
+**Fix**: Audit all ground-truth SQL in your eval dataset for GROUP BY alias references.
+Replace each alias with the full expression it represents.
