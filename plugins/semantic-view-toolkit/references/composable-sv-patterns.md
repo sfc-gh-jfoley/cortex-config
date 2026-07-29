@@ -10,55 +10,66 @@ A semantic view can reference another semantic view as a source table, creating 
 
 ### Syntax
 
+> ⚠️ **Not yet GA — Private Preview only.** Semantic views referencing other semantic views
+> are not supported in production accounts. Use Multi-SV Agent Composition (Pattern 2) instead.
+
 ```sql
 -- Base SV: shared customer dimension
 CREATE OR REPLACE SEMANTIC VIEW analytics.shared.customer_dimension
   TABLES (
-    analytics.core.customers AS customers,
-    analytics.core.customer_segments AS segments
+    customers AS analytics.core.customers
+      PRIMARY KEY (customer_id)
+      COMMENT = 'Customer master data',
+    segments AS analytics.core.customer_segments
+      PRIMARY KEY (segment_id)
+      COMMENT = 'Customer segments'
   )
   RELATIONSHIPS (
-    customers REFERENCES segments (segment_id, segment_id)
-      JOIN TYPE = 'LEFT OUTER'
+    customers_to_segments AS customers (segment_id) REFERENCES segments
   )
   DIMENSIONS (
-    customers (
-      customer_id KIND 'dimension' DESCRIPTION 'Unique customer identifier',
-      customer_name KIND 'dimension' DESCRIPTION 'Full customer name',
-      email KIND 'dimension' DESCRIPTION 'Customer email address'
-    ),
-    segments (
-      segment_name KIND 'dimension' DESCRIPTION 'Customer segment (Enterprise, SMB, Startup)',
-      tier KIND 'dimension' DESCRIPTION 'Value tier (Gold, Silver, Bronze)'
-    )
+    customers.customer_id AS customer_id
+      COMMENT = 'Unique customer identifier',
+    customers.customer_name AS customer_name
+      COMMENT = 'Full customer name',
+    customers.email AS email
+      COMMENT = 'Customer email address',
+    segments.segment_name AS segment_name
+      COMMENT = 'Customer segment (Enterprise, SMB, Startup)',
+    segments.tier AS tier
+      COMMENT = 'Value tier (Gold, Silver, Bronze)'
   )
 ;
 
 -- Domain SV: references the customer dimension SV
+-- ⚠️ Composable SVs (SV referencing another SV) are not yet GA
 CREATE OR REPLACE SEMANTIC VIEW analytics.sales.order_analytics
   TABLES (
-    analytics.core.orders AS orders,
-    analytics.shared.customer_dimension AS customers  -- References another SV!
+    orders AS analytics.core.orders
+      PRIMARY KEY (order_id)
+      COMMENT = 'Order transactions',
+    customers AS analytics.shared.customer_dimension  -- References another SV!
+      PRIMARY KEY (customer_id)
+      COMMENT = 'Shared customer dimension'
   )
   RELATIONSHIPS (
-    orders REFERENCES customers (customer_id, customer_id)
-      JOIN TYPE = 'INNER'
+    orders_to_customers AS orders (customer_id) REFERENCES customers
   )
   FACTS (
-    orders (
-      order_amount DESCRIPTION 'Order total in USD',
-      quantity DESCRIPTION 'Number of items ordered'
-    )
+    orders.order_amount AS order_amount
+      COMMENT = 'Order total in USD',
+    orders.quantity AS quantity
+      COMMENT = 'Number of items ordered'
   )
   DIMENSIONS (
-    customers (
-      customer_name DESCRIPTION 'From shared customer dimension',
-      segment_name DESCRIPTION 'From shared customer dimension'
-    )
+    customers.customer_name AS customer_name
+      COMMENT = 'From shared customer dimension',
+    customers.segment_name AS segment_name
+      COMMENT = 'From shared customer dimension'
   )
   METRICS (
-    total_revenue EXPR 'SUM(orders.order_amount)' DEFAULT_AGGREGATION SUM
-      DESCRIPTION 'Total revenue from orders'
+    orders.total_revenue AS SUM(order_amount)
+      COMMENT = 'Total revenue from orders'
   )
 ;
 ```

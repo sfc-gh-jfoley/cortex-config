@@ -4,10 +4,14 @@ Groups artifacts into dependency-ordered batches and produces a machine-readable
 dispatch plan for CoCo to execute.
 """
 
+from __future__ import annotations
+
 from datetime import date
 from pathlib import Path
+from typing import Any
 
-from specbuilder.src.agents.registry import get_agent_config
+from specbuilder.src.agents.registry import AGENT_REGISTRY, get_agent_config
+from specbuilder.src.config import MAX_CONCURRENT_AGENTS
 
 # ---------------------------------------------------------------------------
 # Topological sort
@@ -24,13 +28,9 @@ def topological_sort(artifacts: list[dict]) -> list[list[dict]]:
     Raises:
         ValueError: If a circular dependency is detected.
     """
-    domain_priority = {
-        "data-engineering": 0,
-        "security": 1,
-        "app-dev": 2,
-        "ml": 2,
-        "fallback": 3,
-    }
+    # Derived from AGENT_REGISTRY insertion order.
+    # app-dev (index 2) takes priority over ml (index 3) — intentional by design.
+    domain_priority = {domain: i for i, domain in enumerate(AGENT_REGISTRY)}
 
     # Build graph structures
     by_path = {a["path"]: a for a in artifacts}
@@ -53,8 +53,11 @@ def topological_sort(artifacts: list[dict]) -> list[list[dict]]:
             cycle_members = sorted(remaining)
             raise ValueError(f"Circular dependency detected: {' → '.join(cycle_members)}")
 
-        # Sort by domain priority for deterministic output
-        ready.sort(key=lambda p: domain_priority.get(by_path[p].get("domain", "fallback"), 3))
+        # Sort by domain priority for deterministic output; unknown domains sort last.
+        n_domains = len(AGENT_REGISTRY)
+        ready.sort(
+            key=lambda p: domain_priority.get(by_path[p].get("domain", "fallback"), n_domains)
+        )
 
         levels.append([by_path[p] for p in ready])
 
@@ -71,23 +74,45 @@ def topological_sort(artifacts: list[dict]) -> list[list[dict]]:
 # ---------------------------------------------------------------------------
 
 
+def _read_impl_status(metadata_dir: Path) -> dict:
+    """Read impl-status.json and return a dict keyed by artifact path."""
+    status_file = metadata_dir / "impl-status.json"
+    if not status_file.exists():
+        return {}
+    try:
+        import json
+        data = json.loads(status_file.read_text(encoding="utf-8"))
+        return {entry["path"]: entry for entry in data.get("artifacts", [])}
+    except Exception:
+        return {}
+
+
 def prepare_dispatch_plan(
     artifacts: list[dict],
     module_id: str,
     spec_path: Path,
+    metadata_dir: Path,
+    quality_profile: dict | None = None,
 ) -> dict:
     """Prepare a structured dispatch manifest for CoCo to execute.
 
-    Produces a machine-readable `workspace/dispatch.json` with batched
-    execution order, domain→skills mapping, and validation config.
+    Builds a machine-readable manifest with batched execution order,
+    domain→skills mapping, and validation config.
 
     Returns:
-        The dispatch manifest dict (also written to workspace/dispatch.json).
+        The dispatch manifest dict. The caller is responsible for writing
+        it to ``workspace/dispatch.json``.
     """
-    levels = topological_sort(artifacts)
+    status_map = _read_impl_status(metadata_dir)
+    pending = [
+        a for a in artifacts
+        if status_map.get(a["path"], {}).get("status") != "implemented"
+    ]
+    levels = topological_sort(pending)
 
     execution_order = []
-    for batch_idx, level_artifacts in enumerate(levels, start=1):
+    batch_idx = 0
+    for level_artifacts in levels:
         batch_artifacts = []
         for art in level_artifacts:
             config = get_agent_config(art.get("domain", "fallback"))
@@ -103,22 +128,43 @@ def prepare_dispatch_plan(
                     "depends_on": art.get("depends_on", []),
                 }
             )
-        execution_order.append(
-            {
+
+        # Subdivide into sub-batches when a concurrency cap is active.
+        # MAX_CONCURRENT_AGENTS == 0 means unlimited (single chunk per level).
+        if MAX_CONCURRENT_AGENTS > 0:
+            chunks = [
+                batch_artifacts[i : i + MAX_CONCURRENT_AGENTS]
+                for i in range(0, len(batch_artifacts), MAX_CONCURRENT_AGENTS)
+            ]
+        else:
+            chunks = [batch_artifacts]
+
+        for chunk in chunks:
+            batch_idx += 1
+            batch_entry = {
                 "batch": batch_idx,
                 "parallel": True,
-                "artifacts": batch_artifacts,
+                "artifacts": chunk,
             }
-        )
+            if len(chunk) == 1:
+                batch_entry["single_artifact"] = True
+            execution_order.append(batch_entry)
 
-    dispatch = {
+    dispatch: dict[str, Any] = {
         "module": module_id,
         "spec_path": str(spec_path),
         "generated": date.today().isoformat(),
         "execution_order": execution_order,
-        "validation": {
-            "checks": ["sql_compile", "cross_reference", "import_check"],
-        },
     }
+
+    if quality_profile is not None:
+        dispatch["quality_profile"] = {
+            "name": quality_profile.get("name", "full"),
+            "validation_tier": quality_profile.get("validation_tier", "compile"),
+            "self_correct": quality_profile.get("self_correct", False),
+            "max_retries": quality_profile.get("max_retries", 0),
+            "skip_checks": quality_profile.get("skip_checks", []),
+            "threshold": quality_profile.get("threshold", 75),
+        }
 
     return dispatch

@@ -17,6 +17,7 @@ my_agent_project/
 │
 ├── deploy.sql                              # Generated — do not edit by hand
 ├── optimization_log.md                     # Iteration history with scores and decisions
+├── flag_sweep_baseline.json                 # Flag/model sweep baseline (written by agent-flag-tester, read by optimize Step 10)
 ├── metadata.yaml                           # Agent database/schema/name, workspace config
 ├── eval_config_dev_r1.yaml                 # DEV slot 1 eval config
 ├── eval_config_dev_r2.yaml                 # DEV slot 2 eval config (through r<RUNS_PER_SPLIT>)
@@ -42,6 +43,7 @@ agent_workspace/
 │   │   └── spec_base.json
 │   ├── deploy.sql
 │   ├── optimization_log.md
+│   ├── flag_sweep_baseline.json             # Flag/model sweep baseline (written by agent-flag-tester)
 │   ├── metadata.yaml
 │   ├── eval_config_dev_r1.yaml
 │   ├── eval_config_dev_r2.yaml             (through r<RUNS_PER_SPLIT>)

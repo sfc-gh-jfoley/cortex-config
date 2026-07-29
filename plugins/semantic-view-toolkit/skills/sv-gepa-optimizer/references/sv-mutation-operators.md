@@ -20,6 +20,9 @@ Each operator targets a specific part of the SV DDL and is selected based on eva
 | 8 | `change_relationship` | RELATIONSHIPS section | Wrong joins in generated SQL |
 | 9 | `add_time_dimension` | Column IS_TIME_DIMENSION flag | Time-based queries fail |
 | 10 | `remove_column` | Column list (facts/dimensions) | Too many similar columns, noise |
+| 11 | `sync_metric_definitions_across_tables` | METRIC definitions (multi-table) | Same metric name with different filter on two tables |
+| 12 | `extract_metric_filter_to_fact` | FACTS section | Repeated CASE WHEN filter on same column |
+| 13 | `detect_contaminated_vqr_baseline` | AI_VERIFIED_QUERIES (read-only) | Pre-check: VQR health scan for missing metric filters |
 
 ---
 
@@ -822,6 +825,85 @@ COLUMN order_status
 
 ---
 
+## 11. sync_metric_definitions_across_tables
+
+**Target:** METRIC definitions across two fact tables with the same metric name
+
+**When to use:** Pre-optimization Check 2 flags the same metric name with different EXPR on two tables, causing LLM to generate inconsistent SQL depending on which table it routes to.
+
+**Anti-patterns:** Do not apply if the difference is intentional (EXT table semantics differ by design). Renaming may break existing VQRs — verify before applying.
+
+**LLM Prompt Template:**
+```
+Two metrics share the same name but have different filter logic.
+Metric: {metric_name}
+Table A ({table_a}): {expr_a}
+Table B ({table_b}): {expr_b}
+
+Decide: (A) add missing filter to weaker definition, or (B) rename one metric.
+Return JSON: {"action": "align_filter"|"rename", "table": "A"|"B", "value": "new_expr_or_name"}
+```
+
+**DDL Section Modified:** METRICS (multi-table)
+
+**Validation:** After applying, run `DESCRIBE SEMANTIC VIEW <SV_FQN>` to confirm no compilation errors. For VQR changes, re-run `detect_contaminated_vqr_baseline` to confirm HEALTHY classification.
+
+---
+
+## 12. extract_metric_filter_to_fact
+
+**Target:** FACTS section (new column) + METRICS section (simplified expr)
+
+**When to use:** A metric uses `SUM(CASE WHEN col = val THEN col ELSE 0 END)` and the same filter pattern appears in multiple VQRs or metrics. Extracting to a named FACT makes the filter visible, reduces VQR authoring errors, and ensures correct results even when the model bypasses the metric name.
+
+**Anti-patterns:** Do not apply when the filter is used in only one place, or when the filter condition is dynamic.
+
+**LLM Prompt Template:**
+```
+Extract this CASE WHEN expression into a named FACT column.
+Source column: {source_col}
+Filter: {filter_condition}
+Current metric: {metric_name} = {metric_expr}
+Table alias: {table_alias}
+
+Return JSON: {
+  "fact_name": "...",
+  "fact_expr": "CASE WHEN {filter_condition} THEN {source_col} ELSE 0 END",
+  "metric_expr": "SUM({fact_name})",
+  "description": "..."
+}
+```
+
+**DDL Section Modified:** FACTS + METRICS
+
+**Validation:** After applying, run `DESCRIBE SEMANTIC VIEW <SV_FQN>` to confirm no compilation errors. For VQR changes, re-run `detect_contaminated_vqr_baseline` to confirm HEALTHY classification.
+
+---
+
+## 13. detect_contaminated_vqr_baseline
+
+**Target:** AI_VERIFIED_QUERIES reference SQL (read-only detection)
+
+**When to use:** As pre-optimization Check 1 — run before first eval to classify all VQRs as HEALTHY / CONTAMINATED / REVIEW against the metric filter map. Output used for read-only analysis (exclude/flag contaminated VQRs; do not modify).
+
+**Anti-patterns:** Do not use as a mutation operator during GEPA iterations — this is diagnostic only. Do not flag VQRs that intentionally query without the filter (refund analysis questions).
+
+**Detection logic:**
+```
+For each metric M with CASE WHEN <filter_col> = <filter_val> in EXPR:
+  For each VQR V that aggregates <agg_col> from M:
+    If V.SQL lacks "CASE WHEN <filter_col>" AND lacks "WHERE <filter_col> = <filter_val>":
+      → CONTAMINATED
+    Else:
+      → HEALTHY
+```
+
+**DDL Section Modified:** AI_VERIFIED_QUERIES (read-only)
+
+**Validation:** After applying, run `DESCRIBE SEMANTIC VIEW <SV_FQN>` to confirm no compilation errors. For VQR changes, re-run `detect_contaminated_vqr_baseline` to confirm HEALTHY classification.
+
+---
+
 ## Operator Selection Strategy
 
 ### Weight-Based Selection
@@ -832,15 +914,18 @@ GEPA uses adaptive weights to select operators. Initial weights are equal; they 
 ```json
 {
   "add_synonym": 0.10,
-  "improve_description": 0.15,
+  "improve_description": 0.13,
   "add_filter": 0.10,
   "add_vqr": 0.10,
   "add_metric": 0.10,
   "refine_metric_expr": 0.10,
   "add_metric_description": 0.05,
-  "change_relationship": 0.15,
+  "change_relationship": 0.13,
   "add_time_dimension": 0.05,
-  "remove_column": 0.10
+  "remove_column": 0.08,
+  "sync_metric_definitions_across_tables": 0.06,
+  "extract_metric_filter_to_fact": 0.05,
+  "detect_contaminated_vqr_baseline": 0.03
 }
 ```
 
@@ -860,6 +945,8 @@ When eval results are available, prefer operators that match failure patterns:
 | SQL syntax error | Manual DDL fix (not operator) | - |
 | Analyst refuses | `add_vqr` | - |
 | Low overall score | `add_vqr` | `add_metric` |
+| VQR filter contamination | **Read-only analysis** (exclude/flag; do not modify) | `detect_contaminated_vqr_baseline` |
+| Cross-table metric inconsistency | `sync_metric_definitions_across_tables` | `extract_metric_filter_to_fact` |
 
 ### Multi-Mutation Candidates
 

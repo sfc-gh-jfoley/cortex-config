@@ -91,6 +91,8 @@ Note the file path as `SPEC_EXPORT_PATH`.
 
 > ⚠️ **MANDATORY — execute immediately.** Write this file now using the Write file tool. Do not defer, skip, or treat this as optional. This step must complete before Step 7.6.
 
+> **Schema reference:** `reference/handoff-schema.json` — canonical field definitions and types for this file. Downstream consumers (`agent-flag-tester`, `cortex-agent-optimization`) read from this contract.
+
 Write the following JSON to `./<AGENT_NAME>_handoff.json` (using the Write tool, not bash heredoc):
 
 ```json
@@ -171,7 +173,7 @@ Present the next-steps menu:
 What would you like to do next?
 
   [1] agent-flag-tester
-      Compare model variants (claude-sonnet vs openai-gpt-5 vs haiku)
+      Compare model variants (current_sonnet vs openai_heavy vs fast_agent — resolve from the model table)
       and conditional flag variants (VQR, unrestricted chart) side-by-side.
       Best when: you want to find the right model/config tradeoff
       before committing to a final configuration.
@@ -201,14 +203,17 @@ What would you like to do next?
       Return to Phase 3 (instructions) or Phase 2 (tool descriptions)
       based on the failure type identified above.
 
-  [6] CI/CD deployment pipeline
-      Set up automated deployment from a Git-tracked spec file.
-      GitHub Actions / GitLab CI / Azure Pipelines with OIDC auth,
-      environment promotion (DEV → TEST → PROD), rollback, and
-      drift detection.
-      Best when: you want to deploy this agent across environments
-      from a CI/CD pipeline instead of manual SQL execution.
-      → Proceeds to Phase 8
+   [6] CI/CD deployment pipeline + versioning
+       Set up automated deployment from a Git-tracked spec file.
+       GitHub Actions / GitLab CI / Azure Pipelines with OIDC auth,
+       environment promotion (DEV → TEST → PROD), rollback, and
+       drift detection.
+       Includes agent versioning: commit live → alias 'production' →
+       rollback by reassigning the alias. See agent-versioning.md.
+       Best when: you want to deploy this agent across environments
+       from a CI/CD pipeline instead of manual SQL execution.
+       → Proceeds to Phase 8; see reference/agent-versioning.md for
+         version SQL commands
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -239,7 +244,7 @@ Summary:
 Find it in Snowflake Intelligence under "<display_name>".
 ```
 
-If >10% of skills changed this session, GitLab backup may be triggered per global AGENTS.md protocol.
+
 
 ---
 

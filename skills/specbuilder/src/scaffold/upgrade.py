@@ -31,7 +31,7 @@ def upgrade_project(
             "created": [],
             "skipped": [],
             "merged": [],
-            "message": "No spec structure found. Run scaffold first (with or without --lite).",
+            "message": "No spec structure found. Run scaffold first.",
         }
     if mode == "full":
         return {
@@ -92,50 +92,77 @@ def upgrade_project(
         (project_root / s / "acceptance-criteria" / "README.md", "ac-readme.md.j2", False),
     ]
 
-    for target, template_name, executable in upgrade_files:
-        rel = str(target.relative_to(project_root))
-        if target.exists():
-            skipped.append(rel)
-            continue
-
-        content = _render_template(template_name, context)
-        if dry_run:
-            print(f"[dry-run] create {rel}")
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-            if executable:
-                _make_executable(target)
-        created.append(rel)
-
-    # Upgrade agent.md to include full workflow
+    # Snapshot files that will be written or merged, for rollback on failure
     agent_path = project_root / "agent.md"
-    agent_section = _render_template("agent-section.md.j2", context)
-    if agent_path.exists():
-        existing_content = agent_path.read_text(encoding="utf-8")
-        if "## Spec-Driven Development Workflow" not in existing_content:
+    snapshot: dict[Path, bytes | None] = {}
+    for target, _, _ in upgrade_files:
+        snapshot[target] = target.read_bytes() if target.exists() else None
+    snapshot[agent_path] = agent_path.read_bytes() if agent_path.exists() else None
+
+    try:
+        for target, template_name, executable in upgrade_files:
+            rel = str(target.relative_to(project_root))
+            if target.exists():
+                skipped.append(rel)
+                continue
+
+            content = _render_template(template_name, context)
             if dry_run:
-                print("[dry-run] upgrade agent.md to full mode")
+                print(f"[dry-run] create {rel}")
             else:
-                # Replace lite mode section with full
-                if "## Spec-Driven Development (Lite Mode)" in existing_content:
-                    parts = existing_content.split("## Spec-Driven Development (Lite Mode)")
-                    new_content = parts[0] + agent_section
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+                if executable:
+                    _make_executable(target)
+            created.append(rel)
+
+        # Upgrade agent.md to include full workflow
+        agent_section = _render_template("agent-section.md.j2", context)
+        if agent_path.exists():
+            existing_content = agent_path.read_text(encoding="utf-8")
+            if "## Spec-Driven Development Workflow" not in existing_content:
+                if dry_run:
+                    print("[dry-run] upgrade agent.md to full mode")
                 else:
-                    new_content = existing_content + "\n\n" + agent_section
-                agent_path.write_text(new_content, encoding="utf-8")
-            merged.append("agent.md")
-        else:
-            skipped.append("agent.md (already has full workflow)")
+                    # Replace lite mode section with full
+                    if "## Spec-Driven Development (Lite Mode)" in existing_content:
+                        parts = existing_content.split("## Spec-Driven Development (Lite Mode)")
+                        new_content = parts[0] + agent_section
+                    else:
+                        new_content = existing_content + "\n\n" + agent_section
+                    agent_path.write_text(new_content, encoding="utf-8")
+                merged.append("agent.md")
+            else:
+                skipped.append("agent.md (already has full workflow)")
+
+    except Exception as exc:
+        for path, original in snapshot.items():
+            try:
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(original)
+            except OSError:
+                pass  # best-effort restore
+        raise RuntimeError(
+            f"Upgrade failed while writing files: {exc}. "
+            "Affected files have been restored to their pre-upgrade state."
+        ) from exc
 
     # Post-upgrade: generate manifest and README tables
     try:
+        # generate_index.py is the canonical backing module for generate-manifest
         from specbuilder.src.generate_index import generate_manifest, regenerate_readme_table
 
         if not dry_run:
             generate_manifest(project_root)
             regenerate_readme_table(project_root)
-    except Exception:
-        pass
+    except Exception as exc:
+        import sys
+        print(
+            f"Warning: manifest generation failed after upgrade: {exc}\n"
+            "Run 'python3 -m specbuilder generate-manifest' to retry.",
+            file=sys.stderr,
+        )
 
     return {"created": created, "skipped": skipped, "merged": merged}

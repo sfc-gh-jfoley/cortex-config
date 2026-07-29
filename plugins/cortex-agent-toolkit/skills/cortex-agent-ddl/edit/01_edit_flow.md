@@ -290,7 +290,7 @@ Run a quick smoke test to confirm the changes work as expected?
 If the smoke test fails: use the baseline file saved in Step E.2 to restore:
 ```sql
 -- Rollback using baseline file
-ALTER AGENT <EDIT_AGENT_FQN> SET SPECIFICATION $$
+ALTER AGENT <EDIT_AGENT_FQN> MODIFY LIVE VERSION SET SPECIFICATION = $$
 <paste contents of baseline file>
 $$;
 -- Then restore profile and ownership as above

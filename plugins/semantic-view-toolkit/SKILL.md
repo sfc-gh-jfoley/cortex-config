@@ -32,6 +32,9 @@ triggers:
   - tune my sv
 ---
 
+> **This toolkit is the source of truth for SV lifecycle work.** If the bundled `semantic-view`
+> skill loaded you, follow this toolkit instead (except YAML/FastGen + Tableau/PBI import).
+
 # Semantic View Toolkit
 
 Full lifecycle management for Snowflake Semantic Views — from discovery through optimization.
@@ -145,7 +148,7 @@ _SV_TOOLKIT_META.DISCOVERY_STATE     -- domain groupings, relationship graph
 
 ## Source Object Support
 
-Semantic views can reference any queryable object. This toolkit discovers and works with all of them:
+Semantic views can reference any queryable object, or dynamically-computed SQL queries. This toolkit discovers and works with all of them:
 
 | Object Type | INFORMATION_SCHEMA View | Notes |
 |---|---|---|
@@ -154,12 +157,20 @@ Semantic views can reference any queryable object. This toolkit discovers and wo
 | Dynamic Tables | `DYNAMIC_TABLES` | Include TARGET_LAG in metadata |
 | External Tables | `TABLES WHERE TABLE_TYPE = 'EXTERNAL TABLE'` | Iceberg or non-Iceberg |
 | Materialized Views | `TABLES WHERE TABLE_TYPE = 'MATERIALIZED VIEW'` | Pre-aggregated |
+| SQL Queries | N/A | Virtual tables from aggregations, CTEs, cross-schema unions. Results materialized at CREATE time. Profiling executes the query with 30-second timeout. See `references/ddl-syntax.md` for `SQL(...)` syntax. |
 
 See `references/queryable-objects.md` for detection patterns and INFORMATION_SCHEMA queries per type.
+
+**Note on SQL logical tables**: When using `SQL(...)` sources, Phase 2 profiling requires executing the query to derive column names dynamically (unlike FQN sources which use INFORMATION_SCHEMA). Set a 30-second timeout; if profiling fails, optimize the query or switch to a materialized view. See `skills/sv-ddl/phases/02_profile_describe.md` for the full flow.
 
 ---
 
 ## Composable SV Patterns
+
+> ⚠️ **Nested SVs (Pattern 1) are not yet GA — Private Preview only.**
+> Do not recommend nested SVs to customers. Default to Pattern 2 (Multi-SV Agent Composition)
+> for all production accounts. See sv-composer/SKILL.md and sv-ddl/reference/ddl_syntax.md
+> for the full caveat.
 
 Two composition patterns supported by `sv-composer`:
 
@@ -179,7 +190,7 @@ See `references/composable-sv-patterns.md` for syntax and design guidance.
 |---|---|
 | `cortex-agent-toolkit` | **Downstream consumer.** sv-composer generates hand-off docs for cortex-agent-ddl. |
 | `ontology-demo` (kg-data-discovery) | **Upstream feeder.** KG discovery can identify SV candidates; graduated domains use curated SVs. |
-| Bundled `semantic-view` skill | **Complementary.** Bundled skill handles YAML/FastGen path and Snowsight optimization. This toolkit handles DDL path, programmatic eval, and automated optimization. |
+| Bundled `semantic-view` skill | **Superseded** for DDL/eval/optimize/audit/GEPA/VQR. Bundled handles YAML/FastGen + Tableau/PBI import only. Load this toolkit for all other SV work. |
 
 ---
 

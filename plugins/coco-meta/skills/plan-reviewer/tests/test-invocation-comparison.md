@@ -11,7 +11,7 @@ Use the plan-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: COMPARISON
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 target_files:
   - plans/plan-a.md
   - plans/plan-b.md
@@ -37,7 +37,7 @@ target_files:
 -  Determine overall winner
 
 ### Phase 4: Output
--  Write to: `reviews/summaries/_comparison-plans-abc-claude-sonnet-45-2026-01-06.md`
+-  Write to: `reviews/summaries/_comparison-plans-abc-claude-sonnet-4-6-2026-01-06.md`
 -  Include individual plan summaries
 -  Include comparison table
 -  Declare winner with rationale
@@ -48,7 +48,7 @@ target_files:
 # Plan Comparison Review
 
 **Reviewed:** 2026-01-06
-**Model:** claude-sonnet-45
+**Model:** claude-sonnet-4-6
 **Mode:** COMPARISON
 **Plans:** plan-a.md, plan-b.md, plan-c.md
 

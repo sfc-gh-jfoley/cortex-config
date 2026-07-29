@@ -8,7 +8,7 @@ Usage:
   python mutate.py get-prompt <operator> <sv_ddl_path>
   python mutate.py validate <original_ddl_path> <mutated_ddl_path>
 
-Run with: uvx --with pyyaml python scripts/mutate.py
+Run with: python3 scripts/mutate.py
 """
 
 import argparse
@@ -17,8 +17,6 @@ import random
 import re
 import sys
 from pathlib import Path
-
-import yaml
 
 
 OPERATORS = [
@@ -259,13 +257,13 @@ Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation."""
 
 
 def load_state(state_path: str) -> dict:
-    """Load GEPA state from YAML file."""
+    """Load GEPA state from JSON file."""
     path = Path(state_path)
     if not path.exists():
         print(f"Error: State file not found: {state_path}", file=sys.stderr)
         sys.exit(1)
     with open(path) as f:
-        return yaml.safe_load(f)
+        return json.load(f)
 
 
 def cmd_select_operator(args: argparse.Namespace) -> None:
@@ -405,7 +403,7 @@ def main() -> None:
 
     # select-operator
     p_select = subparsers.add_parser("select-operator", help="Weighted random operator selection")
-    p_select.add_argument("--weights-file", required=True, help="Path to gepa_state.yaml")
+    p_select.add_argument("--weights-file", required=True, help="Path to gepa_state.json")
     p_select.add_argument("--seed", type=int, help="Random seed for reproducibility")
 
     # get-prompt

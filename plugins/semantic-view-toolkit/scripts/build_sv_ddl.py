@@ -8,7 +8,7 @@ Usage:
   python build_sv_ddl.py --input <structured_json> --output <ddl_file>
   python build_sv_ddl.py --from-describe <describe_output_json> --apply-mutations <mutations_json> --output <ddl_file>
 
-Run with: uvx --with pyyaml python scripts/build_sv_ddl.py
+Run with: python3 scripts/build_sv_ddl.py
 """
 
 # =============================================================================

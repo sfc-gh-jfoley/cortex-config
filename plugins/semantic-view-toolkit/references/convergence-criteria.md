@@ -131,15 +131,17 @@ After each generation's tournament:
 
 ## State Tracking
 
-The convergence state is tracked in `gepa_state.yaml`:
+The convergence state is tracked in `gepa_state.json`:
 
-```yaml
-current_generation: 3
-convergence_counter: 1
-convergence_threshold: 3
-max_generations: 10
-baseline_fitness: 0.65
-best_fitness: 0.78
+```json
+{
+  "current_generation": 3,
+  "convergence_counter": 1,
+  "convergence_threshold": 3,
+  "max_generations": 10,
+  "baseline_fitness": 0.65,
+  "best_fitness": 0.78
+}
 ```
 
 Updated after each tournament via `population_state.py` and `tournament.py`.

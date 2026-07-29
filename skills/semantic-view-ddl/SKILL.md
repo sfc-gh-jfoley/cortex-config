@@ -16,6 +16,8 @@ triggers:
   - semantic view health check
 ---
 
+> **LEGACY**: Use `$semantic-view-toolkit` for all SV work. This skill is maintained for compatibility only.
+
 # Semantic View DDL Skill
 
 ## When to use this skill
@@ -115,11 +117,11 @@ These rules are embedded in Phase 5's self-check. Reference [reference/ddl_synta
 
 ## Relationship to bundled semantic-view skill
 
-This skill **does not replace** the bundled `semantic-view` skill. Use each for:
+This skill is **LEGACY** — use `$semantic-view-toolkit` for all SV work. For reference, routing that previously pointed to the bundled skill now maps to toolkit sub-skills:
 
-| Goal | Skill to use |
+| Goal | Route to |
 |------|-------------|
-| DDL path, HOL, quick creation, unreliable FastGen | **This skill** (semantic-view-ddl) |
+| DDL path, HOL, quick creation, unreliable FastGen | `semantic-view-toolkit` → `sv-ddl` |
 | YAML/FastGen path, Tableau import | Bundled `semantic-view` skill |
-| Optimize/audit existing semantic view | Bundled `semantic-view` skill (optimization mode) |
-| VQR suggestions, filters & metrics suggestions | Bundled `semantic-view` skill |
+| Optimize/audit existing semantic view | `semantic-view-toolkit` → `sv-optimization` or `sv-audit` |
+| VQR suggestions, filters & metrics suggestions | `semantic-view-toolkit` → `vqr-generator` |

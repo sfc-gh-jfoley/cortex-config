@@ -1,5 +1,5 @@
 ---
-name: sv-discovery-phase11-audit-scan
+name: sv-audit-phase11-audit-scan
 description: Scan ACCOUNT_USAGE views to analyze query patterns, column access frequency, and detect gaps in the semantic view
 ---
 

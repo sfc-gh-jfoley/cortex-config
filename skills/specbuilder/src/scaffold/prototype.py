@@ -61,6 +61,40 @@ def start_prototype(
     return data
 
 
+def check_prototype_expiry(
+    project_root: Path, spec_dir: str = "spec"
+) -> dict:
+    """Check whether the prototype sentinel has passed its expiry time.
+
+    If expired, deletes the sentinel and returns::
+
+        {"expired": True, "was_active": True, "expires": <ISO str>}
+
+    If not expired or no sentinel exists, returns::
+
+        {"expired": False, "was_active": <bool>}
+    """
+    prototype_path = project_root / spec_dir / ".prototype"
+    if not prototype_path.exists():
+        return {"expired": False, "was_active": False}
+
+    try:
+        data = json.loads(prototype_path.read_text(encoding="utf-8"))
+        expires = datetime.fromisoformat(data["expires"])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return {"expired": False, "was_active": True}
+
+    now = datetime.now(timezone.utc)
+    if now >= expires:
+        try:
+            prototype_path.unlink()
+        except OSError:
+            pass
+        return {"expired": True, "was_active": True, "expires": data["expires"]}
+
+    return {"expired": False, "was_active": True}
+
+
 def end_prototype(project_root: Path, spec_dir: str = "spec") -> dict:
     """End prototype mode and report files modified since activation.
 
@@ -71,6 +105,17 @@ def end_prototype(project_root: Path, spec_dir: str = "spec") -> dict:
     if not prototype_path.exists():
         return {"active": False, "message": "Prototype mode is not active."}
 
+    # Check expiry before audit — expired sentinel is treated as already ended (EXT-163)
+    expiry = check_prototype_expiry(project_root, spec_dir)
+    if expiry.get("expired"):
+        return {
+            "active": False,
+            "message": (
+                f"Prototype mode expired at {expiry['expires']} and has been "
+                "automatically ended. No manual --end-prototype required."
+            ),
+        }
+
     # Read activation time
     try:
         data = json.loads(prototype_path.read_text(encoding="utf-8"))
@@ -78,45 +123,49 @@ def end_prototype(project_root: Path, spec_dir: str = "spec") -> dict:
     except (json.JSONDecodeError, KeyError):
         activated = None
 
-    # Delete the sentinel
-    prototype_path.unlink()
-
-    # Audit: find files modified since activation
+    # Audit: find files modified since activation (BEFORE deleting sentinel)
     modified_files: list[str] = []
+    delete_sentinel = True
     if activated:
         import subprocess
 
-        # Use git to find files changed since activation
         try:
+            # Use git to find files changed since activation
             since_str = activated.strftime("%Y-%m-%d %H:%M:%S")
-            result = subprocess.run(
+            log_result = subprocess.run(
                 ["git", "log", "--since", since_str, "--name-only", "--pretty=format:"],
                 capture_output=True,
                 text=True,
                 cwd=str(project_root),
             )
-            if result.returncode == 0:
-                modified_files = [f for f in result.stdout.strip().split("\n") if f.strip()]
-        except FileNotFoundError:
-            pass
+            if log_result.returncode == 0:
+                modified_files = [f for f in log_result.stdout.strip().split("\n") if f.strip()]
 
-        # Also check uncommitted changes
-        try:
-            result = subprocess.run(
+            # Also check uncommitted changes
+            status_result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 capture_output=True,
                 text=True,
                 cwd=str(project_root),
             )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split("\n"):
+            if status_result.returncode == 0:
+                for line in status_result.stdout.strip().split("\n"):
                     if line.strip():
                         # Format: "XY filename" or "XY filename -> newname"
                         filename = line[3:].split(" -> ")[-1]
                         if filename not in modified_files:
                             modified_files.append(filename)
         except FileNotFoundError:
-            pass
+            # git not installed — bail without deleting sentinel
+            modified_files = []
+            delete_sentinel = False
+        except Exception:
+            # Other errors (OSError, TimeoutExpired, etc.) — end prototype anyway
+            modified_files = []
+
+    # Delete sentinel only after both audits complete (not if git unavailable)
+    if delete_sentinel and prototype_path.exists():
+        prototype_path.unlink()
 
     return {
         "active": True,

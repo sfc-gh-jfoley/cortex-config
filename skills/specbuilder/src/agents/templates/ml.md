@@ -46,5 +46,5 @@ Follow this lifecycle for every artifact:
 
 The `<ARTIFACT_PATH>` placeholder is replaced by the orchestrator with the actual artifact path from dispatch.json.
 
-## Assignment
+## Artifact Assignment
 The spec sections relevant to your artifacts will be injected below.

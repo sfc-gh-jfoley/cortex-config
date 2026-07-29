@@ -7,7 +7,7 @@ skill: cortex-agent-optimization
 scenario: setup_intent_routing
 connection: default
 description: |
-  Verifies that the SETUP intent is detected correctly and that setup/SKILL.md
+  Verifies that the SETUP intent is detected correctly and that references/setup.md
   is loaded. Also checks that the agent spec is extracted and workspace
   parameters are surfaced at the ⚠️ STOP gate in Step 1.
 
@@ -27,7 +27,7 @@ skill_assertions:
   skill_completed: true
   phases_executed:
     - "SETUP"
-  output_contains: "setup/SKILL.md"   # Router must load the sub-skill
+  output_contains: "references/setup.md"   # Router must load the sub-skill
   output_contains_2: "workspace"       # Must show workspace setup to user
 
 result_schema:

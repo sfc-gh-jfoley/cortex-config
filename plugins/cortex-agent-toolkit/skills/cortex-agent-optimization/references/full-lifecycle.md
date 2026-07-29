@@ -1,5 +1,16 @@
 # Cortex Agent Improvement Framework
 
+> **Historical reference — read this for the lifecycle shape, not for commands.**
+> This document predates the current toolkit and describes the workflow in terms of
+> helper scripts (`create_or_alter_agent.py`, `run_evaluation.py`, `test_agent.py`)
+> and a `best-practices/` directory that are **not shipped with this toolkit**. Any
+> command referencing them will fail with "file not found".
+>
+> For executable instructions use the skills directly:
+> `cortex-agent-ddl` (create/alter), `agent-evaluation` (evaluate),
+> `agent-flag-tester` (flag and model variants), `cortex-agent-optimization`
+> (iterate), `agent-gepa-optimizer` (population search).
+
 A systematic, phase-based workflow for optimizing any Snowflake Cortex Agent from creation through production deployment. Each phase uses a dedicated skill from the `cortex-agent-toolkit` plugin.
 
 ---
@@ -64,7 +75,7 @@ A systematic, phase-based workflow for optimizing any Snowflake Cortex Agent fro
   "database": "MY_DB",
   "schema": "MY_SCHEMA",
   "models": {
-    "orchestration": "claude-sonnet-4-6"
+    "orchestration": "claude-sonnet-4-6"  // balanced tier — see reference/agent_spec_syntax.md
   },
   "instructions": "You are an expert assistant...",
   "tools": [
@@ -147,10 +158,12 @@ If accuracy < 80%, **stop**. Fix the agent (instructions, tool descriptions, sem
 
 ### Valid Agent Models (as of 2026-05)
 
+> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md`.
+
 **Claude** (all support agent tool-use loop):
-- `claude-opus-4-7` — heavy, highest accuracy
-- `claude-sonnet-4-6` — balanced (recommended default)
-- `claude-haiku-4-5` — fast, good for simple routing
+- Heavy tier — highest accuracy (Opus class)
+- Balanced tier — recommended default (Sonnet class)
+- Fast tier — good for simple routing (Haiku class)
 
 **OpenAI** (all support agent tool-use loop):
 - `openai-gpt-5.2` — heavy
@@ -187,10 +200,15 @@ Models that fail any question are eliminated regardless of speed.
 
 ### 3-Variant Comparison
 
+> **`EnableAgenticAnalyst` is deprecated (default behavior since April 2026).**
+> Setting it has no documented effect, so an AGENTIC variant is identical to BASE
+> and wastes an evaluation run. Use model comparison as the first sweep instead.
+> Retained below only to explain older run records.
+
 | Variant | Experimental Flags |
 |---------|-------------------|
 | BASE | `{}` (no flags) |
-| AGENTIC | `{"EnableAgenticAnalyst": true}` |
+| AGENTIC | `{"EnableAgenticAnalyst": true}` — **deprecated, no effect** |
 | FASTPATH | `{"EnableVQRFastPath": true}` |
 
 ### Methodology

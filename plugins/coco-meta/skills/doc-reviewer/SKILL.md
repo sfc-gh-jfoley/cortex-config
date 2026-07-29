@@ -22,7 +22,7 @@ Review project documentation for accuracy with codebase, completeness of coverag
 **Required:**
 - **review_date**: `YYYY-MM-DD`
 - **review_mode**: `FULL` | `FOCUSED` | `STALENESS`
-- **model**: Model slug (e.g., `claude-sonnet-45`)
+- **model**: Model slug (e.g., `claude-sonnet-4-6`)
 
 **Optional:**
 - **target_files**: List of file paths (defaults to project docs if not specified)
@@ -165,7 +165,7 @@ Convert model name to lowercase-hyphenated slug for filenames.
 ```bash
 # 1. Start (store _timing_run_id from output)
 bash skills/skill-timing/scripts/run_timing.sh start \
-    --skill doc-reviewer --target README.md --model claude-sonnet-45 --mode FULL
+    --skill doc-reviewer --target README.md --model claude-sonnet-4-6 --mode FULL
 # Output: TIMING_RUN_ID=doc-reviewer-README-20260108-abc123
 
 # 2. Checkpoint: skill_loaded
@@ -179,7 +179,7 @@ bash skills/skill-timing/scripts/run_timing.sh checkpoint \
 # 4. End (store _timing_stdout from output)
 bash skills/skill-timing/scripts/run_timing.sh end \
     --run-id doc-reviewer-README-20260108-abc123 \
-    --output-file reviews/doc-reviews/README-claude-sonnet-45-2026-01-08.md \
+    --output-file reviews/doc-reviews/README-claude-sonnet-4-6-2026-01-08.md \
     --skill doc-reviewer
 
 # 5. Embed: Parse _timing_stdout, append to output file (ACT mode required)

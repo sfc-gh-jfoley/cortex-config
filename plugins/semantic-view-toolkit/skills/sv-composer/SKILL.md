@@ -98,15 +98,12 @@ Do your SVs share > 2 tables?
 
 ```sql
 -- Find tables that appear in multiple SVs
-WITH sv_tables AS (
-    SELECT SEMANTIC_VIEW_NAME, TABLE_NAME
-    FROM <DB>.INFORMATION_SCHEMA.SEMANTIC_TABLES
-)
-SELECT TABLE_NAME, COUNT(DISTINCT SEMANTIC_VIEW_NAME) AS sv_count
-FROM sv_tables
-GROUP BY TABLE_NAME
-HAVING sv_count > 1
-ORDER BY sv_count DESC;
+-- INFORMATION_SCHEMA.SEMANTIC_TABLES does not exist; use SHOW + DESCRIBE pattern
+SHOW SEMANTIC VIEWS IN DATABASE <DB>;
+-- For each SV in the result, run: DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
+-- Then aggregate table references across all DESCRIBE outputs to find shared tables.
+-- Filter DESCRIBE output for TABLE entries and count how many SVs reference each table:
+-- SELECT table_name, COUNT(DISTINCT sv_name) AS sv_count ... GROUP BY table_name HAVING sv_count > 1
 ```
 
 ### Step 2: Design Core SV
@@ -123,8 +120,8 @@ Remove shared tables from domain SVs and reference the core SV instead. DDL patt
 ```sql
 CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV
   TABLES (
-    <DB>.<SCHEMA>.ORDERS AS orders,
-    <DB>.<SCHEMA>.ORDER_ITEMS AS order_items
+    orders AS <DB>.<SCHEMA>.ORDERS,
+    order_items AS <DB>.<SCHEMA>.ORDER_ITEMS
   )
   -- Reference columns from core SV for shared dimensions
   RELATIONSHIPS (

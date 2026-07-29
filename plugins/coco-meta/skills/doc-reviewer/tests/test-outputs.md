@@ -123,8 +123,8 @@ model: Claude Sonnet 4.5
 
 **Expected:**
 
-- [ ] Model normalized to: `claude-sonnet-45`
-- [ ] File created: `reviews/doc-reviews/README-claude-sonnet-45-2025-12-16.md`
+- [ ] Model normalized to: `claude-sonnet-4-6`
+- [ ] File created: `reviews/doc-reviews/README-claude-sonnet-4-6-2025-12-16.md`
 
 ---
 

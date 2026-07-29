@@ -235,7 +235,7 @@ Rewrite the rule to be unambiguous. Use concrete, specific language. If the rule
 Output ONLY the modified instructions (full file). Do not explain.
 ```
 
-**Guard:** Track rewrite attempts in gepa_state.yaml. If the same rule has been rewritten 2+ times without improvement, flag it as a model behavior limit and stop targeting it.
+**Guard:** Track rewrite attempts in gepa_state.json. If the same rule has been rewritten 2+ times without improvement, flag it as a model behavior limit and stop targeting it.
 
 ---
 
@@ -285,7 +285,7 @@ Operator weights determine selection probability when choosing which mutation to
 
 **Normalization:** After all adjustments, weights are normalized to sum to 1.0 for selection probability calculation.
 
-**Persistence:** Current weights stored in `gepa_state.yaml` under `operator_weights`. Initial weights restored from defaults on new GEPA run.
+**Persistence:** Current weights stored in `gepa_state.json` under `operator_weights`. Initial weights restored from defaults on new GEPA run.
 
 ## Mutation Application Protocol
 

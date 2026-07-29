@@ -30,13 +30,13 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 
 | Checkpoint | What Completed | Resume Action |
 |-----------|----------------|---------------|
-| A | No DEV runs | Start from `optimize/SKILL.md` Step 2 |
+| A | No DEV runs | Start from `references/optimize.md` Step 2 |
 | B | k of `<RUNS_PER_SPLIT>` DEV runs (k < N) | Re-fire the incomplete runs simultaneously using their slot configs (`eval_config_dev_r<k+1>.yaml` through `eval_config_dev_r<N>.yaml`); poll all in parallel |
 | C | All `<RUNS_PER_SPLIT>` DEV runs | Proceed to Step 3 (failure analysis) |
 | D | Analysis done, instructions edited | Rebuild and deploy (Step 6) |
 | E | Deployed, no re-eval | Run re-eval DEV (Step 7) |
 | F | k of `<RUNS_PER_SPLIT>` TEST runs (k < N) | Re-fire incomplete TEST runs simultaneously using their slot configs (`eval_config_test_r<k+1>.yaml` through `eval_config_test_r<N>.yaml`) |
-| G | All `<RUNS_PER_SPLIT>` TEST runs done | Proceed to `review/SKILL.md` |
+| G | All `<RUNS_PER_SPLIT>` TEST runs done | Proceed to `references/review.md` |
 
 ## Step 3: Clear Stale Locks if Needed
 

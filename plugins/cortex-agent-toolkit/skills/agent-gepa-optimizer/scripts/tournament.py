@@ -7,8 +7,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import yaml
-
 
 def run_tournament(population: list[dict], scores: dict) -> tuple[list[dict], list[dict]]:
     """Binary tournament selection.
@@ -142,7 +140,7 @@ def fill_population(winners: list[dict], pop_size: int,
 def main():
     parser = argparse.ArgumentParser(description="GEPA tournament selection")
     parser.add_argument("scores_json", help="Path to scores JSON file (or - for stdin)")
-    parser.add_argument("state_path", help="Path to gepa_state.yaml")
+    parser.add_argument("state_path", help="Path to gepa_state.json")
     parser.add_argument("--generation", type=int, default=None,
                         help="Generation number (for fill_population)")
     parser.add_argument("--seed", type=int, default=None,
@@ -168,7 +166,7 @@ def main():
         sys.exit(1)
 
     with state_path.open("r") as f:
-        state = yaml.safe_load(f)
+        state = json.load(f)
 
     population = state.get("population", [])
     best_candidate = state.get("best_candidate", {"id": "baseline", "fitness": 0.0})

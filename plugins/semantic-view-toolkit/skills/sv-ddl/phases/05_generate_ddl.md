@@ -117,7 +117,10 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND its exp
   COMMENT = '<description>'
 ```
 
-> ⚠️ **FILTER Deployment Guard**: Before emitting ANY `LABELS = (FILTER)` entries, run a feature probe first (see Step 5.0.5 above). If the probe fails, emit these as plain boolean facts WITHOUT the LABELS clause — they still work as boolean expressions that Cortex Analyst can use in WHERE clauses, just without the explicit FILTER semantic hint.
+> ⚠️ **FILTER Deployment Guard**: Verify the `AS` expression resolves to BOOLEAN type (Step 5.0.5
+> inspection). If the expression is not boolean, emit as a plain fact WITHOUT the LABELS clause.
+> The runtime probe (in Phase 6) will confirm account support; if Phase 6 probe fails, return
+> here and regenerate without FILTER labels.
 
 **Duplicate column names across source objects**: if two objects both have `AMOUNT`, define it in **one table only** (the primary source). Skip the duplicate in the other table.
 
@@ -135,7 +138,7 @@ For each column with `class = "DIMENSION"` or `class = "TIME_DIMENSION"`:
 
 Same alias rule applies: alias must match the source column name for direct references.
 
-If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOLEAN type, emit the FILTER label (only if Step 5.0.5 probe passed):
+If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOLEAN type, emit the FILTER label:
 ```sql
 <table_alias>.<dim_name>
   LABELS = ( FILTER )
@@ -143,7 +146,9 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOL
   COMMENT = '<description>'
 ```
 
-> If the FILTER probe failed in Step 5.0.5, emit these as plain boolean dimensions without LABELS.
+> Verify the `AS` expression is BOOLEAN type (Step 5.0.5 inspection). The runtime probe in
+> Phase 6 confirms account support. If Phase 6 probe fails, return here and regenerate
+> without FILTER labels.
 
 For computed dimensions (e.g. extracting year from date):
 ```sql
@@ -166,6 +171,22 @@ For each entry in `PROPOSED_METRICS`:
 ```
 
 Add `USING` clause for any metric that is ambiguous due to multiple relationship paths (from `MULTI_REL_PAIRS`).
+
+> ⚠️ **Cross-table column references in metric expressions are not supported.** A metric on
+> table `w` can only reference columns belonging to `w` in its `AS <aggregate_expr>`. You
+> cannot use `a.col` inside a metric on `w` even if a `w → a` relationship exists.
+>
+> If a `PROPOSED_METRIC` depends on a column from a related table (e.g.
+> `SUM(CASE WHEN a.eligible THEN w.revenue END)`), **do not generate this as a metric
+> expression**. Instead, choose one of these options and flag it to the user:
+>
+> - **Option A (preferred)**: Mark the filter column as `LABELS = (FILTER)` in the parent
+>   table's DIMENSIONS clause, and add an `AI_SQL_GENERATION` instruction like:
+>   `"When asked about <metric_name>, always apply the filter <a.eligible = TRUE> unless the user asks for all records."`
+> - **Option B**: Denormalize the column into `w` by redefining `w` as a view or SQL-query
+>   logical table that joins the filter condition in.
+> - **Option C**: Define a `SQL ( <query> )` logical table in TABLES that pre-applies the
+>   join and filter, then define the metric on that virtual table.
 
 ---
 
@@ -293,13 +314,17 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | WITH SYNONYMS and COMMENT on column entries | WARN if missing. The skill should auto-generate both from Phase 2 profiling. If absent, note degraded Analyst quality but do not block. |
 | String literals in metric expressions use single-quotes with NO extra escaping — `COUNT_IF(OUTCOME = 'WON')` is correct; `COUNT_IF(OUTCOME = ''WON'')` is **wrong** and will fail at execution | Scan every `AS <aggregate_expr>` in METRICS for `''` double-quote patterns |
 | Non-standard column names (from `NON_STANDARD_COLUMNS`) are double-quoted **everywhere** they appear: in `AS <alias>`, inside computed expressions, and in `AI_SQL_GENERATION` examples. Use `REPLACE(col_name, '"', '""')` for names that themselves contain a double-quote character. Example: `t."user@email.com" AS "user@email.com"`. Standard names (`[A-Z0-9_]` only, not starting with digit) need no quoting. | Cross-reference every column name in FACTS/DIMENSIONS/METRICS against `NON_STANDARD_COLUMNS`; fail if any appears unquoted |
-| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. |
+| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. The runtime account-support probe runs in Phase 6. |
+| `LABELS = (FILTER)` appears **before** `AS` — not after | For every entry with `LABELS = (FILTER)`, confirm the order is `<alias> LABELS = (FILTER) AS <expr>`. Writing `<alias> AS <expr> LABELS = (FILTER)` is a syntax error. This is the only modifier that precedes `AS`; all others (SYNONYMS, TAG, COMMENT) follow it. |
 | Window metric references valid inner metric | For every window function metric, verify the inner `<metric_ref>` exists as a defined metric in the same table's METRICS section. Missing inner metrics will fail at creation. |
 | PARTITION BY EXCLUDING dims are accessible | For every `PARTITION BY EXCLUDING <dims>`, verify each excluded dimension is defined and accessible from the same entity. Inaccessible dims cause silent wrong results. |
 | ASOF column type is DATE/TIMESTAMP/NUMBER | For every ASOF relationship, verify the ASOF-marked column's data type is DATE, TIMESTAMP_*, or NUMBER. Other types are not supported for point-in-time joins. |
 | COMMENT placement is AFTER all clauses | Verify COMMENT = '...' appears only after METRICS (or last present clause), never before TABLES or between clauses. Top-level COMMENT is NOT part of any clause block. |
 | No COMMENT inside RELATIONSHIPS block | Verify no relationship definition includes a COMMENT — relationship grammar only supports: `<name> AS <left> (<col>) REFERENCES <right> [(<col>)]`. COMMENT on relationships is NOT supported syntax. |
 | All SYNONYMS use `WITH SYNONYMS = (...)` prefix | Verify every SYNONYMS entry uses `WITH SYNONYMS = ('...', '...')` — bare `SYNONYMS = (...)` without `WITH` will fail. Must appear on tables, facts, dims (not relationships, not metrics without WITH). |
+| SAMPLE_VALUES must contain only valid SQL string literals (quoted), and uses no `WITH` prefix | For every dimension or fact with `SAMPLE_VALUES (...)`, verify: (1) each value is a quoted string literal: `'US_EAST'` ✓, `US_EAST` ✗; (2) the clause is written as `SAMPLE_VALUES (...)` not `WITH SAMPLE_VALUES (...)` — the `WITH` prefix is a syntax error. |
+| If IS_ENUM is used, SAMPLE_VALUES should be provided (warning, not error) | For dimensions with `IS_ENUM` but no `SAMPLE_VALUES`, warn: "This dimension is marked as an enumeration but has no sample values. Consider adding `SAMPLE_VALUES (...)` to guide AI generation." Proceeding without sample values is allowed but degrades Analyst quality. |
+| Dimension with SAMPLE_VALUES but no IS_ENUM is valid but redundant | For dimensions with `SAMPLE_VALUES` but no `IS_ENUM`: flag as informational: "This dimension provides sample values but is not marked as an enumeration. If values are finite and known, add `IS_ENUM` to improve AI query generation." User may ignore this suggestion. |
 
 ### Semantic correctness checks (all must pass)
 
@@ -328,14 +353,36 @@ If any check fails — **fix the DDL first**, then re-run self-check. Do not pre
 After the internal self-check passes, validate the generated DDL with a compilation check
 before presenting to the user:
 
+**Gate A: Syntax compile check**
+
 ```sql
--- Validate the DDL compiles without executing
--- Use only_compile=true via sql_execute
+-- Use only_compile=true via sql_execute to catch parser errors before deploying
+<paste DDL here>
 ```
 
-- **FAIL** → fix the issues reported, re-run Step 5.8 self-check, then re-run validation
-- **WARN** → note warnings in the Step 5.9 presentation summary
-- **PASS** → proceed
+**Gate B: Structural validator**
+
+Write the DDL to `/tmp/sv_ddl_check.sql` then run, from the toolkit root:
+
+```bash
+python3 scripts/sv_validator.py /tmp/sv_ddl_check.sql
+```
+
+The validator is bundled with this toolkit and requires only the Python standard
+library. If you are not in the toolkit root, use the path to it:
+`python3 <toolkit-root>/scripts/sv_validator.py /tmp/sv_ddl_check.sql`
+
+If the script is not found:
+```
+⚠ WARNING: sv_validator.py not found — 18 structural checks skipped.
+  Skipped: fan_trap_warning, chasm_trap_warning, cardinality_lie_warning,
+           orphan_detection, synonym_overlap, semi_additive_audit, and 12 syntax checks.
+  Install: cortex skill install semantic-view-ddl
+```
+
+Interpret results:
+- `[ERROR]` → fix before presenting DDL to user
+- `[WARNING]` → surface to user; they must acknowledge before Phase 6
 
 ---
 

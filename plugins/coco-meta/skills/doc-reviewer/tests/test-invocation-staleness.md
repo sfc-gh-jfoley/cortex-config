@@ -11,7 +11,7 @@ Use the doc-reviewer skill.
 
 review_date: 2026-01-06
 review_mode: STALENESS
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 target_files: README.md
 ```
 
@@ -30,7 +30,7 @@ target_files: README.md
 -  Score Staleness dimension only
 
 ### Phase 3: Output
--  Write to: `reviews/doc-reviews/README-claude-sonnet-45-2026-01-06.md`
+-  Write to: `reviews/doc-reviews/README-claude-sonnet-4-6-2026-01-06.md`
 -  Execution time: <1 minute (fast mode)
 
 ## Expected Output Structure
@@ -39,7 +39,7 @@ target_files: README.md
 # Documentation Review: README.md (STALENESS Check)
 
 **Reviewed:** 2026-01-06
-**Model:** claude-sonnet-45
+**Model:** claude-sonnet-4-6
 **Mode:** STALENESS
 
 ## Staleness Assessment

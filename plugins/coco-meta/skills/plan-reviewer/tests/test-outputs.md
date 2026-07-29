@@ -109,7 +109,7 @@ review_mode: META-REVIEW
 
 **Input:** `model: Claude Sonnet 4.5`
 
-**Expected slug:** `claude-sonnet-45`
+**Expected slug:** `claude-sonnet-4-6`
 
 **Verify:** Output filename uses normalized slug.
 
@@ -139,7 +139,7 @@ review_mode: META-REVIEW
 
 **Input:** `model: Claude   Sonnet---45`
 
-**Expected slug:** `claude-sonnet-45`
+**Expected slug:** `claude-sonnet-4-6`
 
 **Verify:** Multiple separators collapsed to single hyphen.
 

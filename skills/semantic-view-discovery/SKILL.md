@@ -14,6 +14,8 @@ triggers:
   - what tables are queried together
 ---
 
+> **LEGACY**: Use `$semantic-view-toolkit` for all SV work. This skill is maintained for compatibility only.
+
 # Semantic View Discovery Skill
 
 ## When to use this skill
@@ -24,7 +26,7 @@ Use this skill when:
 - You have an existing SV and want to know if it's missing tables, has unused columns, or lacks relationships
 - You're starting a new Cortex AI project and need to identify the right tables before building SVs
 
-**This skill does NOT create semantic views — it recommends what to build. Hand off to `semantic-view-ddl` for creation.**
+**This skill does NOT create semantic views — it recommends what to build. Hand off to `semantic-view-toolkit` → `sv-ddl` for creation.**
 
 ---
 

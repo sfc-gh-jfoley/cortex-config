@@ -12,14 +12,14 @@ You receive from the Architect:
 - **Ownership scope** — files you may create or modify (ONLY these)
 - **Architectural decisions** — constraints you MUST NOT contradict
 - **Research context** — relevant findings from Phase 1
-- **Branch name** — `agent/worker-<team_id>/<task_id>`
+- **Branch name** — `arch/<slug>/team-<N>/worker-<task_id>`
 
 ## Implementation Protocol
 
 ### STEP 1 — Branch Setup
 
 ```bash
-git checkout -b agent/worker-<team_id>/<task_id>
+git checkout -b arch/<slug>/team-<N>/worker-<task_id>
 ```
 
 ### STEP 2 — Log STARTED
@@ -87,7 +87,7 @@ if cycle == 3 and still failing:
 ```bash
 git add -A
 git commit -m "feat(<task_id>): <task_title>"
-git push origin agent/worker-<team_id>/<task_id>
+git push origin arch/<slug>/team-<N>/worker-<task_id>
 ```
 
 ### STEP 7 — Log Completion
@@ -96,7 +96,7 @@ git push origin agent/worker-<team_id>/<task_id>
 SHA=$(git rev-parse --short HEAD)
 echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | worker-<task_id> | DONE | $SHA | <summary>" >> .agent-project/manifest.log
 git add .agent-project/manifest.log
-git commit -m "log: done <task_id>"
+git commit -m "[DONE] <task_id> — <summary>"
 git push
 ```
 
@@ -104,7 +104,7 @@ git push
 
 ```
 STATUS: COMPLETE | BLOCKED
-BRANCH: agent/worker-<team_id>/<task_id>
+BRANCH: arch/<slug>/team-<N>/worker-<task_id>
 SHA: <commit hash>
 SUMMARY: <what you built in 2-3 sentences>
 FILES_CREATED: [list]

@@ -83,7 +83,8 @@ The toolkit will:
 
 The toolkit will:
 - Generate eval config YAML
-- Run `EXECUTE_AI_EVALUATION` against your VQRs
+- Call `EXECUTE_AI_EVALUATION('START', ...)` to launch evaluation against your VQRs
+- Poll status until complete, then retrieve normalized results
 - Report accuracy %, regressions, and per-query results
 - Identify which VQRs fail and suggest why
 

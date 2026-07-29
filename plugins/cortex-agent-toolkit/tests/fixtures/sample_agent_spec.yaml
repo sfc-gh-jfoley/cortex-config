@@ -4,10 +4,9 @@
 # =============================================================================
 
 models:
-  orchestration: "claude-sonnet-4-5"
+  orchestration: "claude-sonnet-4-6"  # Read reference/agent_spec_syntax.md for current value
 
 experimental:
-  EnableAgenticAnalyst: true
   EnableVQRFastPath: true
 
 orchestration:

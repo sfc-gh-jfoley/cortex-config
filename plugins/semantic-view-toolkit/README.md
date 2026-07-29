@@ -4,9 +4,17 @@ A Cortex Code plugin for the full Snowflake Semantic View lifecycle — from dis
 
 ## Install
 
+Install from wherever you obtained the toolkit — a registry entry, a git clone, or
+an archive. The toolkit is self-contained: it has no dependencies outside its own
+directory, and no assumptions about where that directory lives.
+
 ```bash
-cortex plugin install sfc-gh-jfoley/semantic-view-toolkit
+# From a local copy:
+cortex plugin install /path/to/semantic-view-toolkit
 ```
+
+All script paths in the skills are relative to the toolkit root, so any install
+location works.
 
 ## Skills
 

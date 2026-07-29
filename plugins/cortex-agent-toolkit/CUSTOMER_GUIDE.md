@@ -44,7 +44,7 @@ That's it. The sections below cover each phase in detail.
 
 ## Phase A: Build Your Semantic View
 
-> **This phase uses the `semantic-view-ddl` plugin** (installed separately). See the [semantic-view-ddl Customer Guide](../semantic-view-ddl/CUSTOMER_GUIDE.md) for the full 8-phase walkthrough.
+> **This phase uses the `semantic-view-toolkit` plugin** (installed separately). See that plugin's bundled `CUSTOMER_GUIDE.md` for the full SV creation walkthrough.
 
 A Cortex Agent needs at least one **semantic view** to answer data questions. A semantic view tells Cortex Analyst what your tables contain, how they relate, and what business terms map to which columns.
 
@@ -186,6 +186,8 @@ Evaluate my agent MY_DB.PUBLIC.SALES_AGENT
 
 **Output:** Evaluation scores, a failure analysis, and actionable fix recommendations. Results are also viewable in the Snowsight Evaluations UI.
 
+> **Note for Phase D/E:** The evaluation dataset produced here uses the canonical Schema B: table `<AGENT_NAME>_EVAL` with columns `TEST_ID` (AUTOINCREMENT), `TEST_CATEGORY`, `INPUT_QUERY`, `GROUND_TRUTH` (VARIANT), and `SPLIT`. Phases D and E read this table directly — the schema must match for the optimization loop to work.
+
 ---
 
 ## Phase D: Optimize Your Agent
@@ -235,7 +237,7 @@ Optimize my agent MY_DB.PUBLIC.SALES_AGENT
 - **Dev/test split**: Your evaluation dataset is split into a dev set (for analysis) and a test set (for validation). You never look at test failures to decide what to change — this prevents overfitting.
 - **One change per iteration**: Each iteration makes one targeted fix (e.g., "add retry guidance for multi-hop questions"). This makes it clear what helped and what didn't.
 - **Accept/reject gates**: After each iteration, you (or the skill in autonomous mode) decide whether the change is kept or reverted.
-- **Stopping criteria**: If 2-3 consecutive iterations are rejected on the same failure pattern, the local optimum is reached.
+- **Stopping criteria**: If 3 consecutive iterations are rejected on the same failure pattern, the local optimum is reached.
 
 ### Optimization patterns that work
 
@@ -271,11 +273,13 @@ Run a flag test on my agent MY_DB.PUBLIC.SALES_AGENT
 
 ### The three variants
 
+> **Note (Apr 2026):** `EnableAgenticAnalyst` is now **default behavior** and the flag is obsolete. The AGENTIC and FASTPATH_OFF variants below are preserved for historical reference but will not differ from BASE on accounts running Apr 2026+ releases. Use **model comparison** as your primary first sweep instead (the skill prompts for this automatically).
+
 | Variant | Flags | What it tests |
 |---|---|---|
 | BASE | No experimental flags | Baseline behavior (simplest reasoning path) |
-| AGENTIC | `EnableAgenticAnalyst: true` | Enhanced multi-step reasoning for text-to-SQL |
-| FASTPATH_OFF | `EnableAgenticAnalyst: true`, `EnableVQRFastPath: false` | Full reasoning on every question (no shortcut for verified queries) |
+| AGENTIC *(deprecated Apr 2026)* | `EnableAgenticAnalyst: true` | Was: enhanced multi-step reasoning — now default, no longer distinct |
+| FASTPATH_OFF *(deprecated Apr 2026)* | `EnableAgenticAnalyst: true`, `EnableVQRFastPath: false` | Full reasoning on every question (no shortcut for verified queries) |
 
 ### What happens
 
@@ -377,7 +381,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "What were total sales last month?"}]
         }
       ],
-      "models": {"orchestration": "claude-4-sonnet"},
+      "models": {"orchestration": "auto"},
       "tools": [...],
       "tool_resources": {...},
       "stream": false

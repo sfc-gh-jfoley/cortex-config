@@ -12,9 +12,26 @@ End-to-end workflow for evaluating Cortex Agents: discover the agent, build an e
 | Metric | API Name | Requires Ground Truth | Description |
 |--------|----------|----------------------|-------------|
 | Answer Correctness | `answer_correctness` | Yes | Semantic match of agent's final answer vs expected |
-| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? |
-| Tool Execution Accuracy | `tool_execution_accuracy` | Yes | Correct tool inputs/outputs? |
+| Tool Selection Accuracy | `tool_selection_accuracy` | Yes | Did agent pick the right tools in the right order? **(native system metric as of Jun 11)** |
+| Tool Execution Accuracy | `tool_execution_accuracy` | Yes | Correct tool inputs/outputs? **(native system metric as of Jun 11)** |
 | Logical Consistency | `logical_consistency` | No | Consistency across instructions, planning, and tool calls (reference-free) |
+
+### Native vs. Custom Metrics
+
+As of **June 11, 2026**, `tool_selection_accuracy` and `tool_execution_accuracy` are now **native system metrics** available directly via `SYSTEM$EVAL_AGENT`. Prior to Jun 11, these were available only through custom Snowpark evaluation scripts.
+
+**Native metrics (default since Jun 11)**:
+- `tool_selection_accuracy` and `tool_execution_accuracy`
+- Available via `SYSTEM$EVAL_AGENT` SQL function
+- Optimized and tested by Snowflake
+- No setup overhead
+
+**Custom metrics (legacy, still supported)**:
+- User-provided Snowpark scripts that replicate the above logic
+- Useful if you need custom scoring logic or compatibility with pre-Jun-11 workflows
+- See references/eval-troubleshooting.md for migration guidance
+
+**Recommendation**: Use native metrics for new evaluations. Custom scripts are supported for backward compatibility, but native metrics are faster and require no additional setup.
 
 ## Prerequisites
 
@@ -28,6 +45,64 @@ GRANT CREATE TASK ON SCHEMA <agent_schema> TO ROLE <role>;
 GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
 GRANT MONITOR ON AGENT <database>.<schema>.<agent> TO ROLE <role>;
 ```
+
+> **invoke_agent.py requires a Personal Access Token (PAT)**: Set the `SNOWFLAKE_PAT` environment
+> variable before using the pre-flight batch test script (Phase 3B.3).
+> Store it via: `cortex secret store snowflake_pat --from-env SNOWFLAKE_PAT`
+
+---
+
+## Phase 0.5: Pre-flight Grant Check
+
+Before any evaluation work, verify required grants are in place. Missing grants produce silent **"Metric failed"** errors — especially missing `IMPERSONATE`, which is the most commonly overlooked and hardest-to-diagnose missing grant.
+
+Run these checks **before Phase 1**:
+
+```sql
+-- 1. CORTEX_USER database role
+SELECT COUNT(*) AS HAS_CORTEX_USER
+FROM SNOWFLAKE.INFORMATION_SCHEMA.APPLICABLE_ROLES
+WHERE ROLE_NAME = 'CORTEX_USER';
+-- Expected: 1. If 0: GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <role>;
+
+-- 2. IMPERSONATE (most commonly missing — causes ALL metrics to silently fail)
+SELECT COUNT(*) AS HAS_IMPERSONATE
+FROM INFORMATION_SCHEMA.OBJECT_PRIVILEGES
+WHERE PRIVILEGE_TYPE = 'IMPERSONATE'
+  AND OBJECT_NAME = CURRENT_USER();
+-- Expected: 1. If 0: GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
+
+-- 3. Task / Dataset grants — look for EXECUTE TASK, CREATE DATASET, CREATE TASK
+SHOW GRANTS TO ROLE <CURRENT_ROLE>;
+```
+
+If any grant is missing, emit corrective GRANTs using ACCOUNTADMIN:
+
+```sql
+USE ROLE ACCOUNTADMIN;
+
+-- Missing CORTEX_USER:
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <role>;
+
+-- Missing IMPERSONATE (most critical):
+GRANT IMPERSONATE ON USER <user> TO ROLE <role>;
+
+-- Missing EXECUTE TASK:
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE <role>;
+
+-- Missing CREATE DATASET:
+GRANT CREATE DATASET ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <role>;
+
+-- Missing CREATE TASK:
+GRANT CREATE TASK ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <role>;
+
+-- Missing MONITOR on agent:
+GRANT MONITOR ON AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME> TO ROLE <role>;
+```
+
+> **Do not silently proceed** with missing grants. Missing `IMPERSONATE` in particular causes all metric computations to fail with a generic "Metric failed" message — not a permissions error — making it nearly impossible to diagnose without running this check first.
+
+**STOP** — Confirm all grants are in place before proceeding to Phase 1.
 
 ---
 
@@ -226,35 +301,80 @@ Then skip to Phase 4 with only `logical_consistency` metric.
 
 ### 3.5 Create the Evaluation Table
 
-**CRITICAL FORMAT REQUIREMENTS:**
-- Column names: `INPUT_QUERY` (VARCHAR) and `EXPECTED_TOOLS` (VARCHAR)
-- `EXPECTED_TOOLS` is **VARCHAR**, not OBJECT or VARIANT
-- Insert JSON as plain string — no PARSE_JSON needed
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
+**Eval table schema (canonical — Schema B):**
+
+This schema is shared across agent-evaluation, agent-flag-tester, and cortex-agent-optimization.
+- `GROUND_TRUTH` is **VARIANT** (JSON object) — parsed by the evaluator at runtime
+- `SPLIT` enables DEV/TEST partitioning used by the optimization loop downstream
+- Use `OBJECT_CONSTRUCT('ground_truth_invocations', PARSE_JSON('[...]'), 'ground_truth_output', '...')` to populate
 
 ```sql
-CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET (
-    INPUT_QUERY VARCHAR(16777216),
-    EXPECTED_TOOLS VARCHAR(16777216)
+CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (
+    TEST_ID        NUMBER(38,0) AUTOINCREMENT,
+    TEST_CATEGORY  VARCHAR,
+    INPUT_QUERY    VARCHAR(16777216),
+    GROUND_TRUTH   VARIANT,
+    SPLIT          VARCHAR DEFAULT 'VALIDATION'
 );
 ```
+
+### 3.5.1 Automated tool_name Migration Check
+
+Run immediately after creating and populating the eval table. As of April 2026, Cortex Agents report `system_execute_sql` instead of custom tool names (e.g. `cortex_analyst_text_to_sql`) in response blocks. Rows with old tool names score **0% on `tool_selection_accuracy`** silently.
+
+```sql
+-- Check: how many rows need migration?
+SELECT COUNT(*) AS ROWS_NEEDING_MIGRATION
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE GROUND_TRUTH::STRING LIKE '%"tool_name": "cortex_analyst_text_to_sql"%';
+```
+
+If `ROWS_NEEDING_MIGRATION > 0`, run the migration **automatically**:
+
+```sql
+UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+    GROUND_TRUTH::STRING,
+    '"tool_name": "cortex_analyst_text_to_sql"',
+    '"tool_name": "system_execute_sql"'
+))
+WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+
+-- Verify: should return 0
+SELECT COUNT(*) AS REMAINING
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+```
+
+Confirm: **"Migrated N rows: `cortex_analyst_text_to_sql` → `system_execute_sql`"** (or "No migration needed").
+
+> Note: Named Cortex Analyst tools (e.g. `commerce_analytics`) are also now reported as `system_execute_sql`. Check for any custom tool name that mapped to a Cortex Analyst tool.
+
+---
 
 ### 3.6 Insert Ground Truth
 
 **Standard format (works for all metrics):**
 
 ```sql
-INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET (INPUT_QUERY, EXPECTED_TOOLS)
+INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (TEST_CATEGORY, INPUT_QUERY, GROUND_TRUTH, SPLIT)
 VALUES (
+    'revenue',
     'What is the top campaign by ROI?',
-    '{"ground_truth_invocations": [{"tool_name": "query_metrics", "tool_sequence": 1}], "ground_truth_output": "Back to School has highest ROI at 203%."}'
+    PARSE_JSON('{"ground_truth_invocations": [{"tool_name": "query_metrics", "tool_sequence": 1}], "ground_truth_output": "Back to School has highest ROI at 203%."}'),
+    'VALIDATION'
 );
 ```
 
 **Multi-tool example:**
 ```sql
 INSERT INTO ... VALUES (
+    'multi-tool',
     'Find popular items and place an order',
-    '{"ground_truth_invocations": [{"tool_name": "search_items", "tool_sequence": 1}, {"tool_name": "place_order", "tool_sequence": 2}], "ground_truth_output": "Strawberry Frosted is most popular. Order confirmed."}'
+    PARSE_JSON('{"ground_truth_invocations": [{"tool_name": "search_items", "tool_sequence": 1}, {"tool_name": "place_order", "tool_sequence": 2}], "ground_truth_output": "Strawberry Frosted is most popular. Order confirmed."}'),
+    'VALIDATION'
 );
 ```
 
@@ -293,22 +413,75 @@ INSERT INTO ... VALUES (
 >
 > **Fix**: Update affected rows:
 > ```sql
-> UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET
-> SET EXPECTED_TOOLS = REPLACE(
->     EXPECTED_TOOLS,
+> UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+> SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+>     GROUND_TRUTH::STRING,
 >     '"tool_name": "cortex_analyst_text_to_sql"',
 >     '"tool_name": "system_execute_sql"'
-> )
-> WHERE EXPECTED_TOOLS LIKE '%cortex_analyst_text_to_sql%';
+> ))
+> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
 > ```
 > Run this once per eval table. Verify with:
 > ```sql
 > SELECT COUNT(*) FROM <EVAL_TABLE>
-> WHERE EXPECTED_TOOLS LIKE '%cortex_analyst_text_to_sql%';
+> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
 > -- Should return 0
 > ```
 
 **STOP** — Review dataset with user before proceeding.
+
+---
+
+### Phase 3.7 (Optional): GT Data Validation
+
+**Trigger**: Run when the user types "validate ground truth" or "check GT against data", or proactively offer it before Phase 4. Non-blocking — eval can proceed without it.
+
+> ⚠️ **Why this matters**: GT text is often written as assumptions about data, not derived from running the actual SQL. In the SIEBIS commerce run, 7/20 GT outputs were factually wrong (wrong ranking, wrong country, wrong direction of comparison). The agent scored 0% on those questions even when its answers were correct. Correcting the GT brought the score to 100% with zero agent instruction changes.
+
+**Step 1** — Identify rows with executable SQL:
+
+```sql
+SELECT
+    TEST_ID,
+    INPUT_QUERY,
+    TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_output::STRING AS GT_TEXT,
+    TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_invocations[0].tool_output.SQL::STRING AS GT_SQL
+FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+WHERE TRY_PARSE_JSON(GROUND_TRUTH):ground_truth_invocations[0].tool_output.SQL IS NOT NULL;
+```
+
+**Step 2** — For each row, execute its SQL against actual data (`LIMIT 3`) and display side-by-side:
+
+```
+Q: "What is the revenue by storefront channel?"
+GT text:   "Console drives the majority of digital revenue"
+Top rows:  Web=$815K | Console=$413K  ← MISMATCH
+```
+
+**Step 3** — For each question, prompt:
+
+```
+Does the GT text match the actual data? [y / update / skip]
+  y      → mark as validated
+  update → correct GT text in-place, then run:
+             UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
+             SET GROUND_TRUTH = PARSE_JSON(REPLACE(
+                 GROUND_TRUTH::STRING, '<old_text>', '<new_text>'
+             ))
+             WHERE TEST_ID = <id>;
+  skip   → leave as-is, flag as unvalidated
+```
+
+**Step 4** — Print validation summary:
+
+```
+GT Validation: 17/20 validated, 3 flagged as unvalidated
+⚠️ Unvalidated GT rows will count against your eval score if the agent answers correctly.
+```
+
+**If GT validation is skipped entirely**, add this warning banner before Phase 4 launch:
+
+> ⚠️ **GT not validated against actual data.** Inaccurate GT causes correct agent answers to score 0%. Run Phase 3.7 now or type "validate ground truth".
 
 ---
 
@@ -323,6 +496,24 @@ USE SCHEMA <SCHEMA>;
 
 ### 4.2 Create Stage and Generate Eval Config
 
+> ⚠️ **CRITICAL: Eval table must be in the same `DATABASE.SCHEMA` as the agent.**
+>
+> If your agent is `MYDB.PUBLIC.MY_AGENT`, the eval table must be in `MYDB.PUBLIC.*`.
+> Placing it in a different schema (e.g. `MYDB.EVAL_METADATA.*`) causes **all metrics to silently
+> fail** with "Metric failed" — even though agent invocations complete successfully. This is not
+> surfaced as a schema permissions error, making it extremely difficult to diagnose.
+>
+> **Pre-flight schema check — run before generating the config:**
+> ```sql
+> SELECT
+>     TABLE_SCHEMA,
+>     TABLE_SCHEMA = '<AGENT_SCHEMA>' AS SCHEMA_MATCHES,
+>     TABLE_NAME
+> FROM <DATABASE>.INFORMATION_SCHEMA.TABLES
+> WHERE TABLE_NAME = '<EVAL_TABLE_NAME>';
+> -- If SCHEMA_MATCHES = FALSE: HARD STOP — move the eval table to <AGENT_SCHEMA> first.
+> ```
+
 Create a stage to hold eval config files:
 
 ```sql
@@ -336,11 +527,11 @@ Fill in `<DATABASE>`, `<SCHEMA>`, `<AGENT_NAME>`, `<EVAL_TABLE>`, and the select
 ```yaml
 dataset:
   dataset_type: "CORTEX AGENT"
-  table_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET"
+  table_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL"
   dataset_name: "<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>"
   column_mapping:
     query_text: "INPUT_QUERY"
-    ground_truth: "EXPECTED_TOOLS"
+    ground_truth: "GROUND_TRUTH"
 
 evaluation:
   agent_params:
@@ -356,8 +547,22 @@ evaluation:
 metrics:
   - "answer_correctness"       # include only if selected
   - "logical_consistency"      # include only if selected
-  - "tool_selection_accuracy"  # include only if selected
-  - "tool_execution_accuracy"  # include only if selected
+  # Native metrics (default since Jun 11):
+  - "tool_selection_accuracy"  # native system metric — include only if selected
+  - "tool_execution_accuracy"  # native system metric — include only if selected
+  
+  # Custom metrics (legacy, for pre-Jun-11 workflows or custom scoring logic):
+  # If using custom tool_selection_accuracy instead of native, replace above with:
+  # - name: "tool_selection_accuracy"   # custom metric example
+  #   score_ranges:
+  #     min_score: [0, 3]
+  #     median_score: [4, 6]
+  #     max_score: [7, 10]
+  #   prompt: |
+  #     Evaluate whether the agent selected the correct tool(s) for the user's query.
+  #     Compare tools actually called ({{tool_info}}) to expected behavior in ground truth ({{ground_truth}}).
+  #     Rate 0-10: 0=wrong tool, 5=correct but suboptimal sequence, 10=perfect match.
+  #     Output ONLY a numeric score.
 ```
 
 Upload to stage:
@@ -378,7 +583,35 @@ CALL EXECUTE_AI_EVALUATION(
 );
 ```
 
+#### 4.3a: Native Metrics Direct Invocation (Alternative: Jun 11+)
+
+If you prefer to invoke the evaluation directly with native metrics (bypassing the YAML config), use:
+
+```sql
+-- Direct native metrics invocation (Jun 11+)
+CALL SYSTEM$EVAL_AGENT(
+    agent => '<DATABASE>.<SCHEMA>.<AGENT_NAME>',
+    dataset_table => '<DATABASE>.<SCHEMA>.<EVAL_TABLE>',
+    metrics => ['answer_correctness', 'tool_selection_accuracy', 'tool_execution_accuracy', 'logical_consistency']
+);
+```
+
+This method uses native `tool_selection_accuracy` and `tool_execution_accuracy` directly without custom scoring logic. See "Native vs. Custom Metrics" in the Metrics Reference section for more details.
+
 Poll for completion every 60 seconds:
+
+### Error: "Dataset version already exists"
+
+If `EXECUTE_AI_EVALUATION START` returns this error, clear only the version lock on the failing slot:
+
+```sql
+ALTER DATASET <DATABASE>.<SCHEMA>.<DATASET_NAME>
+DROP VERSION 'SYSTEM_AI_OBS_CORTEX_AGENT_DATASET_VERSION_DO_NOT_DELETE';
+```
+
+Then retry the `START` call. **Never DROP the dataset itself** — only the version lock. This lock is per-dataset-name so only the failing slot is affected; other parallel eval slots are unaffected.
+
+---
 
 ```sql
 CALL EXECUTE_AI_EVALUATION(
@@ -533,9 +766,9 @@ Questions: <N>
 ### 6.2 Update Agent (if instruction changes needed)
 
 ```sql
-CREATE OR REPLACE CORTEX AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>
+CREATE OR REPLACE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>
   COMMENT = 'Updated instructions based on eval run <RUN_NAME>'
-  AGENT_SPEC = $$
+  FROM SPECIFICATION $$
   <updated_spec>
   $$;
 ```
@@ -599,7 +832,7 @@ Improvements attributed to:
 
 ## Artifacts Produced
 
-- Evaluation dataset table: `<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DATASET`
+- Evaluation dataset table: `<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL`
 - Registered dataset: `<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>`
 - Evaluation runs viewable in Snowsight Evaluations UI
 - Improvement report with specific fix recommendations

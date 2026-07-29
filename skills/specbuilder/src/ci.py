@@ -13,6 +13,8 @@ Usage:
     python3 -m specbuilder ci --pr-context [--base=main] [--head=HEAD]
 """
 
+from __future__ import annotations
+
 import argparse
 import subprocess
 import sys

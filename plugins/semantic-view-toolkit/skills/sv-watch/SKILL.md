@@ -91,13 +91,13 @@ Detect VQRs with time-relative references that may have drifted:
 - Suggest converting to absolute dates or refreshing
 
 ### Check 4: Source Object Health
-- Dynamic Tables: check REFRESH_STATUS (is it failing?)
+- Dynamic Tables: check SCHEDULING_STATE (is it ACTIVE or SUSPENDED?)
 - External Tables: check if files still exist
 - Views: check if underlying tables still exist
 
 ```sql
 -- DT health check
-SELECT NAME, REFRESH_STATUS, REFRESH_STATUS_MESSAGE, TARGET_LAG
+SELECT NAME, SCHEDULING_STATE, TARGET_LAG
 FROM INFORMATION_SCHEMA.DYNAMIC_TABLES
 WHERE NAME IN (-- DT names from SV sources);
 ```
@@ -146,6 +146,11 @@ Compare column access patterns from last 30 days vs previous 30 days:
 ## Persistence
 
 Watch results are stored in `_SV_TOOLKIT_META.WATCH_LOG`:
+
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.WATCH_LOG (

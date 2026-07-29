@@ -62,9 +62,28 @@ If `DOC_CONTEXT_TYPE = "data_dict"` and all columns are matched from the CSV: sk
 
 **If `AUTO_SAMPLE = false`**: skip sample value collection (the `ARRAY_AGG(DISTINCT ...)` queries below). Set `sample_values = []` for all columns and proceed directly to Step 2.2 after running the column catalog query only.
 
-> **Note**: The profiling queries below use `DESCRIBE TABLE` and `SELECT` statements. These work for all supported source types (tables, views, dynamic tables, secure views) because Snowflake's `DESCRIBE TABLE` command works on views and dynamic tables as well. No branching is needed for standard profiling.
+**Source-type detection**:
+
+Before profiling, determine the source type for each logical table:
+
+```
+FOR each logicalTable:
+  IF source is FQN (database.schema.table format):
+    → Proceed with INFORMATION_SCHEMA profiling (standard path, see below)
+  ELSE IF source is SQL query (SQL(...) syntax):
+    → Execute query with 30-second timeout to derive column list
+    → Use query result schema as column metadata
+  ENDIF
+```
+
+**SQL Query Logical Tables**:
+- Profiling executes the SQL query to sample columns. This is necessary because SQL query results don't have INFORMATION_SCHEMA entries.
+- Set a **30-second timeout** to avoid long-running profilers. If the query times out, suggest the user optimize the query or switch to a materialized view.
+- Document the timeout behavior in user output: "Long-running queries may cause profiling to fail; optimize or switch to a materialized view."
 
 For **each object** in `SOURCE_OBJECTS`, run this profiling query. Replace `<OBJECT>` with the fully qualified name.
+
+If source is FQN:
 
 ```sql
 SELECT
@@ -181,11 +200,31 @@ They will be quoted automatically in the generated semantic view.
 
 For each column, build and execute a CORTEX.COMPLETE prompt.
 
-**Prompt template** (use `complete_fast` alias for speed, `complete_quality` alias for quality — see `~/.snowflake/cortex/vault/LLMs.md`):
+**Model selection.** This step calls `SNOWFLAKE.CORTEX.COMPLETE`, which needs a
+literal model name — a capability description cannot be passed to a SQL function.
+Resolve one at runtime rather than hardcoding a version:
+
+1. Decide the tier you want. **Fast tier** — a small, low-latency instruct model;
+   adequate for column descriptions and the default for bulk profiling.
+   **Quality tier** — a larger reasoning model; use when descriptions feed
+   customer-facing documentation or the fast tier produces vague output.
+2. Probe for an available model in that tier and keep the first that succeeds:
+
+```sql
+-- Substitute each candidate in turn; stop at the first that returns without
+-- a "model unavailable" error. Store the winner as COMPLETE_MODEL.
+SELECT SNOWFLAKE.CORTEX.COMPLETE('<candidate-model>', 'ping') AS probe;
+```
+
+Ask the operator which models their account has enabled if the probe is
+ambiguous. Never hardcode a model version into the toolkit — accounts differ in
+which models are enabled, and model availability changes over time.
+
+**Prompt template** (uses the resolved `COMPLETE_MODEL` from above):
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',  -- complete_fast alias from LLMs.md
+  '<COMPLETE_MODEL>',  -- resolved at runtime by the probe above
   CONCAT(
     'You are a data documentation expert. Generate metadata for a database column.\n',
     'Respond ONLY with a JSON object — no explanation, no markdown fences.\n\n',
@@ -218,7 +257,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-7b',  -- complete_fast alias from LLMs.md
+  '<COMPLETE_MODEL>',  -- resolved at runtime by the probe in Step 2.2
   CONCAT(
     'Generate JSON metadata for these ', <N>, ' columns from table <table_name>.\n',
     'Business context: <BUSINESS_CONTEXT>\n',
@@ -239,14 +278,21 @@ Parse the JSON result and store as `COLUMN_DESCRIPTIONS` — a dict keyed by `ta
 
 After generating descriptions, apply them to Snowflake so FastGen or DESCRIBE will pick them up:
 
+> **Escape the descriptions first.** These are LLM-generated strings going into SQL
+> string literals, and they routinely contain apostrophes ("Customer's billing
+> region", "Today's rate"). Double every single quote before substituting:
+> `description.replace("'", "''")`. Without this the statement fails on the first
+> apostrophe, and an adversarially-controlled description could terminate the
+> literal early. Prefer `$$dollar-quoting$$` if your client supports it.
+
 ```sql
--- Apply table comment
+-- Apply table comment (description already escaped: ' -> '')
 COMMENT ON TABLE <db>.<schema>.<table>
-  IS '<generated table description>';
+  IS '<escaped table description>';
 
 -- Apply per-column comments (repeat for each column)
 ALTER TABLE <db>.<schema>.<table>
-  ALTER COLUMN <col_name> COMMENT '<generated description>';
+  ALTER COLUMN <col_name> COMMENT '<escaped description>';
 ```
 
 **Note**: This modifies the source objects (applies COMMENT ON COLUMN). If that's not acceptable, set `APPLY_COMMENTS = false` and skip this step — descriptions will be injected directly into the DDL COMMENT clauses in Phase 5.

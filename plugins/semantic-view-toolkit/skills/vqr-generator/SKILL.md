@@ -141,6 +141,8 @@ WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01';
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
 5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
 6. **Match SV metrics**: If the SV defines `total_revenue = SUM(amount)`, use `total_revenue` in the VQR, not `SUM(amount)`
+7. **Validate filter alignment**: If VQR SQL aggregates a raw column (e.g., `SUM(sales_exc_tax_usd)`) rather than a logical metric name, verify the SQL applies the same `CASE WHEN` or `WHERE` filter used in the metric definition. If `TOTAL_NET_REVENUE_USD` is defined as `SUM(CASE WHEN REFUNDED_IND = 0 THEN SALES_EXC_TAX_USD ELSE 0 END)`, the VQR SQL must include the same filter.
+8. **Cross-VQR filter consistency**: If any existing VQR for the same metric already applies a filter (e.g., `refunded_ind = 0`), all new VQRs targeting that metric must apply the same filter. Inconsistent filter coverage creates contradictory ground truth.
 
 ### Present candidates
 
@@ -170,6 +172,8 @@ Check:
 - ✓ Returns non-empty results
 - ✓ Results are reasonable (not NULL, not obviously wrong)
 - ✓ Uses correct logical column names from SV definition
+- ✓ If VQR SQL uses raw column aggregation (not a logical metric name), the aggregate applies the same filter as the corresponding metric definition
+- ✓ Filter logic is consistent with all other VQRs that test the same metric (no VQR applies the filter while a new one omits it)
 
 Mark each candidate: VALID / INVALID / NEEDS_FIX
 

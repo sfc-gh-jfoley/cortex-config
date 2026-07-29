@@ -16,6 +16,9 @@ Catalog of 10 semantic view mutation operators for GEPA evolutionary optimizatio
 | `change_relationship` | Relationships | Change join type, add missing relationship | Wrong joins in generated SQL |
 | `add_time_dimension` | Dimensions | Promote DATE/TIMESTAMP to time_dimension | Time-based queries fail |
 | `remove_column` | Facts/Dims | Drop noisy/confusing columns | Analyst picks wrong column due to too many similar options |
+| `sync_metric_definitions_across_tables` | METRICS (multi-table) | Align same metric name across two fact tables | Same metric name, different filter on two tables |
+| `extract_metric_filter_to_fact` | FACTS + METRICS | Extract repeated CASE WHEN filter into named FACT | Repeated CASE WHEN filter in metric expression |
+| `detect_contaminated_vqr_baseline` | AI_VERIFIED_QUERIES SQL | Pre-check: VQR health scan | Pre-check: VQR health scan for missing metric filters |
 
 ---
 
@@ -341,4 +344,71 @@ Criteria for removal:
 - Not referenced in relationships or metrics
 
 Return: {"remove": true/false, "reason": "explanation"}
+```
+
+---
+
+### 11. sync_metric_definitions_across_tables
+
+**Target:** METRIC definitions across two fact tables with the same metric name
+
+**When to use:** Pre-optimization Check 2 flags the same metric name with different EXPR on two tables, causing LLM to generate inconsistent SQL depending on which table it routes to.
+
+**Anti-patterns:** Do not apply if the difference is intentional (EXT table semantics differ by design). Renaming may break existing VQRs — verify before applying.
+
+**LLM prompt template:**
+```
+Two metrics share the same name but have different filter logic.
+Metric: {metric_name}
+Table A ({table_a}): {expr_a}
+Table B ({table_b}): {expr_b}
+
+Decide: (A) add missing filter to weaker definition, or (B) rename one metric.
+Return JSON: {"action": "align_filter"|"rename", "table": "A"|"B", "value": "new_expr_or_name"}
+```
+
+---
+
+### 12. extract_metric_filter_to_fact
+
+**Target:** FACTS section (new column) + METRICS section (simplified expr)
+
+**When to use:** A metric uses `SUM(CASE WHEN col = val THEN col ELSE 0 END)` and the same filter pattern appears in multiple VQRs or metrics. Extracting to a named FACT makes the filter visible, reduces VQR authoring errors, and ensures correct results even when the model bypasses the metric name.
+
+**Anti-patterns:** Do not apply when the filter is used in only one place, or when the filter condition is dynamic.
+
+**LLM prompt template:**
+```
+Extract this CASE WHEN expression into a named FACT column.
+Source column: {source_col}
+Filter: {filter_condition}
+Current metric: {metric_name} = {metric_expr}
+Table alias: {table_alias}
+
+Return JSON: {
+  "fact_name": "...",
+  "fact_expr": "CASE WHEN {filter_condition} THEN {source_col} ELSE 0 END",
+  "metric_expr": "SUM({fact_name})",
+  "description": "..."
+}
+```
+
+---
+
+### 13. detect_contaminated_vqr_baseline
+
+**Target:** AI_VERIFIED_QUERIES reference SQL (read-only detection)
+
+**When to use:** As pre-optimization Check 1 — run before first eval to classify all VQRs as HEALTHY / CONTAMINATED / REVIEW against the metric filter map. Output used for read-only analysis (exclude/flag contaminated VQRs; do not modify).
+
+**Anti-patterns:** Do not use as a mutation operator during GEPA iterations — this is diagnostic only. Do not flag VQRs that intentionally query without the filter (refund analysis questions).
+
+**Detection logic:**
+```
+For each metric M with CASE WHEN <filter_col> = <filter_val> in EXPR:
+  For each VQR V that aggregates <agg_col> from M:
+    If V.SQL lacks "CASE WHEN <filter_col>" AND lacks "WHERE <filter_col> = <filter_val>":
+      → CONTAMINATED
+    Else:
+      → HEALTHY
 ```

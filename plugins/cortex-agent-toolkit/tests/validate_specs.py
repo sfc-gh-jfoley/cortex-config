@@ -239,11 +239,13 @@ else:
 # Test 4: All SKILL.md files exist
 # ---------------------------------------------------------------------------
 
-section("Test 4: SKILL.md files for all 6 skills")
+section("Test 4: SKILL.md files for all 7 skills")
 
 EXPECTED_SKILLS = [
     "agent-evaluation",
     "agent-flag-tester",
+    "agent-gepa-optimizer",
+    "analytical-search",
     "cortex-agent-ddl",
     "cortex-agent-flags",
     "cortex-agent-optimization",
