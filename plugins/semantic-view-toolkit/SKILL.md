@@ -157,9 +157,9 @@ Semantic views can reference any queryable object, or dynamically-computed SQL q
 | Dynamic Tables | `DYNAMIC_TABLES` | Include TARGET_LAG in metadata |
 | External Tables | `TABLES WHERE TABLE_TYPE = 'EXTERNAL TABLE'` | Iceberg or non-Iceberg |
 | Materialized Views | `TABLES WHERE TABLE_TYPE = 'MATERIALIZED VIEW'` | Pre-aggregated |
-| SQL Queries | N/A | Virtual tables from aggregations, CTEs, cross-schema unions. Results materialized at CREATE time. Profiling executes the query with 30-second timeout. See `reference/ddl_syntax.md` for `SQL(...)` syntax. |
+| SQL Queries | N/A | Virtual tables from aggregations, CTEs, cross-schema unions. Results materialized at CREATE time. Profiling executes the query with 30-second timeout. See `references/ddl-syntax.md` for `SQL(...)` syntax. |
 
-See `reference/queryable-objects.md` for detection patterns and INFORMATION_SCHEMA queries per type.
+See `references/queryable-objects.md` for detection patterns and INFORMATION_SCHEMA queries per type.
 
 **Note on SQL logical tables**: When using `SQL(...)` sources, Phase 2 profiling requires executing the query to derive column names dynamically (unlike FQN sources which use INFORMATION_SCHEMA). Set a 30-second timeout; if profiling fails, optimize the query or switch to a materialized view. See `skills/sv-ddl/phases/02_profile_describe.md` for the full flow.
 

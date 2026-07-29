@@ -61,9 +61,12 @@ Select ONE mutation operator from `references/mutation-operators.md`. Apply it t
 
 For LLM-assisted mutations (descriptions, synonyms), use CORTEX.COMPLETE:
 ```sql
--- Read ~/.snowflake/cortex/vault/LLMs.md for current default_agent value — do not hardcode
+-- COMPLETE needs a literal model name. Resolve one at runtime: probe candidates
+-- in the quality tier (a larger reasoning model — mutation benefits from it) and
+-- keep the first that returns without a "model unavailable" error. Ask the
+-- operator which models their account has enabled. Do not hardcode a version.
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    '<default_agent>',
+    '<COMPLETE_MODEL>',
     '<mutation_prompt_from_mutation-operators.md>'
 ) AS mutated_ddl;
 ```
@@ -107,7 +110,7 @@ SELECT AVG(EVAL_AGG_SCORE) AS score_after,
        SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect,
        SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed
 FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-  '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<EVAL_RUN_NAME>'
+  '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<EVAL_RUN_NAME>'
 ))
 WHERE METRIC_NAME = 'sql_correctness';
 ```

@@ -127,11 +127,13 @@ Checks to run:
 When `with extension (CA='...')` is found in GET_DDL output:
 
   A) Create a DDL-only eval copy (recommended):
-     ```python
-     # From vqr-eval-health.md Check 3
-     strip_ca_extension('DB.SCHEMA.SV_NAME', 'DB.SCHEMA.SV_NAME_EVAL_COPY')
-     ```
-     Eval against `SV_NAME_EVAL_COPY`. Drop it after eval completes.
+     Follow the inline procedure in `references/vqr-eval-health.md` Check 3,
+     "Remediation — create a DDL-only eval copy". It starts with `validate_fqn()`
+     and covers: bound-parameter GET_DDL, CA block strip with a post-strip guard,
+     and validated/quoted identifiers for the eval copy name.
+     There is no `strip_ca_extension()` helper — the procedure is inline script.
+
+     Eval against `<SV_NAME>_EVAL`. Drop it after eval completes.
 
   B) Proceed — flag all results with RESULTS_MAY_BE_UNRELIABLE.
      Columns absent from CA extension will score 0 regardless of model quality.
@@ -452,19 +454,25 @@ previous AS (
     ))
     WHERE METRIC_NAME = 'sql_correctness'
 )
-SELECT
-    c.question,
-    p.prev_score,
-    c.current_score,
-    CASE
-        WHEN p.prev_score = 1.0 AND c.current_score < 1.0 THEN 'REGRESSION'
-        WHEN p.prev_score < 1.0 AND c.current_score = 1.0 THEN 'IMPROVEMENT'
-        ELSE 'UNCHANGED'
-    END AS change_type
-FROM current c
-LEFT JOIN previous p ON c.question = p.question
+SELECT * FROM (
+    SELECT
+        c.question,
+        p.prev_score,
+        c.current_score,
+        CASE
+            WHEN p.prev_score = 1.0 AND c.current_score < 1.0 THEN 'REGRESSION'
+            WHEN p.prev_score < 1.0 AND c.current_score = 1.0 THEN 'IMPROVEMENT'
+            ELSE 'UNCHANGED'
+        END AS change_type
+    FROM current c
+    LEFT JOIN previous p ON c.question = p.question
+)
 WHERE change_type != 'UNCHANGED';
 ```
+
+> `change_type` is a SELECT alias, so it is not visible to `WHERE` in the same
+> query block — Snowflake evaluates `WHERE` before `SELECT` and would raise
+> `invalid identifier 'CHANGE_TYPE'`. Wrap and filter in the outer block as above.
 
 **Step 15: Categorize Failures**
 

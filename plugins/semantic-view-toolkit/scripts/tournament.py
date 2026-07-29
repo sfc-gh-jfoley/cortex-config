@@ -32,7 +32,7 @@ DEFAULT_OPERATORS = [
 
 
 def load_state(state_path: str) -> dict:
-    """Load GEPA state from YAML file."""
+    """Load GEPA state from JSON file."""
     path = Path(state_path)
     if not path.exists():
         print(f"Error: State file not found: {state_path}", file=sys.stderr)

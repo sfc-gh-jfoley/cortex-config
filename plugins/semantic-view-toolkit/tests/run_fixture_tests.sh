@@ -17,6 +17,15 @@ FAIL=0
 pass() { ((PASS++)); echo "  ✓ $1"; }
 fail() { ((FAIL++)); echo "  ✗ $1: $2"; }
 
+# Diagnostics: many probes below redirect stderr to /dev/null so a clean run stays
+# readable. That suppression previously hid real errors — two whole groups were
+# failing on a JSON/YAML format mismatch and reported only "wrong format", with the
+# underlying JSONDecodeError discarded. Set VERBOSE=1 to keep stderr and see why a
+# probe failed:  VERBOSE=1 bash tests/run_fixture_tests.sh
+if [ "${VERBOSE:-0}" = "1" ]; then
+    echo "(VERBOSE=1 — stderr from probes will be shown)"
+fi
+
 echo "=== L2 Fixture Tests: Script Behavior ==="
 echo ""
 
@@ -28,17 +37,17 @@ echo "## population_state.py"
 # Test 1.1: init creates valid state file
 python3 "$SCRIPTS/population_state.py" init "$TMP" \
     --pop-size 4 --agent-name TEST_SV --baseline-fitness 0.65 2>/dev/null
-if [ -f "$TMP/gepa_state.yaml" ]; then
-    pass "init creates gepa_state.yaml"
+if [ -f "$TMP/gepa_state.json" ]; then
+    pass "init creates gepa_state.json"
 else
-    fail "init" "gepa_state.yaml not created"
+    fail "init" "gepa_state.json not created"
 fi
 
 # Test 1.2: state file has required keys
 if python3 -c "
-import yaml, sys
-with open('$TMP/gepa_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json, sys
+with open('$TMP/gepa_state.json') as f:
+    state = json.load(f)
 required = ['agent_name','population_size','max_generations','convergence_threshold',
             'current_generation','convergence_counter','baseline_fitness','best_fitness',
             'operator_weights','candidates','batch_history']
@@ -54,12 +63,12 @@ else
 fi
 
 # Test 1.3: add-candidate works
-python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.yaml" \
+python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.json" \
     --id cand_1 --generation 1 --mutations "add_synonym on REVENUE" 2>/dev/null
 if python3 -c "
-import yaml
-with open('$TMP/gepa_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/gepa_state.json') as f:
+    state = json.load(f)
 assert len(state['candidates']) == 1
 assert state['candidates'][0]['id'] == 'cand_1'
 " 2>/dev/null; then
@@ -69,12 +78,12 @@ else
 fi
 
 # Test 1.4: update-fitness sets score
-python3 "$SCRIPTS/population_state.py" update-fitness "$TMP/gepa_state.yaml" \
+python3 "$SCRIPTS/population_state.py" update-fitness "$TMP/gepa_state.json" \
     --id cand_1 --fitness 0.78 2>/dev/null
 if python3 -c "
-import yaml
-with open('$TMP/gepa_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/gepa_state.json') as f:
+    state = json.load(f)
 assert state['candidates'][0]['fitness'] == 0.78
 " 2>/dev/null; then
     pass "update-fitness sets score correctly"
@@ -83,16 +92,16 @@ else
 fi
 
 # Test 1.5: add multiple candidates then remove
-python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.yaml" \
+python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.json" \
     --id cand_2 --generation 1 --mutations "improve_description on NAME" 2>/dev/null
-python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.yaml" \
+python3 "$SCRIPTS/population_state.py" add-candidate "$TMP/gepa_state.json" \
     --id cand_3 --generation 1 --mutations "add_metric TOTAL_SALES" 2>/dev/null
-python3 "$SCRIPTS/population_state.py" remove-candidates "$TMP/gepa_state.yaml" \
+python3 "$SCRIPTS/population_state.py" remove-candidates "$TMP/gepa_state.json" \
     --ids cand_2,cand_3 2>/dev/null
 if python3 -c "
-import yaml
-with open('$TMP/gepa_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/gepa_state.json') as f:
+    state = json.load(f)
 ids = [c['id'] for c in state['candidates']]
 assert 'cand_2' not in ids and 'cand_3' not in ids and 'cand_1' in ids
 " 2>/dev/null; then
@@ -102,7 +111,7 @@ else
 fi
 
 # Test 1.6: get-status returns JSON
-OUTPUT=$(python3 "$SCRIPTS/population_state.py" get-status "$TMP/gepa_state.yaml" 2>/dev/null)
+OUTPUT=$(python3 "$SCRIPTS/population_state.py" get-status "$TMP/gepa_state.json" 2>/dev/null)
 if echo "$OUTPUT" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
     pass "get-status returns valid JSON"
 else
@@ -110,11 +119,11 @@ else
 fi
 
 # Test 1.7: increment-generation
-python3 "$SCRIPTS/population_state.py" increment-generation "$TMP/gepa_state.yaml" 2>/dev/null
+python3 "$SCRIPTS/population_state.py" increment-generation "$TMP/gepa_state.json" 2>/dev/null
 if python3 -c "
-import yaml
-with open('$TMP/gepa_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/gepa_state.json') as f:
+    state = json.load(f)
 assert state['current_generation'] == 2
 " 2>/dev/null; then
     pass "increment-generation bumps generation to 2"
@@ -128,59 +137,50 @@ fi
 echo ""
 echo "## tournament.py"
 
-# Setup: create a fresh state with candidates that have operators
-cat > "$TMP/tourney_state.yaml" << 'EOF'
-agent_name: TEST_SV
-population_size: 6
-max_generations: 10
-mini_batch_pct: 0.30
-convergence_threshold: 3
-current_generation: 1
-convergence_counter: 0
-baseline_fitness: 0.50
-best_fitness: 0.50
-candidates:
-  - id: cand_1
-    generation: 1
-    mutations: "add_synonym"
-    fitness: null
-    status: evaluated
-    operator: add_synonym
-  - id: cand_2
-    generation: 1
-    mutations: "improve_description"
-    fitness: null
-    status: evaluated
-    operator: improve_description
-  - id: cand_3
-    generation: 1
-    mutations: "add_metric"
-    fitness: null
-    status: evaluated
-    operator: add_metric
-  - id: cand_4
-    generation: 1
-    mutations: "add_filter"
-    fitness: null
-    status: evaluated
-    operator: add_filter
-operator_weights:
-  add_synonym: 0.12
-  improve_description: 0.12
-  add_filter: 0.10
-  add_vqr: 0.12
-  add_metric: 0.12
-  refine_metric_expr: 0.10
-  add_metric_description: 0.08
-  change_relationship: 0.10
-  add_time_dimension: 0.08
-  remove_column: 0.06
-batch_history: []
+# Setup: create a fresh state with candidates that have operators.
+# NOTE: state files are JSON — tournament.py and mutate.py both use json.load().
+# This fixture was previously YAML, which json.load() cannot parse, so every test
+# in this group failed with a JSONDecodeError swallowed by 2>/dev/null.
+cat > "$TMP/tourney_state.json" << 'EOF'
+{
+  "agent_name": "TEST_SV",
+  "population_size": 6,
+  "max_generations": 10,
+  "mini_batch_pct": 0.30,
+  "convergence_threshold": 3,
+  "current_generation": 1,
+  "convergence_counter": 0,
+  "baseline_fitness": 0.50,
+  "best_fitness": 0.50,
+  "candidates": [
+    {"id": "cand_1", "generation": 1, "mutations": "add_synonym",
+     "fitness": null, "status": "evaluated", "operator": "add_synonym"},
+    {"id": "cand_2", "generation": 1, "mutations": "improve_description",
+     "fitness": null, "status": "evaluated", "operator": "improve_description"},
+    {"id": "cand_3", "generation": 1, "mutations": "add_metric",
+     "fitness": null, "status": "evaluated", "operator": "add_metric"},
+    {"id": "cand_4", "generation": 1, "mutations": "add_filter",
+     "fitness": null, "status": "evaluated", "operator": "add_filter"}
+  ],
+  "operator_weights": {
+    "add_synonym": 0.12,
+    "improve_description": 0.12,
+    "add_filter": 0.10,
+    "add_vqr": 0.12,
+    "add_metric": 0.12,
+    "refine_metric_expr": 0.10,
+    "add_metric_description": 0.08,
+    "change_relationship": 0.10,
+    "add_time_dimension": 0.08,
+    "remove_column": 0.06
+  },
+  "batch_history": []
+}
 EOF
 
 # Test 2.1: tournament produces valid output
 SCORES='{"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55}'
-OUTPUT=$(python3 "$SCRIPTS/tournament.py" "$SCORES" "$TMP/tourney_state.yaml" 2>/dev/null)
+OUTPUT=$(python3 "$SCRIPTS/tournament.py" "$SCORES" "$TMP/tourney_state.json" 2>/dev/null)
 if echo "$OUTPUT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -218,9 +218,9 @@ fi
 
 # Test 2.4: best_fitness updated in state
 if python3 -c "
-import yaml
-with open('$TMP/tourney_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/tourney_state.json') as f:
+    state = json.load(f)
 assert state['best_fitness'] == 0.82, f'Expected 0.82, got {state[\"best_fitness\"]}'
 " 2>/dev/null; then
     pass "tournament updates best_fitness in state to 0.82"
@@ -230,9 +230,9 @@ fi
 
 # Test 2.5: convergence_counter resets (since best improved from 0.50 to 0.82)
 if python3 -c "
-import yaml
-with open('$TMP/tourney_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/tourney_state.json') as f:
+    state = json.load(f)
 assert state['convergence_counter'] == 0
 " 2>/dev/null; then
     pass "tournament resets convergence_counter on improvement"
@@ -244,21 +244,21 @@ fi
 SCORES2='{"cand_1": 0.80, "cand_3": 0.82}'
 # Reset candidates for a second tournament
 python3 -c "
-import yaml
-with open('$TMP/tourney_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/tourney_state.json') as f:
+    state = json.load(f)
 state['candidates'] = [
     {'id':'cand_1','generation':2,'mutations':'add_synonym','fitness':None,'status':'evaluated','operator':'add_synonym'},
     {'id':'cand_3','generation':2,'mutations':'add_metric','fitness':None,'status':'evaluated','operator':'add_metric'}
 ]
-with open('$TMP/tourney_state.yaml','w') as f:
-    yaml.dump(state, f, default_flow_style=False)
+with open('$TMP/tourney_state.json','w') as f:
+    json.dump(state, f, indent=2)
 " 2>/dev/null
-python3 "$SCRIPTS/tournament.py" "$SCORES2" "$TMP/tourney_state.yaml" > /dev/null 2>&1
+python3 "$SCRIPTS/tournament.py" "$SCORES2" "$TMP/tourney_state.json" > /dev/null 2>&1
 if python3 -c "
-import yaml
-with open('$TMP/tourney_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/tourney_state.json') as f:
+    state = json.load(f)
 assert state['convergence_counter'] == 1
 " 2>/dev/null; then
     pass "tournament increments convergence_counter when no improvement"
@@ -273,10 +273,12 @@ echo ""
 echo "## sample_batch.py"
 
 # Create minimal state for batch sampling
-cat > "$TMP/batch_state.yaml" << 'EOF'
-agent_name: TEST_SV
-batch_history: []
-current_generation: 1
+cat > "$TMP/batch_state.json" << 'EOF'
+{
+  "agent_name": "TEST_SV",
+  "batch_history": [],
+  "current_generation": 1
+}
 EOF
 
 # Test 3.1: stdin mode produces JSON output
@@ -294,7 +296,7 @@ VQR_INPUT='[
 ]'
 
 OUTPUT=$(echo "$VQR_INPUT" | python3 "$SCRIPTS/sample_batch.py" --from-stdin \
-    --batch-pct 0.30 --generation 1 --history-file "$TMP/batch_state.yaml" 2>/dev/null)
+    --batch-pct 0.30 --generation 1 --history-file "$TMP/batch_state.json" 2>/dev/null)
 if echo "$OUTPUT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
@@ -310,9 +312,9 @@ fi
 
 # Test 3.2: batch_history updated
 if python3 -c "
-import yaml
-with open('$TMP/batch_state.yaml') as f:
-    state = yaml.safe_load(f)
+import json
+with open('$TMP/batch_state.json') as f:
+    state = json.load(f)
 assert len(state.get('batch_history', [])) >= 1, 'batch_history not updated'
 " 2>/dev/null; then
     pass "sample_batch updates batch_history in state"
@@ -322,7 +324,7 @@ fi
 
 # Test 3.3: rotation — second generation avoids same batch
 OUTPUT2=$(echo "$VQR_INPUT" | python3 "$SCRIPTS/sample_batch.py" --from-stdin \
-    --batch-pct 0.30 --generation 2 --history-file "$TMP/batch_state.yaml" 2>/dev/null)
+    --batch-pct 0.30 --generation 2 --history-file "$TMP/batch_state.json" 2>/dev/null)
 if python3 -c "
 import json, sys
 batch1 = json.loads('''$OUTPUT''')
@@ -347,7 +349,7 @@ echo "## mutate.py"
 
 # Test 4.1: select-operator returns valid operator name
 OUTPUT=$(python3 "$SCRIPTS/mutate.py" select-operator \
-    --weights-file "$TMP/gepa_state.yaml" 2>/dev/null)
+    --weights-file "$TMP/gepa_state.json" 2>/dev/null)
 if echo "$OUTPUT" | python3 -c "
 import json, sys
 data = json.load(sys.stdin) if '{' in sys.stdin.read() else None
@@ -412,7 +414,11 @@ fi
 # Test Group 5: build_sv_ddl.py
 # ═══════════════════════════════════════════════════════════════════════════
 echo ""
-echo "## build_sv_ddl.py"
+echo "## build_sv_ddl.py (DEPRECATED script — smoke checks only)"
+echo "   These tests confirm the deprecated script still runs and emits output."
+echo "   They do NOT validate that its DDL is correct — it uses an outdated"
+echo "   grammar and no skill in this toolkit calls it. Passing here is not a"
+echo "   correctness signal. See the DEPRECATED header in scripts/build_sv_ddl.py."
 
 # Test 5.1: basic DDL generation from structured JSON
 cat > "$TMP/sv_spec.json" << 'EOF'

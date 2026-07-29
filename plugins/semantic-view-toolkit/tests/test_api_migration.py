@@ -16,13 +16,22 @@ import re
 import sys
 from pathlib import Path
 
+# Toolkit root, resolved relative to this file — never hardcode absolute paths.
+TOOLKIT = Path(__file__).resolve().parent.parent
+
+# Files referenced by tests but absent — collected so the run can fail loudly.
+MISSING_FILES: list[str] = []
+
 
 def grep_files(pattern: str, files: list[str], should_be_empty: bool = False) -> tuple[bool, list[str]]:
     """Search for pattern in files. Return (pass, matches)."""
     matches = []
     for file_path in files:
         if not Path(file_path).exists():
-            print(f"  ⚠️  File not found: {file_path}")
+            # A missing file is a failure, not a skip — silently continuing here
+            # means the checks against that file never run and nobody notices.
+            print(f"  ❌ File not found (check cannot run): {file_path}")
+            MISSING_FILES.append(file_path)
             continue
         with open(file_path, 'r') as f:
             content = f.read()
@@ -40,11 +49,11 @@ def test_old_patterns_removed():
     """W1-W4: Verify old API patterns are removed."""
     print("\n✓ TEST: Old API patterns removed (W1-W4)")
     files = [
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/references/eval-polling.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-gepa-optimizer/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-optimization/optimize/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/references/failure-analysis.md',
+        str(TOOLKIT / 'references/eval-polling.md'),
+        str(TOOLKIT / 'skills/sv-evaluation/SKILL.md'),
+        str(TOOLKIT / 'skills/sv-gepa-optimizer/SKILL.md'),
+        str(TOOLKIT / 'skills/sv-optimization/SKILL.md'),
+        str(TOOLKIT / 'skills/sv-evaluation/references/failure-analysis.md'),
     ]
     
     patterns_to_remove = [
@@ -71,8 +80,8 @@ def test_new_api_patterns():
     
     # Check for new START/STATUS calls
     eval_files = [
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/references/eval-polling.md',
+        str(TOOLKIT / 'skills/sv-evaluation/SKILL.md'),
+        str(TOOLKIT / 'references/eval-polling.md'),
     ]
     
     passed, matches = grep_files(r"CALL EXECUTE_AI_EVALUATION\s*\(\s*'START'", eval_files, should_be_empty=False)
@@ -87,9 +96,9 @@ def test_new_api_patterns():
     
     # Check for 5-arg function
     all_files = eval_files + [
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-gepa-optimizer/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-optimization/optimize/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/references/failure-analysis.md',
+        str(TOOLKIT / 'skills/sv-gepa-optimizer/SKILL.md'),
+        str(TOOLKIT / 'skills/sv-optimization/SKILL.md'),
+        str(TOOLKIT / 'skills/sv-evaluation/references/failure-analysis.md'),
     ]
     
     passed, matches = grep_files(r"SNOWFLAKE\.LOCAL\.GET_ANALYST_AI_EVALUATION_DATA", all_files, should_be_empty=False)
@@ -100,7 +109,7 @@ def test_new_api_patterns():
 def test_yaml_metrics_toplevel():
     """G1: Verify YAML metrics are at top level."""
     print("\n✓ TEST: YAML metrics at top level (G1)")
-    file_path = '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/SKILL.md'
+    file_path = str(TOOLKIT / 'skills/sv-evaluation/SKILL.md')
     
     with open(file_path, 'r') as f:
         content = f.read()
@@ -133,8 +142,8 @@ def test_stage_file_format():
     print("\n✓ TEST: Stage DDL has FILE_FORMAT (G5)")
     
     files = [
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/references/eval-polling.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/SKILL.md',
+        str(TOOLKIT / 'references/eval-polling.md'),
+        str(TOOLKIT / 'skills/sv-evaluation/SKILL.md'),
     ]
     
     passed, matches = grep_files(r"FILE_FORMAT\s*=\s*\(TYPE\s*=\s*'YAML'", files, should_be_empty=False)
@@ -147,8 +156,8 @@ def test_use_ai_functions():
     print("\n✓ TEST: USE AI FUNCTIONS grant required (G3)")
     
     files = [
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/skills/sv-evaluation/SKILL.md',
-        '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/PREREQUISITES.md',
+        str(TOOLKIT / 'skills/sv-evaluation/SKILL.md'),
+        str(TOOLKIT / 'PREREQUISITES.md'),
     ]
     
     passed, matches = grep_files(r'USE\s+AI\s+FUNCTIONS', files, should_be_empty=False)
@@ -160,7 +169,7 @@ def test_prerequisites_complete():
     """G3: Verify PREREQUISITES has all 8 requirements + primary-role warning."""
     print("\n✓ TEST: PREREQUISITES.md sv-evaluation table complete (G3)")
     
-    file_path = '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/PREREQUISITES.md'
+    file_path = str(TOOLKIT / 'PREREQUISITES.md')
     with open(file_path, 'r') as f:
         content = f.read()
     
@@ -202,18 +211,23 @@ def test_prerequisites_complete():
 
 
 def test_smoke_test_steps():
-    """G11: Verify smoke test has exactly 10 numbered steps."""
-    print("\n✓ TEST: Smoke test has 10 steps with correct API calls (G11)")
-    
-    file_path = '/Users/jfoley/src/github/cortex-config/plugins/semantic-view-toolkit/references/eval-smoke-test.md'
+    """G11: Verify smoke test steps are numbered contiguously from 0."""
+    print("\n✓ TEST: Smoke test steps are contiguous with correct API calls (G11)")
+
+    file_path = str(TOOLKIT / 'references/eval-smoke-test.md')
     with open(file_path, 'r') as f:
         content = f.read()
-    
-    # Find all step headers
-    steps = re.findall(r'### Step \d+:', content)
-    
-    passed = len(steps) == 10
-    print(f"  {'✓ PASS' if passed else '✗ FAIL'}: Found {len(steps)} steps (expected 10)")
+
+    # Assert contiguity rather than a magic count. A hardcoded count goes stale
+    # silently whenever a step is added (Step 0 was added for CA detection and
+    # this assertion kept expecting 10).
+    nums = [int(n) for n in re.findall(r'### Step (\d+):', content)]
+    expected = list(range(min(nums), max(nums) + 1)) if nums else []
+    passed = bool(nums) and nums == expected
+    if passed:
+        print(f"  ✓ PASS: {len(nums)} steps, contiguous {min(nums)}–{max(nums)}")
+    else:
+        print(f"  ✗ FAIL: steps not contiguous — found {nums}")
     
     # Verify key API patterns in smoke test
     step_6 = re.search(r'### Step 6:(.+?)### Step 7:', content, re.DOTALL)
@@ -271,7 +285,15 @@ def main():
     total_pass = sum(1 for _, result in results if result)
     total_tests = len(results)
     print(f"\nTotal: {total_pass}/{total_tests} tests passed")
-    
+
+    if MISSING_FILES:
+        print(f"\n❌ {len(set(MISSING_FILES))} referenced file(s) were missing, so "
+              f"their checks never ran:")
+        for f in sorted(set(MISSING_FILES)):
+            print(f"   - {f}")
+        print("Fix the paths or remove the checks — a skipped check is not a pass.")
+        return 1
+
     return 0 if total_pass == total_tests else 1
 
 

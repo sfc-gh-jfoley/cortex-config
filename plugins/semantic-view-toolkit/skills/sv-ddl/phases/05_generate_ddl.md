@@ -362,11 +362,15 @@ before presenting to the user:
 
 **Gate B: Structural validator**
 
-Write the DDL to `/tmp/sv_ddl_check.sql` then run:
+Write the DDL to `/tmp/sv_ddl_check.sql` then run, from the toolkit root:
 
 ```bash
-python3 ~/.snowflake/cortex/skills/semantic-view-ddl/scripts/sv_validator.py /tmp/sv_ddl_check.sql
+python3 scripts/sv_validator.py /tmp/sv_ddl_check.sql
 ```
+
+The validator is bundled with this toolkit and requires only the Python standard
+library. If you are not in the toolkit root, use the path to it:
+`python3 <toolkit-root>/scripts/sv_validator.py /tmp/sv_ddl_check.sql`
 
 If the script is not found:
 ```

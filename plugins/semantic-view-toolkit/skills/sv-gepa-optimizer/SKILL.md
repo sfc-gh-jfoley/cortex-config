@@ -87,10 +87,11 @@ ls /tmp/gepa_workspace/gepa_state.json 2>/dev/null
 
 ### Step 2: Resume or Initialize
 
-> **Script path note:** All `scripts/` commands below assume CWD is the plugin root:
-> `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/`
-> If running from another directory, prefix each script path accordingly, e.g.:
-> `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/scripts/population_state.py`
+> **Script path note:** All `scripts/` commands below assume CWD is the toolkit
+> root — the directory containing `SKILL.md` and `scripts/`, wherever you installed
+> it. For example: `cd /path/to/semantic-view-toolkit`.
+> If running from another directory, prefix each script path with the toolkit root,
+> e.g. `python3 <toolkit-root>/scripts/population_state.py`.
 
 **If `gepa_state.json` exists → Resume Protocol** (see end of document)
 
@@ -133,9 +134,12 @@ Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
 Use the returned prompt with CORTEX.COMPLETE to generate the mutated DDL:
 
 ```sql
--- Read ~/.snowflake/cortex/vault/LLMs.md for current default_agent value — do not hardcode
+-- COMPLETE needs a literal model name. Resolve one at runtime: probe candidates
+-- in the quality tier (a larger reasoning model — mutation benefits from it) and
+-- keep the first that returns without a "model unavailable" error. Ask the
+-- operator which models their account has enabled. Do not hardcode a version.
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    '<default_agent>',
+    '<COMPLETE_MODEL>',
     '<mutation_prompt_escaped>'
 ) AS mutated_ddl;
 ```
