@@ -22,7 +22,7 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 
 | # | Rule | How to check | Auto-fix |
 |---|------|-------------|----------|
-| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to value of `default_agent` alias from LLMs.md (see LLMs.md for current value) |
+| 1 | `models.orchestration` is set to a non-empty string | `spec.models.orchestration` exists and is not `""` or `null` | Set to value of `default_agent` alias from the model table (see the model table) |
 | 2 | `instructions.orchestration` is present and non-empty (>50 chars) | `spec.instructions.orchestration` exists and length > 50 | Prompt user — cannot auto-generate without context |
 | 3 | Each `cortex_analyst_text_to_sql` tool has `tool_resources[name].execution_environment.type = "warehouse"` and `tool_resources[name].execution_environment.warehouse` is non-empty | For each `cortex_analyst_text_to_sql` tool name T: `spec.tool_resources[T].execution_environment.type == "warehouse"` and `spec.tool_resources[T].execution_environment.warehouse` is non-empty string. Also check no top-level `execution_environment` exists — if found, it must be removed. | Add `execution_environment: {type: "warehouse", warehouse: AGENT_WAREHOUSE}` inside each offending tool_resources entry; remove any top-level `execution_environment` block |
 | 4 | `tools` array is non-empty | `spec.tools.length > 0` | Cannot auto-fix — return to Phase 2 |
@@ -33,7 +33,7 @@ Evaluate `AGENT_SPEC` against each rule. Record PASS / FAIL / WARN for each.
 | 6 | No duplicate `tool_spec.name` values across `tools[]` | Collect all names → check for duplicates | Rename duplicate by appending `_2`, `_3`, etc. |
 | 7 | `cortex_analyst_text_to_sql` tools: `tool_resources[name].semantic_view` is a 3-part FQN matching `X.Y.Z` | Regex: `\w+\.\w+\.\w+` on the value | Cannot auto-fix — surface to user with SHOW SEMANTIC VIEWS |
 | 8 | `cortex_search` tools: `tool_resources[name].name` is a 3-part FQN | Regex: `\w+\.\w+\.\w+` | Cannot auto-fix — surface to user |
-| 9 | `generic` tools: `tool_resources[name]` has either `function` or `procedure` key (not both empty) | At least one of the two keys exists | Cannot auto-fix — ask user for function FQN |
+| 9 | `generic` tools: `tool_resources[name]` has `type` (`"function"` or `"procedure"`) AND a non-empty `identifier` (the FQN), plus `execution_environment.warehouse` | For each `generic` tool name T: `spec.tool_resources[T].type` in `{"function","procedure"}`, `spec.tool_resources[T].identifier` is a non-empty FQN, and `spec.tool_resources[T].execution_environment.warehouse` is non-empty. **Also flag as an ERROR any legacy `{"function": "<FQN>"}` or `{"procedure": "<FQN>"}` key** — that shape is silently ignored at invocation, so the agent creates cleanly and then fails when the tool is called | Rewrite to `{"type": "function"\|"procedure", "identifier": "<FQN>", "execution_environment": {"type": "warehouse", "warehouse": AGENT_WAREHOUSE}}`; ask user for the FQN only if absent |
 | 10 | Each tool description is > 100 characters | `tool_spec.description.length > 100` | Trigger CORTEX.COMPLETE regeneration (Phase 2 Step 2.6) |
 
 ---

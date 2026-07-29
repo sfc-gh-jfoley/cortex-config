@@ -4,13 +4,13 @@
 
 Always applicable — run for any agent regardless of features configured.
 
-> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before building variant specs.
+> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md` before building variant specs.
 
 | Variant Suffix | Spec change | Description |
 |---|---|---|
-| `_MODEL_A` | `models.orchestration: <current_sonnet>` | Baseline — resolve `current_sonnet` alias from LLMs.md |
-| `_MODEL_B` | `models.orchestration: <openai_heavy>` | Cross-family comparison — resolve `openai_heavy` alias from LLMs.md |
-| `_MODEL_C` | `models.orchestration: <fast_agent>` | Latency-optimized — resolve `fast_agent` alias from LLMs.md |
+| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — balanced tier |
+| `_MODEL_B` | `models.orchestration: openai-gpt-5.2` | Cross-family comparison — OpenAI heavy tier |
+| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized — fast tier |
 
 ## Conditional Sweep: Flags
 
@@ -41,11 +41,11 @@ All variants **must** be in the same schema as the eval dataset (co-location con
 
 For model comparison variants, clone the original agent spec and change `models.orchestration`.
 
-> **Resolve aliases first:** Read `~/.snowflake/cortex/vault/LLMs.md` to get the current value for
-> `current_sonnet`, `openai_heavy`, and `fast_agent` before writing the literal model name into the SQL.
+> **Resolve aliases first:** Read `reference/agent_spec_syntax.md` (Valid Model Names) to get the current value for
+> the model table before writing the literal model name into the SQL.
 
 ```sql
--- MODEL_A: resolve current_sonnet alias from LLMs.md (e.g., currently claude-sonnet-4-6)
+-- MODEL_A: balanced tier (see reference/agent_spec_syntax.md for current options)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_A
 FROM SPECIFICATION $$
 {
@@ -54,7 +54,7 @@ FROM SPECIFICATION $$
 }
 $$;
 
--- MODEL_B: resolve openai_heavy alias from LLMs.md (e.g., currently openai-gpt-5.2)
+-- MODEL_B: OpenAI heavy tier (see reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_B
 FROM SPECIFICATION $$
 {
@@ -63,7 +63,7 @@ FROM SPECIFICATION $$
 }
 $$;
 
--- MODEL_C: resolve fast_agent alias from LLMs.md (e.g., currently claude-haiku-4-5)
+-- MODEL_C: fast tier (see reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_C
 FROM SPECIFICATION $$
 {

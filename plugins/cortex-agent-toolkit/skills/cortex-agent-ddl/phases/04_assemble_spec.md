@@ -14,13 +14,13 @@ This phase produces one artifact: `AGENT_SPEC` — the full spec JSON. No user i
 
 ## Step 4.1: Select model
 
-If not already specified by the user, recommend the `default_agent` alias from `~/.snowflake/cortex/vault/LLMs.md`:
+If not already specified by the user, recommend the `default_agent` alias from `reference/agent_spec_syntax.md` (Valid Model Names):
 
 ```
-Recommended model: use default_agent alias — read ~/.snowflake/cortex/vault/LLMs.md for current value. Do not hardcode a model version string.
+Recommended model: use default_agent alias — read reference/agent_spec_syntax.md for current value. Do not hardcode a model version string.
 (Best balance of instruction-following and speed.)
 
-Other options: heavy_agent (highest quality), fast_agent (fastest) — resolve from `~/.snowflake/cortex/vault/LLMs.md`
+Other options: heavy_agent (highest quality), fast_agent (fastest) — resolve from `reference/agent_spec_syntax.md` (Valid Model Names)
 Confirm model or override:
 ```
 
@@ -115,9 +115,20 @@ For each CSS tool:
 For each generic tool:
 ```json
 "<TOOL_NAME>": {
-  "function": "<DB>.<SCHEMA>.<FUNCTION_NAME>"
+  "type": "function",
+  "identifier": "<DB>.<SCHEMA>.<FUNCTION_NAME>",
+  "execution_environment": {
+    "type": "warehouse",
+    "warehouse": "<AGENT_WAREHOUSE>"
+  }
 }
 ```
+
+> **Schema is `type` + `identifier`, not `"function": "<FQN>"`.** Confirmed against
+> the Cortex Agents REST API `ToolResource` schema. Set `type` to `"function"` for a
+> UDF or `"procedure"` for a stored procedure; put the FQN in `identifier`. A
+> `{"function": "<FQN>"}` entry is silently ignored or errors at invocation — the
+> agent will create successfully and then fail when the tool is called.
 
 ---
 

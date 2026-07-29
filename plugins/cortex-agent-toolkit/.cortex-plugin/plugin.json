@@ -2,6 +2,6 @@
   "name": "cortex-agent-toolkit",
   "description": "Full Snowflake Cortex Agent lifecycle: create, evaluate, optimize, and flag-test. Includes execution_environment enforcement and 17-rule spec validation.",
   "version": "1.1.0",
-  "author": { "name": "Joey Foley" },
+  "author": { "name": "Snowflake" },
   "skills": ["./skills"]
 }

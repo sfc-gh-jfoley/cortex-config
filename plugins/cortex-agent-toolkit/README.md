@@ -5,7 +5,8 @@ A Cortex Code plugin for the full Snowflake Cortex Agent lifecycle — from crea
 ## Install
 
 ```bash
-cortex plugin install sfc-gh-jfoley/cortex-agent-toolkit
+# Install from your local copy of the toolkit:
+cortex plugin install /path/to/cortex-agent-toolkit
 ```
 
 ## Skills

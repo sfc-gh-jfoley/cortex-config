@@ -39,7 +39,7 @@
     },
     "model": {
       "type": "string",
-      "description": "Model alias used (e.g. default_agent — see ~/.snowflake/cortex/vault/LLMs.md)"
+      "description": "Model alias used (e.g. default_agent — see reference/agent_spec_syntax.md)"
     },
     "tools": {
       "type": "array",

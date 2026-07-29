@@ -44,25 +44,6 @@ def _validate_identifier(name: str, label: str):
             f"Must contain only alphanumeric/underscore characters."
         )
 
-# Strict FQN pattern: DB.SCHEMA.TABLE with alphanumeric + underscore only
-_FQN_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*$')
-_IDENT_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_$]*$')
-
-def _validate_fqn(name: str, label: str):
-    """Validate that name is a safe 3-part Snowflake identifier."""
-    if not _FQN_PATTERN.match(name):
-        raise ValueError(
-            f"Invalid {label}: '{name}'. "
-            f"Must be DB.SCHEMA.TABLE with alphanumeric/underscore characters only."
-        )
-
-def _validate_identifier(name: str, label: str):
-    """Validate that name is a safe single Snowflake identifier."""
-    if not _IDENT_PATTERN.match(name):
-        raise ValueError(
-            f"Invalid {label}: '{name}'. "
-            f"Must contain only alphanumeric/underscore characters."
-        )
 
 
 def convert_dataset(

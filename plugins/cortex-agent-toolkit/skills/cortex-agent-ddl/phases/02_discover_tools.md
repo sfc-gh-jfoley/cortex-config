@@ -79,7 +79,7 @@ Store created UDF FQNs as `CUSTOM_TOOLS` — list of `{name: "Ask<AgentName>", t
 
 ### Step 2.0.4: Generate tool descriptions for sub-agent UDFs
 
-First, resolve `COMPLETE_MODEL` by reading `~/.snowflake/cortex/vault/LLMs.md`. Try models in this order: `current_haiku` alias first, then `default_agent` alias. Use the first model from the Available Models table that succeeds.
+First, resolve `COMPLETE_MODEL` by reading `reference/agent_spec_syntax.md` (Valid Model Names). Try models in this order: `current_haiku` alias first, then `default_agent` alias. Use the first model from the Available Models table that succeeds.
 
 For each sub-agent UDF, generate a tool description using `SUB_AGENT_METADATA`:
 
@@ -309,16 +309,16 @@ For each selected SV, generate a tool description.
 
 Before running CORTEX.COMPLETE, find the fastest available model with this probe sequence.
 
-**First, read `~/.snowflake/cortex/vault/LLMs.md` to resolve the current values of `current_haiku` and `default_agent` aliases.** Then run each probe until one succeeds:
+**First, read `reference/agent_spec_syntax.md` (Valid Model Names) to resolve the current values of `current_haiku` and `default_agent` aliases.** Then run each probe until one succeeds:
 
 ```sql
 -- Try current_haiku alias first (fastest), then fall back to default_agent
--- Replace <current_haiku> and <default_agent> with values resolved from LLMs.md
-SELECT SNOWFLAKE.CORTEX.COMPLETE('<current_haiku>', 'OK') AS r;   -- current_haiku (fastest)
-SELECT SNOWFLAKE.CORTEX.COMPLETE('<default_agent>', 'OK') AS r;  -- default_agent (fallback)
+-- Replace claude-haiku-4-5 and claude-sonnet-4-6 with values resolved from the model table
+SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-haiku-4-5', 'OK') AS r;   -- current_haiku (fastest)
+SELECT SNOWFLAKE.CORTEX.COMPLETE('claude-sonnet-4-6', 'OK') AS r;  -- default_agent (fallback)
 ```
 
-Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Never hardcode version strings in this probe — always resolve from LLMs.md.
+Use the first model that returns without a "model unavailable" error. Store it as `COMPLETE_MODEL`. Never hardcode version strings in this probe — always resolve from the model table.
 
 **Step 2.6b: Generate the description**
 

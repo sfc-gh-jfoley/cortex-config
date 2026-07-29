@@ -135,7 +135,7 @@ Parse the `agent_spec` column from the returned row and verify against `AGENT_SP
 Report:
 ```
 DESCRIBE verification:
-  ✓ Model: <value of default_agent alias from LLMs.md>
+  ✓ Model: <value of default_agent alias from the model table>
   ✓ Tools: 2 — [SubscriberAnalytics, CustomerSupportSearch]
   ✓ Warehouse: COMPUTE_WH
   ✓ Profile: "Customer Analytics 360" / robot / #0057B8

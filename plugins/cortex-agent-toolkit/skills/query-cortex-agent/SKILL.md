@@ -78,7 +78,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "<USER_QUESTION>"}]
         }
       ],
-      "models": {"orchestration": "<default_agent>"},  // Read ~/.snowflake/cortex/vault/LLMs.md for current value
+      "models": {"orchestration": "claude-sonnet-4-6"},  // Read reference/agent_spec_syntax.md for current value
       "stream": false
     }$$
   )

@@ -44,7 +44,7 @@ That's it. The sections below cover each phase in detail.
 
 ## Phase A: Build Your Semantic View
 
-> **This phase uses the `semantic-view-toolkit` plugin** (installed separately). See the semantic-view-toolkit Customer Guide at `~/.snowflake/cortex/vault/plugins/semantic-view-toolkit/CUSTOMER_GUIDE.md` for the full SV creation walkthrough.
+> **This phase uses the `semantic-view-toolkit` plugin** (installed separately). See that plugin's bundled `CUSTOMER_GUIDE.md` for the full SV creation walkthrough.
 
 A Cortex Agent needs at least one **semantic view** to answer data questions. A semantic view tells Cortex Analyst what your tables contain, how they relate, and what business terms map to which columns.
 

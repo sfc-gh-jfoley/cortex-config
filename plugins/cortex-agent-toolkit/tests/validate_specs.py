@@ -245,6 +245,7 @@ EXPECTED_SKILLS = [
     "agent-evaluation",
     "agent-flag-tester",
     "agent-gepa-optimizer",
+    "analytical-search",
     "cortex-agent-ddl",
     "cortex-agent-flags",
     "cortex-agent-optimization",

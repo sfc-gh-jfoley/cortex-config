@@ -173,7 +173,7 @@ Present the next-steps menu:
 What would you like to do next?
 
   [1] agent-flag-tester
-      Compare model variants (current_sonnet vs openai_heavy vs fast_agent — resolve from LLMs.md)
+      Compare model variants (current_sonnet vs openai_heavy vs fast_agent — resolve from the model table)
       and conditional flag variants (VQR, unrestricted chart) side-by-side.
       Best when: you want to find the right model/config tradeoff
       before committing to a final configuration.
@@ -244,7 +244,7 @@ Summary:
 Find it in Snowflake Intelligence under "<display_name>".
 ```
 
-If >10% of skills changed this session, GitLab backup may be triggered per global AGENTS.md protocol.
+
 
 ---
 

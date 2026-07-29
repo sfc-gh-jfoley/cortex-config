@@ -36,13 +36,13 @@ Ask the user (or read from a config) which flags to compare. Default matrix:
 
 **Default sweep: Model comparison (always applicable)**
 
-> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before building variant specs.
+> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md` before building variant specs.
 
 | Variant Suffix | Spec change | Description |
 |---|---|---|
-| `_MODEL_A` | `models.orchestration: <current_sonnet>` | Baseline — resolve `current_sonnet` alias from LLMs.md |
-| `_MODEL_B` | `models.orchestration: <openai_heavy>` | Cross-family comparison — resolve `openai_heavy` alias from LLMs.md |
-| `_MODEL_C` | `models.orchestration: <fast_agent>` | Latency-optimized — resolve `fast_agent` alias from LLMs.md |
+| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — balanced tier |
+| `_MODEL_B` | `models.orchestration: openai-gpt-5.2` | Cross-family comparison — OpenAI heavy tier |
+| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized — fast tier |
 
 **Conditional sweep: Flags (only if applicable to agent)**
 

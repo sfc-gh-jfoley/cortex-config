@@ -171,7 +171,7 @@ You are an intelligent router. Analyze the user's inquiry to determine the corre
 ```json
 {
   "models": {
-    "orchestration": "<default_agent>"  // Read ~/.snowflake/cortex/vault/LLMs.md for current value
+    "orchestration": "claude-sonnet-4-6"  // Read reference/agent_spec_syntax.md for current value
   },
   "experimental": {
     "EnableVQRFastPath": false
@@ -208,14 +208,22 @@ You are an intelligent router. Analyze the user's inquiry to determine the corre
   ],
   "tool_resources": {
     "AskSalesAgent": {
-      "function": "MY_DB.AGENTS.ASK_SALES_PIPELINE_AGENT"
+      "type": "procedure",
+      "identifier": "MY_DB.AGENTS.ASK_SALES_PIPELINE_AGENT",
+      "execution_environment": {"type": "warehouse", "warehouse": "MY_WH"}
     },
     "AskSupportAgent": {
-      "function": "MY_DB.AGENTS.ASK_SUPPORT_AGENT"
+      "type": "procedure",
+      "identifier": "MY_DB.AGENTS.ASK_SUPPORT_AGENT",
+      "execution_environment": {"type": "warehouse", "warehouse": "MY_WH"}
     }
   }
 }
 ```
+
+> `type` is `"procedure"` when the sub-agent wrapper is a stored procedure and
+> `"function"` when it is a UDF. The FQN goes in `identifier` — never as a
+> `{"function": "<FQN>"}` key, which is silently ignored at invocation.
 
 > **Note**: `EnableVQRFastPath` is set to `false` for routers. The fast path skips full orchestration, which defeats the purpose of a routing agent that must always reason about which tool to invoke.
 

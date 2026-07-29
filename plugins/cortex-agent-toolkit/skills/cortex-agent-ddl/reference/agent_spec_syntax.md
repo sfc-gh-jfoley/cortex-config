@@ -86,7 +86,7 @@ Only Claude and OpenAI models are supported for agent orchestration. Open-weight
 
 ### Speed Recommendations
 
-> Resolve alias values from `~/.snowflake/cortex/vault/LLMs.md` before using in specs.
+> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md`.
 
 - **Demo / latency-sensitive**: `fast_agent` alias (e.g. claude-haiku class) or `openai_fast` alias
 - **Production default**: `default_agent` alias (e.g. current Sonnet class)
