@@ -96,7 +96,7 @@ unreliable until the framework is patched. The workaround is to run eval against
 **Detection:**
 ```python
 ddl = cursor.execute(
-    "SELECT GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')"
+    "SELECT GET_DDL('SEMANTIC VIEW', ?)", (sv_fqn,)
 ).fetchone()[0]
 has_ca_extension = 'with extension' in ddl.lower()
 ```
@@ -114,30 +114,58 @@ SELECT
 ```
 
 **Remediation — create a DDL-only eval copy (recommended):**
+
+> **Identifier handling.** The `GET_DDL` argument is a string literal, so bind it
+> rather than interpolating. Identifiers inside DDL text (`CREATE`, `DROP`) cannot
+> be bound — validate them first and emit them quoted. See the security note below.
+
 ```python
 import re
 
-# 1. Get DDL
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+
+def validate_fqn(fqn):
+    """Reject anything that is not three plain identifiers. Returns (parts, quoted)."""
+    parts = fqn.split(".")
+    if len(parts) != 3 or not all(IDENT.match(p) for p in parts):
+        raise ValueError(f"unsafe or malformed FQN: {fqn!r}")
+    return parts, ".".join(f'"{p}"' for p in parts)
+
+sv_fqn = "<db>.<schema>.<sv_name>"
+(db, schema, sv_name), sv_quoted = validate_fqn(sv_fqn)
+
+# 1. Get DDL — bound parameter, no interpolation
 ddl = cursor.execute(
-    "SELECT GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')"
+    "SELECT GET_DDL('SEMANTIC VIEW', ?)", (sv_fqn,)
 ).fetchone()[0]
 
-# 2. Unescape CSV double-quotes (GET_DDL escaping — see ddl_syntax.md)
-ddl = ddl.replace('""', '"')
-
-# 3. Strip CA extension block
+# 2. Strip CA extension block.
+#    Greedy .* anchored on the JSON envelope {...}: a non-greedy .*? terminates at
+#    the first ') inside the CA payload, truncating the strip and leaving remnants
+#    that reproduce the very 'invalid identifier' failure this check prevents.
 ddl_clean = re.sub(
-    r"\s*with extension\s*\(CA='.*?'\)",
+    r"\s*with extension\s*\(CA='\{.*\}'\)",
     "",
     ddl,
     flags=re.DOTALL
 )
 
-# 4. Rename to eval copy
-eval_sv_name = '<sv_name>_EVAL'
+# 3. Fail loudly rather than deploying a partially-stripped copy
+if "with extension" in ddl_clean.lower():
+    raise RuntimeError(
+        "CA extension still present after strip — inspect the DDL manually. "
+        "Likely multiple extension blocks or an unexpected payload shape."
+    )
+
+# 4. Rename to eval copy (validated identifier, quoted)
+eval_sv_name = f"{sv_name}_EVAL"
+if not IDENT.match(eval_sv_name):
+    raise ValueError(f"unsafe eval copy name: {eval_sv_name!r}")
+eval_fqn_quoted = f'"{db}"."{schema}"."{eval_sv_name}"'
+
 ddl_eval = re.sub(
     r"(CREATE OR REPLACE SEMANTIC VIEW\s+\S+)",
-    f"CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.{eval_sv_name}",
+    f"CREATE OR REPLACE SEMANTIC VIEW {eval_fqn_quoted}",
     ddl_clean,
     count=1,
     flags=re.IGNORECASE
@@ -145,11 +173,15 @@ ddl_eval = re.sub(
 
 # 5. Deploy eval copy (VQRs included from AI_VERIFIED_QUERIES block)
 cursor.execute(ddl_eval)
-print(f"Eval copy created: <db>.<schema>.{eval_sv_name}")
+print(f"Eval copy created: {eval_fqn_quoted}")
 
 # 6. Drop after eval
-# cursor.execute(f"DROP SEMANTIC VIEW <db>.<schema>.{eval_sv_name}")
+# cursor.execute(f"DROP SEMANTIC VIEW {eval_fqn_quoted}")
 ```
+
+Note that the whole-DDL `ddl.replace('""', '"')` unescape is deliberately absent
+here: the strip path discards the CA block, so nothing in it needs unescaping.
+Unescape only the extracted CA JSON, in the secondary check below.
 
 **When to skip remediation:** If the eval framework has been patched to use the full SV schema
 (not the CA extension column list) for CTE construction, Check 3 becomes advisory. Verify by
@@ -160,10 +192,20 @@ severity downgrades to LOW.
 ```python
 import json, re
 
-# Extract CA extension JSON
-ext_match = re.search(r"with extension \(CA='(\{.*?\})'\)", ddl, re.DOTALL)
+# Extract CA extension JSON.
+# Greedy .* anchored on the {...} envelope — a non-greedy .*? stops at the first
+# ') inside the payload and yields truncated, unparseable JSON.
+ext_match = re.search(r"with extension \(CA='(\{.*\})'\)", ddl, re.DOTALL)
 if ext_match:
-    ca_json = json.loads(ext_match.group(1))
+    # Unescape here only — scoped to the CA payload, not the whole DDL
+    ca_payload = ext_match.group(1).replace('""', '"')
+    try:
+        ca_json = json.loads(ca_payload)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"CA extension payload did not parse ({e}). The block may contain "
+            "an unexpected shape — inspect it before trusting this check."
+        )
     ca_columns = {col['name'] for col in ca_json.get('columns', [])}
 
     # Parse column references from each VQR SQL
@@ -174,6 +216,16 @@ if ext_match:
         if missing:
             print(f"VQR '{vqr['name']}': columns possibly not in CA extension: {missing}")
 ```
+
+> **Security note — identifiers in DDL.** `GET_DDL`'s argument is a string literal
+> and should be passed as a bound parameter. Identifiers embedded in DDL text
+> (`CREATE OR REPLACE SEMANTIC VIEW`, `DROP SEMANTIC VIEW`) cannot be bound, so any
+> name reaching them must be validated against a strict identifier pattern and
+> emitted quoted — see `validate_fqn()` above. Do not f-string an unvalidated name
+> into DDL. The same applies to interpolating a question string into an
+> `ANALYST_PREVIEW` call: serialise it with `json.dumps()` rather than quoting by
+> hand. These paths are skill-controlled today; treat validation as mandatory if
+> any of this is promoted to a shared utility.
 
 ---
 
