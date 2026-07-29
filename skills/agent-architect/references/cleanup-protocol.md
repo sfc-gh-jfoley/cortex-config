@@ -49,6 +49,27 @@ git add .agent-project/manifest.log
 git commit -m "log: RECOVERY — resumed from <last-commit-sha>"
 ```
 
+**4. Resolving worktrees is NOT the same as the run being complete.** Check the two
+terminal invariants before declaring recovery finished:
+
+```bash
+M=.agent-project/manifest.log
+reg=$(grep -c "| TASK_REGISTERED |" "$M" 2>/dev/null); reg=${reg:-0}
+done_n=$(grep -c "| DONE |" "$M" 2>/dev/null); done_n=${done_n:-0}
+open_c=$(grep -c "| CONDITION_OPEN |" "$M" 2>/dev/null); open_c=${open_c:-0}
+closed_c=$(grep -c "| CONDITION_CLOSED |" "$M" 2>/dev/null); closed_c=${closed_c:-0}
+shipped=$(grep -c "| SHIPPED |" "$M" 2>/dev/null); shipped=${shipped:-0}
+
+[ "$open_c" -eq "$closed_c" ] || echo "OPEN CONDITIONS: $((open_c - closed_c)) unremediated"
+[ "$reg" -eq "$done_n" ]      || echo "INCOMPLETE: $reg registered, $done_n done"
+[ "$done_n" -gt 0 ] && [ "$shipped" -eq 0 ] && echo "NOT SHIPPED: run never reached Phase 6"
+```
+
+A recovered run with clean worktrees, all tasks DONE, and **no SHIPPED entry** is
+abandoned — finish Phase 6 or write an `ESCALATED` entry saying why not. Unremediated
+`CONDITION_OPEN` entries are usually security findings; surface them to the user
+rather than closing out the run.
+
 ---
 
 ## Multi-Team Stuck-Team Escalation

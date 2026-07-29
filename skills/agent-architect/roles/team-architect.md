@@ -24,7 +24,7 @@ You do NOT repeat org-wide research the Primary already did — focus on impleme
 details, edge cases, and unknowns specific to your task list.
 
 ```python
-Task(subagent_type="Explore", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="Explore", model="<MODEL_RESEARCHER>",  # balanced tier — see roles/model-map.md
      run_in_background=True,
      team_name="arch-<slug>", name="researcher-team<N>-<topic>", prompt="...")
 ```
@@ -49,7 +49,7 @@ be spawned in parallel.
 Spawn workers and drain the charter:
 
 ```python
-Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="<MODEL_WORKER>",  # balanced tier — see roles/model-map.md
      run_in_background=True, worktree_isolation=True,
      team_name="arch-<slug>", name="worker-<task_id>", prompt="...")
 ```
@@ -70,12 +70,21 @@ while tasks_remaining:
 Spawn SecArch after each worker completes. SecArch MUST approve before the task ships.
 
 ```python
-Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="<MODEL_SECARCH>",  # heavy tier, SECONDARY family — see roles/model-map.md
      run_in_background=True, team_name="arch-<slug>",
      name="secarch-<task_id>", prompt="...")
 ```
 
-- **APPROVED / APPROVED_WITH_CONDITIONS** → proceed to Phase 5
+- **APPROVED** → proceed to Phase 5
+- **APPROVED_WITH_CONDITIONS** → before proceeding, write one manifest line per
+  condition from the SecArch `CONDITIONS:` block, then commit:
+  ```bash
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | secarch-<task_id> | CONDITION_OPEN | <cond_id> | <description>" >> .agent-project/manifest.log
+  git add .agent-project/manifest.log && git commit -m "log: condition open <cond_id>"
+  ```
+  Then proceed to Phase 5. When remediated, append the matching
+  `CONDITION_CLOSED | <cond_id>` line. Your charter cannot ship while any condition
+  is open — the gate below enforces it.
 - **REJECTED** → re-spawn worker with SecArch findings as retry context (count against `retry_budget`)
 - Exceeding retry budget → ESCALATE (see Escalations)
 
@@ -84,7 +93,7 @@ Task(subagent_type="general-purpose", model="current_sonnet",  # resolve via ~/.
 Spawn Tester after SecArch approves. Both gates must pass before a task is done.
 
 ```python
-Task(subagent_type="general-purpose", model="tester_model",  # resolve via ~/.snowflake/cortex/vault/LLMs.md
+Task(subagent_type="general-purpose", model="<MODEL_TESTER>",  # secondary family — see roles/model-map.md
      run_in_background=True, team_name="arch-<slug>",
      name="tester-<task_id>", prompt="...")
 ```
@@ -118,6 +127,16 @@ git add .agent-project/manifest.log && git commit -m "log: done <task_id>"
 
 **Charter completion** (all charter tasks DONE):
 ```bash
+# GATE — every condition raised by your SecArch must be closed first.
+M=.agent-project/manifest.log
+open_c=$(grep -c "| CONDITION_OPEN |" "$M" 2>/dev/null); open_c=${open_c:-0}
+closed_c=$(grep -c "| CONDITION_CLOSED |" "$M" 2>/dev/null); closed_c=${closed_c:-0}
+if [ "$open_c" -ne "$closed_c" ]; then
+    echo "Cannot SHIP team-<N>: $((open_c - closed_c)) condition(s) still open"
+    git commit --allow-empty -m "ESCALATION: team-<N> — $((open_c - closed_c)) conditions unresolved, cannot ship"
+    exit 1
+fi
+
 # Tag the shipped state
 git tag arch/<slug>/team-<N>/SHIPPED -m "team <N> complete"
 
@@ -153,7 +172,7 @@ If a worker has no git commits for 120s:
 
 ## When to Override
 
-**Upgrade to `current_opus`** (for spawning yourself or re-spawning on retry) when:
+**Upgrade to the heavy tier** (for spawning yourself or re-spawning on retry) when:
 - Charter has **more than 7 tasks** — elevated scope warrants deeper reasoning
 - Charter contains **cross-team contract tasks** — touches shared interfaces or DDL used by other teams
 

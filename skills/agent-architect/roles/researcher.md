@@ -37,7 +37,7 @@ You receive from the Architect:
 ### Pattern Analysis
 "How do similar projects structure their components?"
 
-1. Find similar projects in `~/src/demos/` or referenced paths
+1. Find similar projects in the current working directory, paths referenced during intake, or the codebase root
 2. Read README.md and key structural files
 3. Identify: reusable patterns, things to avoid, conventions to follow
 

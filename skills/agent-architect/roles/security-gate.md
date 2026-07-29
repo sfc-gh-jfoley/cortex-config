@@ -44,7 +44,9 @@ For tasks where `is_major_change: true`, invoke a second model family:
 
 ```sql
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'llama3.1-70b',  -- LLMs.md alias: complete_quality — SQL string literal cannot resolve alias; update manually if that alias changes
+    '<COMPLETE_MODEL>',  -- a quality-tier model available in this account; a SQL
+    -- string literal needs a concrete name. Resolve once at Startup and record it
+    -- in manifest.log as MODEL_COMPLETE, then substitute here.
     CONCAT(
         'You are a security reviewer. Review this code for vulnerabilities. ',
         'Focus on: injection, auth bypass, data exposure, privilege escalation. ',
@@ -96,7 +98,25 @@ FINDINGS:
 CROSS_FAMILY_FINDINGS: (if applicable)
 - <additional findings from second model>
 - <divergences noted>
+
+CONDITIONS: (REQUIRED when VERDICT is APPROVED_WITH_CONDITIONS — omit otherwise)
+- id: <task_id>-C1
+  description: "<what must change>"
+  file: "<path>"
+- id: <task_id>-C2
+  description: "..."
 ```
+
+⚠️ **The `CONDITIONS:` block is mandatory for APPROVED_WITH_CONDITIONS, and each
+entry needs a stable `id`.** The Architect writes one
+`CONDITION_OPEN | <id> | <description>` line to manifest.log per condition, and
+Phase 6 refuses to ship until a matching `CONDITION_CLOSED | <id>` exists.
+
+A condition that appears only in this returned text — with no `id`, or with no
+manifest entry written — is lost the moment the session ends. That is not
+hypothetical: four conditions from a real run went unremediated for six days
+because they lived only in a SecArch reply. If you return
+APPROVED_WITH_CONDITIONS without a `CONDITIONS:` block, you have failed the gate.
 
 **APPROVED** — zero CRITICAL/HIGH findings.
 **APPROVED_WITH_CONDITIONS** — MEDIUM/LOW only; Architect creates follow-up tasks.
