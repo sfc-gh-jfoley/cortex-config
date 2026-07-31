@@ -81,17 +81,19 @@ Store as `SV_VQRS` — list of `{name, question, sql}` dicts (empty list if none
 
 If `SV_VQRS` is non-empty, validate each VQR's SQL against the SV schema. This is a static check — no ACCOUNT_USAGE queries required.
 
+**Canonical check set:** `references/vqr-eval-health.md` defines the full pre-flight check set (Checks 1–7, with severities, detection code, and fix guidance). The checks below are the subset most relevant to an *audit* (structural, no eval launch). For the full set including CA-extension column-drop (CRITICAL, Snowsight-built SVs only) and GROUP BY alias, see the reference. Run all 7 if you intend to launch an eval after this audit; run the subset below for a structural audit only.
+
 **Check 1 — FQN Table References (HIGH)**
 Scan each VQR SQL for fully qualified table references (e.g., `DB.SCHEMA.table_name`).
 Per the [Snowflake VQR specification](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst/verified-query-repository), VQR SQL **must** use logical table names prefixed with `__` (e.g., `__FCT_TRANSACTIONS`). Raw FQN references are invalid and can cause Cortex Analyst to generate SQL that bypasses the SV relationship graph.
 
 Detection pattern: any `WORD.WORD.WORD` or `WORD.WORD.table_name` reference in VQR SQL where the final segment matches an SV table's physical name.
 
-**Check 2 — Bare Physical Table Names (MEDIUM)**
-Scan for bare table names in FROM/JOIN position that match an SV physical table name but are **not** prefixed with `__`.
-These must become `__TABLE_NAME` references.
+**Check 2 — Bare Physical / Logical Table Names Without `__` (MEDIUM)**
+Scan for bare table names in FROM/JOIN position that match an SV physical or logical table name but are **not** prefixed with `__`.
+These must become `__TABLE_NAME` references. A bare logical name appears to work when logical and physical names coincide, but is not portable and orphans the VQR when they diverge.
 
-Detection pattern: `\bFROM\s+<table_name>\b` or `\bJOIN\s+<table_name>\b` where `<table_name>` (case-insensitive) is in the SV's physical table list and is NOT a CTE defined in the same SQL.
+Detection pattern: `\bFROM\s+<table_name>\b` or `\bJOIN\s+<table_name>\b` where `<table_name>` (case-insensitive) is in the SV's physical or logical table list and is NOT a CTE defined in the same SQL.
 
 **Check 3 — Columns Not In SV (MEDIUM)**
 For each `alias.column_name` reference in VQR SQL, verify `column_name` exists as a dimension, fact, or metric in the SV.
@@ -100,20 +102,32 @@ Skip: CTE-defined aliases, SQL keywords, and numeric literals.
 **Check 4 — Duplicate VQR Keys (LOW)**
 Check for VQR entries with identical `name` field values. Near-duplicates that differ only by trailing whitespace or newlines count as duplicates.
 
+**Check 5 — Aggregation Mismatch (HIGH)**
+For each VQR that aggregates a metric's source column, compare the aggregation function against the metric's EXPRESSION from DESCRIBE. A VQR using `SUM(amount)` where the metric is `AVG(amount)` scores 0 every time regardless of model quality. See `references/vqr-eval-health.md` Check 7 for detection SQL and fix guidance.
+
+**Check 6 — Metric Coverage Gaps (MEDIUM)**
+SV metrics with no VQR have zero eval signal — if the model generates wrong SQL for them, you'll never know. Cross-reference VQR SQL against metrics from DESCRIBE; route uncovered metrics to `vqr-generator`. See `references/vqr-eval-health.md` Check 5.
+
+**Check 7 — CA Extension Column-Drop (CRITICAL, Snowsight-built SVs only)**
+If the SV was built in Snowsight and contains a `with extension (CA='...')` block, the eval framework drops columns not in the CA extension's declared list, causing `invalid identifier` errors before scoring. Detect with `GET_DDL` and `'with extension' in ddl.lower()`; create a DDL-only eval copy before launching an eval. See `references/vqr-eval-health.md` Check 3 for the full strip procedure.
+
 Store findings as `VQR_HEALTH_FINDINGS`:
 ```
 {
   "total_vqrs": <N>,
-  "fqn_bypass":     [{"vqr_name": "...", "tables": ["DB.SCHEMA.T1", ...]}],
-  "bare_physical":  [{"vqr_name": "...", "tables": ["T1", ...]}],
-  "unknown_cols":   [{"vqr_name": "...", "columns": ["COL1", ...]}],
-  "duplicate_keys": [{"vqr_name": "...", "count": N}]
+  "fqn_bypass":        [{"vqr_name": "...", "tables": ["DB.SCHEMA.T1", ...]}],
+  "bare_no_prefix":    [{"vqr_name": "...", "tables": ["T1", ...]}],
+  "unknown_cols":      [{"vqr_name": "...", "columns": ["COL1", ...]}],
+  "duplicate_keys":    [{"vqr_name": "...", "count": N}],
+  "agg_mismatch":      [{"vqr_name": "...", "metric": "...", "vqr_agg": "...", "metric_agg": "..."}],
+  "uncovered_metrics": [{"metric": "...", "table": "..."}],
+  "ca_extension_drop": [{"present": true, "stripped_copy_fqn": "..."}]
 }
 ```
 
 Add to the scope summary line in Step 10.5:
 ```
-  VQR Health:       <N> VQRs checked — <X> issues found (<Y> HIGH, <Z> MEDIUM)
+  VQR Health:       <N> VQRs checked — <X> issues found (<Y> HIGH, <Z> MEDIUM, <W> CRITICAL)
 ```
 
 ---

@@ -9,6 +9,12 @@ Usage:
   python mutate.py validate <original_ddl_path> <mutated_ddl_path>
 
 Run with: python3 scripts/mutate.py
+
+Note on deploy: generated mutated DDL uses `CREATE OR REPLACE SEMANTIC VIEW` by default.
+If the target SV has materializations, switch the deploy to `CREATE OR ALTER SEMANTIC VIEW`
+to preserve them (CREATE OR REPLACE drops all materializations — see ddl_syntax.md).
+The mutation output preserves the full SV definition; substitute CREATE OR ALTER for
+CREATE OR REPLACE in the deployed DDL when materializations exist.
 """
 
 import argparse

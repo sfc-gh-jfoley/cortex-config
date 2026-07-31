@@ -4,6 +4,8 @@ Detailed operator reference with LLM prompt templates for evolutionary semantic 
 
 Each operator targets a specific part of the SV DDL and is selected based on evaluation failure signals and tournament-adjusted weights.
 
+> **Canonical operator list:** `references/mutation-operators.md` (root) holds the canonical operator summary table (operator → target → signal). This file adds GEPA-specific LLM prompt templates for each operator. When adding or renaming an operator, update **both** files to keep them in sync.
+
 ---
 
 ## Operator Index

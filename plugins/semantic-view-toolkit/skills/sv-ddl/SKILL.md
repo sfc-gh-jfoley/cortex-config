@@ -99,7 +99,6 @@ To begin, load Phase 1:
 | 8 | [phases/08_drift_monitor.md](phases/08_drift_monitor.md) | Periodic drift detection + scheduled maintenance |
 
 **Reference**: [reference/ddl_syntax.md](reference/ddl_syntax.md) — complete DDL syntax, all grammar rules, error cheat sheet.
-> ⚠️ The plugin-level `references/ddl-syntax.md` is deprecated (wrong grammar). Use only `reference/ddl_syntax.md` within this skill directory.
 
 ---
 

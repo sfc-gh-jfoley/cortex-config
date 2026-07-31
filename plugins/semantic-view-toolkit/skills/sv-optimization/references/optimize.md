@@ -90,7 +90,10 @@ Apply this change and run evaluation? (yes / skip / different mutation)
 
 ```sql
 -- Deploy the mutated SV
-CREATE OR REPLACE SEMANTIC VIEW <SV_FQN>
+-- If the SV has materializations, use CREATE OR ALTER to preserve them;
+-- CREATE OR REPLACE drops all materializations on deploy.
+-- (CREATE OR ALTER is Preview since May 2026 — see ddl_syntax.md)
+CREATE OR ALTER SEMANTIC VIEW <SV_FQN>
 <CANDIDATE_DDL>;
 ```
 

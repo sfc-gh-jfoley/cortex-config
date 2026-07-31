@@ -42,7 +42,7 @@ Do NOT use when:
   - `EXECUTE TASK` privilege on the account
   - `CREATE TASK` and `CREATE DATASET` privilege in the schema
   - `MONITOR` privilege on the warehouse
-- `CREATE OR REPLACE SEMANTIC VIEW` privilege (for deploying candidate SVs)
+- `CREATE OR REPLACE SEMANTIC VIEW` privilege (for deploying candidate SVs). Note: if the target SV has materializations, prefer `CREATE OR ALTER SEMANTIC VIEW` (Preview, May 2026) to preserve them — `CREATE OR REPLACE` drops all materializations on every candidate deploy. See `skills/sv-ddl/reference/ddl_syntax.md`. The candidate DDL templates below use `CREATE OR REPLACE`; substitute `CREATE OR ALTER` when materializations exist.
 - Cortex Analyst enabled in the account
 
 ## Configuration
