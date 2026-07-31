@@ -207,68 +207,49 @@ LIST @MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/;
 
 ### Step 5: Launch Evaluation with New START Pattern
 
-Start the evaluation using the new CALL EXECUTE_AI_EVALUATION START pattern.
+Start the evaluation using `SNOWFLAKE.CORTEX.ANALYST_PREVIEW` — the working eval path for `analyst_type='SEMANTIC VIEW'`.
 
-> ⚠️ **392700 caveat (SV type).** `EXECUTE_AI_EVALUATION` is broken for `analyst_type='SEMANTIC VIEW'` (returns `STATUS='FAILED'`, error 392700 as of Jul 2026). For SV smoke tests, use the `ANALYST_PREVIEW` + stage-YAML path in `references/eval-polling.md § "ANALYST_PREVIEW Eval Path"` instead of the CALL below. The signature below is the documented intent; swap to `ANALYST_PREVIEW` for SV-type runs.
+> **Why ANALYST_PREVIEW, not EXECUTE_AI_EVALUATION.** `EXECUTE_AI_EVALUATION` is broken for `analyst_type='SEMANTIC VIEW'` (error 392700, as of Jul 2026): it passes the SV FQN as a plain string where the internal `ANALYST_PREVIEW` call requires a JSON object. Use `ANALYST_PREVIEW` directly. The payload MUST be a constant string literal (not `OBJECT_CONSTRUCT` — error 001015 otherwise). See `references/eval-polling.md § "ANALYST_PREVIEW Eval Path"` for the full pattern.
 
 ```sql
--- Launch evaluation (new START pattern)
--- NOTE: for analyst_type='SEMANTIC VIEW', use ANALYST_PREVIEW instead (see caveat above)
-CALL EXECUTE_AI_EVALUATION(
-    'START',
-    OBJECT_CONSTRUCT('run_name', 'smoke_test_run_1'),
-    '@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml'
-);
+-- Launch a smoke-test eval for ONE question against the staged YAML.
+-- Repeat per question in eval_config.yaml; ANALYST_PREVIEW is synchronous (no STATUS polling).
+SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
+  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question>"}]}],
+  "semantic_model_file": "@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml"
+}');
 ```
 
-**Expected:** Call returns successfully; capture the `run_name` for polling
+**Expected:** Each call returns a JSON string containing `generated_sql` and `verified_query_used`. Parse it (see `eval-polling.md § Parsing the ANALYST_PREVIEW Response`) and score `sql_correctness` against the VQR's expected SQL.
 
 ---
 
-### Step 6: Poll Status to COMPLETED
+### Step 6: Aggregate Smoke-Test Results
 
-Poll the evaluation status using the new STATUS pattern until COMPLETED.
+Because `ANALYST_PREVIEW` is synchronous and returns per-question, there is no async STATUS poll. Instead, loop over the smoke-test questions, call `ANALYST_PREVIEW` for each, and aggregate:
 
-```sql
--- Poll evaluation status (new STATUS pattern)
--- Run this query repeatedly (every 30 seconds) until STATUS = 'COMPLETED'
-CALL EXECUTE_AI_EVALUATION(
-    'STATUS',
-    OBJECT_CONSTRUCT('run_name', 'smoke_test_run_1'),
-    '@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml'
-);
+```python
+# Python smoke-test loop (synchronous — no STATUS polling)
+import json
 
--- Python polling loop (for automation)
-/*
-import time
+questions = [...]  # from eval_config.yaml
+scores = []
+for question in questions:
+    payload = json.dumps({
+        "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
+        "semantic_model_file": "@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml"
+    })
+    # call via `snow sql -q` or the Python connector; parse the JSON response
+    resp = call_analyst_preview(payload)  # your wrapper
+    generated_sql = resp["message"]["content"][0]["text"]  # adjust to actual shape
+    verified_query_used = resp.get("verified_query_used")
+    score = score_sql_correctness(generated_sql, expected_sql)  # your comparator
+    scores.append((question, score))
 
-run_name = 'smoke_test_run_1'
-config_path = '@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml'
-max_wait = 900  # 15 minutes
-poll_interval = 30
-
-elapsed = 0
-while elapsed < max_wait:
-    result = connection.execute(
-        f"CALL EXECUTE_AI_EVALUATION('STATUS', OBJECT_CONSTRUCT('run_name', '{run_name}'), '{config_path}')"
-    )
-    row = result.fetchone()
-    status = row[1] if isinstance(row, tuple) else row['STATUS']
-    
-    if status == 'COMPLETED':
-        print(f"Evaluation completed at {elapsed}s")
-        break
-    elif status in ('FAILED', 'CANCELLED'):
-        print(f"Evaluation failed with status: {status}")
-        break
-    
-    print(f"Status: {status}, elapsed: {elapsed}s")
-    time.sleep(poll_interval)
-    elapsed += poll_interval
-*/
+print(f"Smoke test: {sum(s for _, s in scores)}/{len(scores)} correct")
 ```
 
-**Expected:** STATUS progresses through CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_PROGRESS → COMPLETED
+If `EXECUTE_AI_EVALUATION` is fixed for SV type in the future, the async START/STATUS pattern in `eval-polling.md § Evaluation Lifecycle` can replace the synchronous loop. Until then, use `ANALYST_PREVIEW`.
 
 ---
 

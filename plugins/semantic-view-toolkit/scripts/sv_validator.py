@@ -291,11 +291,13 @@ class _DDLContext:
     facts: list = field(default_factory=list)
     dimensions: list = field(default_factory=list)
     metrics: list = field(default_factory=list)
+    vqrs: list = field(default_factory=list)  # [{name, question, sql, onboarding}]
     tables_body: Optional[str] = None
     relationships_body: Optional[str] = None
     facts_body: Optional[str] = None
     dimensions_body: Optional[str] = None
     metrics_body: Optional[str] = None
+    vqrs_body: Optional[str] = None
     clause_order: list = field(default_factory=list)
 
 
@@ -308,6 +310,7 @@ def _build_context(ddl: str) -> _DDLContext:
     ctx.facts_body = _find_clause(ddl, "FACTS")
     ctx.dimensions_body = _find_clause(ddl, "DIMENSIONS")
     ctx.metrics_body = _find_clause(ddl, "METRICS")
+    ctx.vqrs_body = _find_clause(ddl, "AI_VERIFIED_QUERIES")
 
     if ctx.tables_body is not None:
         ctx.tables = _parse_tables(ctx.tables_body)
@@ -319,8 +322,43 @@ def _build_context(ddl: str) -> _DDLContext:
         ctx.dimensions = _parse_column_entries(ctx.dimensions_body)
     if ctx.metrics_body is not None:
         ctx.metrics = _parse_column_entries(ctx.metrics_body)
+    if ctx.vqrs_body is not None:
+        ctx.vqrs = _parse_vqrs(ctx.vqrs_body)
 
     return ctx
+
+
+def _parse_vqrs(vqrs_body: str) -> list:
+    """Parse the AI_VERIFIED_QUERIES clause body into a list of VQR dicts.
+    Each dict: {name, question, sql, onboarding}
+
+    DDL form:
+      <name> AS ( QUESTION '<q>' [ONBOARDING_QUESTION TRUE] SQL '<sql>' )
+    <name> may contain spaces, colons, and brackets (e.g. "[VQR] Question: ...") —
+    capture greedily up to the final ` AS (` separator. SQL strings may contain
+    escaped single quotes ('') — unescape them.
+    """
+    vqrs = []
+    # Match: <name> AS ( QUESTION '...' [ONBOARDING_QUESTION TRUE] SQL '...' )
+    # The name is everything up to the last " AS (" before the QUESTION keyword,
+    # so names with spaces/colons/brackets are captured whole.
+    pattern = re.compile(
+        r"(.+?)\s+AS\s*\(\s*QUESTION\s+'((?:[^']|'')*?)'\s*"
+        r"(?:ONBOARDING_QUESTION\s+(TRUE|FALSE)\s*)?"
+        r"SQL\s+'((?:[^']|'')*?)'\s*\)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for m in pattern.finditer(vqrs_body):
+        name = m.group(1).strip().strip(",").strip()
+        vqrs.append(
+            {
+                "name": name,
+                "question": m.group(2).replace("''", "'"),
+                "onboarding": m.group(3).upper() == "TRUE" if m.group(3) else False,
+                "sql": m.group(4).replace("''", "'"),
+            }
+        )
+    return vqrs
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +764,104 @@ def _check_semi_additive_audit(ctx: _DDLContext) -> CheckResult:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _check_vqr_table_ref_prefix(ctx: _DDLContext) -> CheckResult:
+    """VQR SQL table references must use the `__`-prefixed logical table name.
+
+    Per the Snowflake VQR spec, VQR SQL must use logical table names prefixed with
+    two underscores (e.g., FROM __orders). The Snowsight UI adds the prefix
+    automatically; raw DDL does NOT (the engine stores VQR SQL verbatim). A bare or
+    FQN table reference orphans the VQR from the SV's table definitions.
+    (Verified Jul 2026 via live CREATE OR ALTER test.)
+    """
+    if not ctx.vqrs:
+        return CheckResult(
+            "vqr_table_ref_prefix",
+            True,
+            "warning",
+            "No AI_VERIFIED_QUERIES present — check skipped.",
+        )
+    aliases = {t["alias"].lower() for t in ctx.tables}
+    issues = []
+    for vqr in ctx.vqrs:
+        sql = vqr["sql"]
+        sql_lower = sql.lower()
+        # FQN reference: word.word.word or word.word.table — always wrong
+        fqns = re.findall(r"\b\w+\.\w+\.\w+\b", sql)
+        # also two-part physical refs like DB.TABLE (less common but still physical)
+        twos = re.findall(r"\bfrom\s+(\w+\.\w+)\b|\bjoin\s+(\w+\.\w+)\b", sql, re.IGNORECASE)
+        found_fqns = [f for f in fqns if not f.startswith("'")]
+        if found_fqns:
+            issues.append(f"{vqr['name']}: FQN refs {found_fqns}")
+            continue
+        # Bare logical name in FROM/JOIN without __ prefix
+        for alias in aliases:
+            # match alias in FROM/JOIN position, not preceded by __
+            bare = re.findall(
+                rf"(?<!\w)(?<!_){re.escape(alias)}(?!\w)",
+                sql_lower,
+            )
+            if bare and f"__{alias}" not in sql_lower:
+                issues.append(f"{vqr['name']}: bare logical name '{alias}' (missing __)")
+                break
+    if not issues:
+        return CheckResult(
+            "vqr_table_ref_prefix",
+            True,
+            "error",
+            f"All {len(ctx.vqrs)} VQR(s) use __-prefixed logical table refs.",
+        )
+    detail = "; ".join(issues[:5])
+    more = f" (+{len(issues)-5} more)" if len(issues) > 5 else ""
+    return CheckResult(
+        "vqr_table_ref_prefix",
+        False,
+        "error",
+        f"{len(issues)} VQR(s) with FQN or bare (no __) table refs: {detail}{more}. "
+        "VQR SQL must use __<logical_alias>; the engine does not auto-prefix DDL-authored VQRs.",
+    )
+
+
+def _check_vqr_name_encoding(ctx: _DDLContext) -> CheckResult:
+    """VQR names must be clean, single-line, matchable strings.
+
+    The VQR fast-path matches a user's question against VQR *name* text. A corrupted
+    name (runs of >2 consecutive double-quotes, embedded newlines, embedded 'Question:'
+    prefix) is a dead VQR — it will never match regardless of SQL correctness.
+    """
+    if not ctx.vqrs:
+        return CheckResult(
+            "vqr_name_encoding",
+            True,
+            "warning",
+            "No AI_VERIFIED_QUERIES present — check skipped.",
+        )
+    issues = []
+    for vqr in ctx.vqrs:
+        name = vqr["name"]
+        if "\n" in name or "\r" in name:
+            issues.append(f"{name[:30]}: embedded newline")
+        if re.search(r'"{3,}', name):
+            issues.append(f"{name[:30]}: >2 consecutive double-quotes")
+        if re.search(r"(?i)\bquestion\s*:", name):
+            issues.append(f"{name[:30]}: embedded 'Question:' prefix")
+    if not issues:
+        return CheckResult(
+            "vqr_name_encoding",
+            True,
+            "error",
+            f"All {len(ctx.vqrs)} VQR name(s) are clean single-line strings.",
+        )
+    detail = "; ".join(issues[:5])
+    more = f" (+{len(issues)-5} more)" if len(issues) > 5 else ""
+    return CheckResult(
+        "vqr_name_encoding",
+        False,
+        "error",
+        f"{len(issues)} VQR(s) with malformed names: {detail}{more}. "
+        "Names must be single-line, no >2 consecutive quotes, no embedded 'Question:'.",
+    )
+
+
 def validate_ddl(ddl: str) -> List[CheckResult]:
     """Validate a CREATE SEMANTIC VIEW DDL string. Returns list of CheckResults."""
     ctx = _build_context(ddl)
@@ -749,6 +885,8 @@ def validate_ddl(ddl: str) -> List[CheckResult]:
         _check_cardinality_lie_warning,
         _check_synonym_overlap,
         _check_semi_additive_audit,
+        _check_vqr_table_ref_prefix,
+        _check_vqr_name_encoding,
     ]
 
     results = []
