@@ -22,9 +22,7 @@ Run **Checks 1–7** before launching any evaluation. Run **Checks 8–10** when
 
 ### Check 1 — VQR table reference format  `[HIGH]`
 
-**What it catches:** VQR SQL using physical FQN table references (`DB.SCHEMA.TABLE`) or bare physical
-table names instead of the SV's logical alias names. The eval framework executes VQR SQL through
-the semantic layer — physical FQNs bypass the SV relationships and produce wrong JOIN behavior.
+**What it catches:** VQR SQL using physical FQN table references (`DB.SCHEMA.TABLE`) or bare logical table names without the required `__` prefix. Per the Snowflake VQR spec, VQR SQL **must** use `__`-prefixed logical table names (e.g., `FROM __orders`). The Snowsight UI adds the prefix automatically; raw DDL and the CA extension JSON do NOT. A bare or FQN reference orphans the VQR from the SV's table definitions — it may appear to work when logical and physical names coincide, but fails when they diverge. (Verified July 2026.)
 
 **Detection:**
 ```python
@@ -36,21 +34,24 @@ def check_vqr_table_refs(vqr_sql, sv_table_map):
     built from DESCRIBE SEMANTIC VIEW:
       object_kind='TABLE', property in ('BASE_TABLE_DATABASE_NAME',
       'BASE_TABLE_SCHEMA_NAME', 'BASE_TABLE_NAME')
+    Returns issues: FQN refs, bare logical names (no __), and missing __ prefix.
     """
     issues = []
     for fqn, alias in sv_table_map.items():
         db, schema, tbl = fqn.split('.')
-        # FQN reference
+        alias_lower = alias.lower()
+        # FQN reference (DB.SCHEMA.TABLE) — always wrong
         if re.search(rf'\b{re.escape(fqn)}\b', vqr_sql, re.IGNORECASE):
-            issues.append(f"FQN reference: {fqn} → should be logical alias: {alias}")
-        # Bare table name (not preceded by another word char — avoids partial matches)
-        if re.search(rf'(?<!\w){re.escape(tbl)}(?!\w)', vqr_sql, re.IGNORECASE):
-            if alias.lower() not in vqr_sql.lower():
-                issues.append(f"Bare table name: {tbl} → should be logical alias: {alias}")
+            issues.append(f"FQN reference: {fqn} → should be __{alias}")
+        # Bare logical name WITHOUT __ prefix — wrong (orphaned)
+        # Match the bare alias in FROM/JOIN position, not preceded by __
+        if re.search(rf'(?<!\w)(?<!_){re.escape(alias_lower)}(?!\w)', vqr_sql.lower()):
+            if f"__{alias_lower}" not in vqr_sql.lower():
+                issues.append(f"Bare logical name (missing __): {alias} → should be __{alias}")
     return issues
 ```
 
-**Fix:** Replace physical table references with the logical alias defined in the SV's TABLES clause.
+**Fix:** Replace physical FQN and bare logical table references with `__<logical_alias>` (the `name:` field defined for that table in the semantic view). Column names stay plain.
 
 ---
 
@@ -433,7 +434,7 @@ GROUP BY 1
 
 **SV_SONY_LOGICAL** (`SV_SONY_TEST.PUBLIC.SV_SONY_LOGICAL`): FQN references detected: **0**
 
-All VQR SQL uses logical table names (e.g. `fct_store_transaction_item`, `dim_product_sku_ggc_level2`). ✓
+All VQR SQL uses bare logical table names (e.g. `fct_store_transaction_item`, `dim_product_sku_ggc_level2`). Note: per the Snowflake VQR spec these SHOULD carry the `__` prefix (`__fct_store_transaction_item`). They work here only because logical names match physical names; they are not portable. Check 1 flags bare logical names missing `__` as HIGH. ✓ (FQN check passes; `__` check would flag these for prefixing.)
 
 The two SVs share identical VQR questions — the only difference is FQN vs logical table refs in SQL.
 The `check1_fqn_table_refs` function correctly distinguishes them with 100% precision.

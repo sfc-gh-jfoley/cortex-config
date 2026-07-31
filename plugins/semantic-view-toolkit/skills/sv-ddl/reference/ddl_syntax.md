@@ -646,18 +646,19 @@ ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
 
 ---
 
-## Verified queries — column reference behavior
+## Verified queries — table reference behavior (the `__` prefix)
 
-- **Write**: `SELECT customer_name, SUM(total_amount) FROM ...`
-- **Engine stores**: `SELECT __orders.customer_name, SUM(__orders.total_amount) FROM ...`
+VQR SQL **must use `__`-prefixed logical table names** for every table reference. Columns stay plain (no `__`).
 
-The `__<table_alias>` prefix is added internally by the semantic view engine at verified query registration time. This is expected behavior.
+- **Write**: `SELECT customer_name, SUM(total_amount) FROM __orders ...`
+- **Engine stores**: exactly what you write — `SELECT customer_name, SUM(total_amount) FROM __orders ...` (verbatim, no transform)
 
-**Rules for writing verified query SQL**:
-- Write plain column names as you would in a normal SQL query against the semantic view
-- Do NOT manually add `__table.` prefixes — the engine handles this
-- Use the logical table alias (not source object name) when disambiguating: `orders.amount` not `MY_DB.MY_SCHEMA.ORDERS.AMOUNT`
-- If the engine's auto-transform produces invalid SQL, the verified query will silently fail to match at query time — verify by running `SHOW SEMANTIC FACTS IN <sv>` and checking the verified query SQL
+**Rules for writing verified query SQL:**
+- **Table references: prefix with `__`.** Write `FROM __orders`, not `FROM orders`, not `FROM PROD_DB.PUBLIC.ORDERS`. The `__` prefix is required by the Snowflake VQR spec — the official VQR docs example uses `FROM __sales_data` and state "the name of the logical table is prefixed with two underscores."
+- **The Snowsight UI adds `__` automatically as an authoring convenience.** Raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`), the CA extension JSON, and the YAML `verified_queries:` block do NOT auto-prefix — the engine stores VQR SQL verbatim. You must write `__` yourself in all non-UI paths. (Verified July 2026 via live `CREATE OR ALTER` test: DESCRIBE returns the SQL exactly as authored, no auto-prefixing.)
+- **Columns stay plain.** Write `customer_name`, not `__orders.customer_name`. The `__` prefix applies to table references only.
+- **A bare or FQN table reference is orphaned.** If the SV defines a table as `orders` but a VQR writes `FROM orders` (bare) or `FROM PROD_DB.PUBLIC.ORDERS` (FQN), the SV cannot map the SQL back to its own table objects. The VQR may appear to work when logical and physical names coincide, but it is not portable and fails when they diverge.
+- **Verify after authoring.** Run `SHOW SEMANTIC FACTS IN <sv>` and inspect the stored VQR SQL; confirm every table reference carries `__`.
 
 ---
 

@@ -126,17 +126,19 @@ For each pattern type, generate 2-3 VQR candidates:
 ### VQR Format
 
 ```sql
--- VQR must use LOGICAL column names from the SV, not physical names
--- Use table aliases as defined in the SV TABLES clause (e.g., orders, not __orders)
-SELECT SUM(revenue) AS total_revenue
-FROM orders
-WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01';
+-- VQR SQL must use LOGICAL column names (the SV's AS aliases), not physical column names.
+-- VQR SQL table references MUST use the __ prefix on the logical table alias
+-- (e.g., FROM __orders, not FROM orders). The Snowsight UI adds the prefix
+-- automatically; raw DDL and CREATE OR ALTER do NOT. Columns stay plain (no __).
+SELECT SUM(O_TOTALPRICE) AS total_revenue
+FROM __orders
+WHERE O_ORDERDATE >= '2024-01-01' AND O_ORDERDATE < '2025-01-01';
 ```
 
 ### Generation rules
 
-1. **Use logical names**: Column names as defined in the SV (the `AS` alias), not physical column names
-2. **Use SV table aliases**: Use the logical table alias directly as defined in the SV TABLES clause (e.g., `FROM orders`, not `FROM __orders`). Do not add any prefix to table names.
+1. **Use logical column names**: Column names as defined in the SV (the `AS` alias), not physical column names. Columns stay plain — no `__` prefix on columns.
+2. **Use `__`-prefixed logical table names**: Every table reference in VQR SQL MUST carry the `__` prefix on the logical table alias (e.g., `FROM __orders`, not `FROM orders`, not `FROM PROD_DB.PUBLIC.ORDERS`). The `__` prefix is required: the Snowsight UI adds it as an authoring convenience, but raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`) and the Cortex Analyst extension JSON do NOT auto-prefix — the engine stores VQR SQL verbatim. A VQR written with a bare or FQN table reference is orphaned from the SV's table definitions and will not bind. (Verified July 2026 via live `CREATE OR ALTER` test.)
 3. **Use absolute dates**: Never `CURRENT_DATE` or relative dates — always fixed dates for reproducibility
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
 5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
