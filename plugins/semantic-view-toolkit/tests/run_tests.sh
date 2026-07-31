@@ -109,7 +109,7 @@ fi
 echo ""
 echo "## GEPA-specific tests"
 
-[ -f "$PLUGIN_DIR/skills/sv-gepa-optimizer/references/sv-mutation-operators.md" ] && pass "sv-mutation-operators.md exists" || fail "sv-mutation-operators.md missing"
+[ -f "$PLUGIN_DIR/references/mutation-operators.md" ] && pass "mutation-operators.md exists" || fail "mutation-operators.md missing"
 [ -f "$PLUGIN_DIR/skills/sv-evaluation/references/failure-analysis.md" ] && pass "failure-analysis.md exists" || fail "failure-analysis.md missing"
 
 # ─── Summary ─────────────────────────────────────────────────────────────
