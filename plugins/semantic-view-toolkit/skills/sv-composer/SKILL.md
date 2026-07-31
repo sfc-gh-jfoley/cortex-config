@@ -60,6 +60,8 @@ Core SV (customers, products, regions)
 - Changes to the parent SV affect all child SVs (tighter coupling)
 - More complex DDL to maintain
 
+**Size guardrail — each composed SV should stay under ~100,000 tokens.** Composition is itself a tool for staying under the 100K limit: when a single domain SV grows past ~100K tokens (the combined size of tables, columns, metrics, relationships, and VQRs), Cortex Agents prunes it to fit the context window, adding latency and reducing answer quality. Splitting into a core SV + domain SVs, or into multiple independent SVs composed as separate agent tools, keeps each under the threshold while preserving coverage. Estimate each SV's size (~1 token per ~4 chars of serialized DDL) before composing.
+
 ### Pattern 2: Multi-SV Agent Composition
 
 Multiple independent SVs become separate `cortex_analyst_text_to_sql` tools in one Cortex Agent:

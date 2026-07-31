@@ -28,6 +28,8 @@ Use this skill when you have a semantic view with VQRs and want to systematicall
 - CREATE OR REPLACE SEMANTIC VIEW privilege
 - Baseline eval score (run sv-evaluation first if you don't have one)
 
+**Size awareness during optimization.** Mutations that add synonyms, descriptions, metrics, or VQRs grow the SV. Re-estimate the SV's token size after mutations that add content; if it approaches ~100,000 tokens, prefer mutations that *improve* existing descriptions over ones that *add* new content, and consider splitting the SV (see `sv-discovery` / `sv-composer`). Above ~100K, Cortex Agents prunes the SV (latency + reduced accuracy), which can mask optimization gains in production even when eval scores improve.
+
 ## Pre-Optimization Checks
 
 Run these **before the first optimization iteration**. They catch structural defects that corrupt eval scores and waste iteration budget.

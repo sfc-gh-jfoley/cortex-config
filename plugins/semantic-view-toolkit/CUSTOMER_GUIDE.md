@@ -42,6 +42,7 @@ The toolkit will:
 - Scan FK/PK constraints, column name patterns, and query co-occurrence
 - Cluster tables into recommended domain groupings
 - Score confidence based on evidence strength
+- Estimate each proposed SV's token size and warn if any exceeds ~100,000 tokens (above that, Cortex Agents prunes the SV — latency + reduced accuracy); recommend splitting oversized domains
 - Present recommendations for your approval
 
 **Time:** scales with table count and column cardinality.

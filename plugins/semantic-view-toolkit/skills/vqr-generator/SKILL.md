@@ -27,6 +27,8 @@ Use this skill when:
 
 **VQRs are the foundation of SV evaluation and optimization.** Without them, sv-evaluation and sv-optimization cannot run.
 
+**Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
+
 ---
 
 ## Workflow

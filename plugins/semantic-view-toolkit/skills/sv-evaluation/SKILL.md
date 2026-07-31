@@ -41,6 +41,8 @@ Ask the user for the semantic view fully-qualified name (or infer from context/p
 Which semantic view do you want to evaluate?
 ```
 
+**Size check before evaluating.** Estimate the SV's token size (~1 token per ~4 chars of serialized DDL via `GET_DDL('SEMANTIC VIEW', '<fqn>')`). If it exceeds ~100,000 tokens, warn the user: in production Cortex Agents may prune the SV to fit the context window (latency + reduced accuracy), and eval results on an oversized SV may not reflect production behavior accurately. Recommend splitting the SV (see `sv-discovery` / `sv-composer`) before investing in eval. This is a guideline, not a hard block — eval will still run.
+
 **Step 2: Validate Access**
 
 ```sql
