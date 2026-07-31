@@ -192,6 +192,17 @@ Existing SV Coverage: None (these tables are not in any existing SV)
 2. **sv-evaluation** — Evaluate the new SV's quality with VQRs
 3. **sv-gepa-optimizer** — Optimize the SV if evaluation scores are low
 
+### Size guardrail — keep each SV under ~100,000 tokens
+
+There's no hard limit on semantic view size, but as an SV grows past roughly 100,000 tokens, the combined size of the SV, agent instructions, and conversation history approaches the LLM's context window. At that point Cortex Agents may need to **prune** the SV to fit — which adds latency and reduces answer quality. Treat ~100K tokens as a guideline, not a fixed threshold.
+
+When you present domain groupings in Phase 4, **estimate the token size** of each proposed SV (a rough heuristic: ~1 token per ~4 characters of serialized DDL, including all table/column/metric/relationship descriptions and VQR SQL). If a proposed grouping exceeds ~100K tokens:
+- Recommend splitting it into multiple SVs along sub-domain boundaries (Cortex Agents selects the relevant SV per question).
+- Surface the split recommendation in the confidence-score notes for that domain.
+- Prefer fewer, focused SVs over one large SV — the official Snowflake guidance is "fewer generally perform better," and customers running 50+ SVs is the ceiling, not the target.
+
+For SVs that must be large (densely connected single-domain), flag the pruning risk in the handoff so the author knows to keep descriptions concise and columns business-relevant.
+
 ---
 
 ## State Persistence

@@ -75,6 +75,8 @@ Phase 8: Drift Monitor (optional)   → scheduled weekly/monthly health check
 
 **Stopping points**: Phases 1, 2, 5, 6, 7 each have a mandatory user approval gate.
 
+**Size guardrail (~100K tokens):** In Phase 5, after generating the DDL, estimate the serialized SV size (~1 token per ~4 chars of DDL including all descriptions, metrics, and VQR SQL). If the SV exceeds ~100,000 tokens, warn the author: Cortex Agents may prune the SV to fit the context window, adding latency and reducing answer quality. Recommend splitting along sub-domain boundaries into multiple SVs (Cortex Agents selects the relevant one per question) or trimming non-business-relevant columns. See `sv-discovery` for the split guidance. This is a guideline, not a hard limit.
+
 ---
 
 ## Quick Start
