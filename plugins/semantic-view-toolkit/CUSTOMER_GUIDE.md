@@ -83,10 +83,12 @@ The toolkit will:
 
 The toolkit will:
 - Generate eval config YAML
-- Call `EXECUTE_AI_EVALUATION('START', ...)` to launch evaluation against your VQRs
+- Call `ANALYST_PREVIEW` against a stage-hosted YAML config to launch evaluation against your VQRs
 - Poll status until complete, then retrieve normalized results
 - Report accuracy %, regressions, and per-query results
 - Identify which VQRs fail and suggest why
+
+> ⚠️ **Eval path note (error 392700).** As of July 2026, `EXECUTE_AI_EVALUATION` is broken for `analyst_type='SEMANTIC VIEW'` (returns `STATUS='FAILED'`, error 392700). The toolkit's `sv-evaluation` skill uses `ANALYST_PREVIEW` + stage YAML as the working path instead. Do not attempt `EXECUTE_AI_EVALUATION` for SV evals until the procedure is fixed. See `references/eval-polling.md` for the verified `ANALYST_PREVIEW` path.
 
 **Time:** depends on warehouse size and number of questions.
 

@@ -258,6 +258,11 @@ PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
 -- Launch evaluation (new START pattern — see eval-polling.md)
+-- ⚠️ 392700 CAVEAT: EXECUTE_AI_EVALUATION is broken for analyst_type='SEMANTIC VIEW'
+--   (returns STATUS='FAILED', error 392700 as of Jul 2026). For SV evals, use the
+--   ANALYST_PREVIEW + stage-YAML path documented in references/eval-polling.md
+--   § "ANALYST_PREVIEW Eval Path" instead of this CALL. The signature below is the
+--   documented intent; swap to ANALYST_PREVIEW for SV-type runs.
 CALL EXECUTE_AI_EVALUATION(
     'START',
     OBJECT_CONSTRUCT('run_name', '<SV_NAME>__gen<G>__cand_<N>'),

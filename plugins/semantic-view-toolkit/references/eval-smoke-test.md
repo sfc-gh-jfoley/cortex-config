@@ -209,8 +209,11 @@ LIST @MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/;
 
 Start the evaluation using the new CALL EXECUTE_AI_EVALUATION START pattern.
 
+> ⚠️ **392700 caveat (SV type).** `EXECUTE_AI_EVALUATION` is broken for `analyst_type='SEMANTIC VIEW'` (returns `STATUS='FAILED'`, error 392700 as of Jul 2026). For SV smoke tests, use the `ANALYST_PREVIEW` + stage-YAML path in `references/eval-polling.md § "ANALYST_PREVIEW Eval Path"` instead of the CALL below. The signature below is the documented intent; swap to `ANALYST_PREVIEW` for SV-type runs.
+
 ```sql
 -- Launch evaluation (new START pattern)
+-- NOTE: for analyst_type='SEMANTIC VIEW', use ANALYST_PREVIEW instead (see caveat above)
 CALL EXECUTE_AI_EVALUATION(
     'START',
     OBJECT_CONSTRUCT('run_name', 'smoke_test_run_1'),

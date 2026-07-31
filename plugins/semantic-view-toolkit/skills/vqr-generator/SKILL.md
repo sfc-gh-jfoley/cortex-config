@@ -40,7 +40,7 @@ Phase 3: Synthesize Candidates      → generate question + SQL pairs
     ↓
 Phase 4: Validate                   → execute each candidate SQL, verify it works
     ↓ [STOP: user approves candidates]
-Phase 5: Apply                      → ALTER SEMANTIC VIEW to add VQRs
+Phase 5: Apply                      → CREATE OR ALTER SEMANTIC VIEW with new VQRs
 ```
 
 ---

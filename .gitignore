@@ -1,2 +1,8 @@
 plugins/ontology-demo
 plugins/se-workshop
+
+# semantic-view-toolkit
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
