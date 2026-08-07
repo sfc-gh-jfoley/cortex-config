@@ -33,6 +33,7 @@ If unsure which skill matches, ask the user.
 | sv-watch | Drift detection + SV maintenance monitoring | `plugins/semantic-view-toolkit/skills/sv-watch/` |
 | sv-composer | Nested SVs + multi-SV agent composition | `plugins/semantic-view-toolkit/skills/sv-composer/` |
 | vqr-generator | Auto-generate verified queries from query history | `plugins/semantic-view-toolkit/skills/vqr-generator/` |
+| vqr-curator | Audit and curate an existing VQR set — score complexity, detect duplicates, check activation, find coverage gaps, produce KEEP/FIX/REMOVE verdicts | `plugins/semantic-view-toolkit/skills/vqr-curator/` |
 | semantic-view-ddl | (LEGACY) Build/edit semantic views — use sv-ddl instead | `skills/semantic-view-ddl/` |
 | semantic-view-discovery | (LEGACY) Find SV candidates — use sv-discovery instead | `skills/semantic-view-discovery/` |
 
@@ -161,6 +162,12 @@ If unsure which skill matches, ask the user.
 |-------|-------------|------|
 | architecture-diagram | Generate architecture/system/flow diagrams (Mermaid→Excalidraw→PNG) | `skills/architecture-diagram/` |
 | snowflake-gslides | Create Google Slides decks | `skills/snowflake-gslides/` |
+
+### Plugin Authoring
+
+| Skill | When to use | Path |
+|-------|-------------|------|
+| plugin-dev | Build or audit Cortex plugins — author mode scaffolds structure from RC scenarios; audit mode inspects an existing plugin tree and reports violations with fixes | `skills/plugin-dev/` |
 
 ### Utilities
 

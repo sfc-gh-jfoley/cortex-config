@@ -349,12 +349,10 @@ SELECT PARSE_JSON('<ca_json_here>') IS NOT NULL AS ca_json_valid;
 Abort and fix if any VQR EXPLAIN fails — a bad VQR scores 0 without consuming meaningful compute,
 but a run where most VQRs fail wastes the full eval budget before you see a single real comparison.
 
-> ⚠ **EXECUTE_AI_EVALUATION BROKEN FOR SV TYPE (error 392700)**
-> The procedure passes the SV FQN as a plain string to the internal CA call, which
-> requires a JSON object. All SV-type eval attempts will fail immediately.
->
-> **Use ANALYST_PREVIEW + stage YAML instead** — see `references/eval-polling.md` §
-> "ANALYST_PREVIEW Eval Path". This is the verified workaround as of 2026-07-23.
+> **EXECUTE_AI_EVALUATION status (updated 2026-08-07):** The 392700 SV-type bug is resolved.
+> The standard path now works. Use `analyst_name` as a 3-part FQN and include
+> `source_metadata: {type: "verified_queries"}` inside the `evaluation:` block.
+> See `references/eval-polling.md` for the working config format, polling loop, and known errors.
 
 **Step 10: Launch Evaluation**
 

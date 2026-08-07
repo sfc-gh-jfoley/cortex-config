@@ -203,16 +203,25 @@ Aggregate patterns found in user queries that could be defined as SV metrics.
 | Tables | <N> | <N + additions - removals> |
 | Columns | <N> | <N + additions - removals> |
 | Relationships | <N> | <N + additions> |
+| VQRs | <N> | — |
 | Coverage | <X>% | <Y>% |
-```
 
-**Size guidance:**
+**Column-count guidance:**
 - **Compact** (< 30 columns): Good for focused use cases
 - **Standard** (30-80 columns): Typical for department-level SVs
 - **Large** (80-150 columns): Consider splitting by domain
 - **Oversized** (> 150 columns): Recommend splitting into domain-specific SVs
 
-If the resulting SV would be **oversized**, add a note:
+**VQR-count guidance:**
+- **≤ 10 VQRs**: Healthy — focused SV, single domain
+- **10–20 VQRs**: Acceptable — multi-dimensional SV with distinct question categories
+- **> 20 VQRs**: Strong split signal — SV likely covers 2+ semantic domains
+
+When VQR count > 20, apply the subject-consistency test: write the subject of every VQR
+question (e.g., "which agent", "which user", "what revenue"). If more than two distinct
+subjects appear, the SV is doing too much and should be split along subject lines.
+
+If **either** column count ≥ 80 **or** VQR count > 20, add a split recommendation note:
 
 ```
 Size Warning: The recommended changes would bring the SV to <N> columns

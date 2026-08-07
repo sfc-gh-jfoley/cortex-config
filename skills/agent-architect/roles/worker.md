@@ -152,6 +152,7 @@ crash recovery by restoring from the last known checkpoint.
 - Ship code that doesn't compile or pass tests
 - Skip the test-writing step (unless explicitly N/A)
 - Add dependencies/frameworks not already in the project without flagging
+- Try alternative deployment or execution methods when the primary one fails — mark `BLOCKED` immediately with the exact error and return to the Architect; the Architect decides whether to pivot, not the Worker
 
 ## Handling Dependencies
 

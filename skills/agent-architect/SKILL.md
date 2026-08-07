@@ -176,7 +176,7 @@ Ask the user:
 7. **Domain hints**: Based on the technology stack from step 3, append a `DOMAIN_HINTS` block
    to manifest.log with domain-specific gotchas. Workers receive these hints injected into
    their task prompt. Examples:
-   - Snowflake/SQL: `1. IF NOT EXISTS on all DDL; 2. Use IS NULL not =NULL; 3. GENERATOR() for seed data not row-by-row INSERT; 4. Qualify all column refs with alias`
+   - Snowflake/SQL: `1. IF NOT EXISTS on all DDL; 2. Use IS NULL not =NULL; 3. GENERATOR() for seed data not row-by-row INSERT; 4. Qualify all column refs with alias; 5. NEVER use 'cortex sql' for SQL execution — it opens an interactive CoCo session and hangs; use sql_execute tool or 'snow sql -f <file>' instead`
    - React/TypeScript: `1. key prop required on all list items; 2. loading + error states on every async component; 3. no hardcoded env values in components`
    - Python API: `1. validate at system boundaries only; 2. timeout on all external calls; 3. no secrets in logs or error messages`
    - Generic fallback: `1. no hardcoded credentials; 2. handle null/empty inputs; 3. log errors with context not raw exceptions`
@@ -199,6 +199,19 @@ For each unknown domain, spawn a Researcher (see `roles/researcher.md`):
 - "What APIs/SDKs are available for [technology]?"
 - "What Snowflake objects already exist?"
 - "What patterns do similar projects use?"
+
+**Snowflake capability pre-flight** (required when stack includes Snowflake): Before Phase 2
+planning, one researcher MUST verify account-level feature availability for any capability
+workers will depend on. Run these checks and log results to manifest.log as `CAPABILITY_FLAGS`:
+```sql
+-- Semantic view VQRs / LOD expressions
+SHOW PARAMETERS LIKE 'ENABLE_LOD_EXPRESSIONS' IN ACCOUNT;
+-- Event table (required for observability spans)
+SHOW PARAMETERS LIKE 'EVENT_TABLE' IN ACCOUNT;
+-- Any SYSTEM$ function the plan will call — test with a minimal invocation first
+```
+If a required capability is absent, the Phase 2 plan MUST NOT spawn workers that depend on
+it. Instead, add a BLOCKED task noting the missing flag and the manual workaround.
 
 Simultaneously spawn SecArch with a **pre-planning risk scan**:
 - "What security risks exist in this domain before we build?"

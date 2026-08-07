@@ -72,6 +72,7 @@ Or just describe what you need — I'll figure out where to route you.
 | "compose", "nested SV", "multiple SVs", "SV references another", "multi-domain", "multi-SV agent" | **sv-composer** | `skills/sv-composer/SKILL.md` |
 | "watch", "drift", "monitor", "maintenance", "schema changed", "new tables", "stale" | **sv-watch** | `skills/sv-watch/SKILL.md` |
 | "VQR", "verified queries", "need more examples", "grow eval set", "generate questions" | **vqr-generator** | `skills/vqr-generator/SKILL.md` |
+| "curate vqrs", "audit my vqrs", "vqr bloat", "vqrs not triggering", "vqr health", "prune vqrs", "which vqrs are useless" | **vqr-curator** | `skills/vqr-curator/SKILL.md` |
 
 ---
 
@@ -167,10 +168,10 @@ See `references/queryable-objects.md` for detection patterns and INFORMATION_SCH
 
 ## Composable SV Patterns
 
-> ⚠️ **Nested SVs (Pattern 1) are not yet GA — Private Preview only.**
-> Do not recommend nested SVs to customers. Default to Pattern 2 (Multi-SV Agent Composition)
-> for all production accounts. See sv-composer/SKILL.md and sv-ddl/reference/ddl_syntax.md
-> for the full caveat.
+> ⚠️ **Cortex Analyst does not support IMPORTS-based composed views.**
+> Pattern 1 (IMPORTS clause) is GA but only works with direct `SEMANTIC_VIEW()` queries.
+> For Cortex Analyst / Agent workflows, use Pattern 2 (Multi-SV Agent Composition).
+> See sv-composer/SKILL.md for the decision framework.
 
 Two composition patterns supported by `sv-composer`:
 
