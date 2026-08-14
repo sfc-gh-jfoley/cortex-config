@@ -10,6 +10,7 @@ description: Complete CREATE SEMANTIC VIEW DDL syntax with all pitfalls, example
 ```sql
 -- Standard replace:
 CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
+  [ IMPORTS ( <imported_sv> [ [ FACTS (...) ] [ DIMENSIONS (...) ] [ METRICS (...) ] ] [ , ... ] ) ]
   TABLES ( logicalTable [ , ... ] )
   [ VARIABLES ( variableDefinition [ , ... ] ) ]
   [ RELATIONSHIPS ( relationshipDef [ , ... ] ) ]
@@ -67,7 +68,7 @@ For FQN references, `<table_or_view_name>` can reference any of:
 
 For SQL queries, use the `SQL ( <sql_query> )` syntax. Query results are materialized once at CREATE time; the query is not re-executed per request. Use SQL queries to create virtual tables from aggregations, CTEs, or cross-schema unions.
 
-All are valid sources for a semantic view. The engine resolves the FQN against the catalog — any object that supports `SELECT` can be used. Semantic views referencing other semantic views ("composable SVs") are not yet GA.
+All are valid sources for a semantic view. The engine resolves the FQN against the catalog — any object that supports `SELECT` can be used. To compose semantic views together, use the `IMPORTS` clause (see the **IMPORTS clause** section below) — do not reference an SV as a table source in the `TABLES` clause. Note: `TABLES` can be omitted entirely in a composed view that only uses imported entities.
 
 **SQL Query Logical Tables**
 
@@ -121,9 +122,11 @@ REFERENCES <right_table_alias> ( BETWEEN <start_col> AND <end_col> EXCLUSIVE )
 ### variableDefinition
 
 ```sql
-<var_name> AS <sql_type> = <default_value>
+<var_name> <sql_type> DEFAULT <default_value>
   [ COMMENT = '<description>' ]
 ```
+
+> ⚠️ **No `AS` keyword.** The correct syntax is `var_name TYPE DEFAULT value`, not `var_name AS TYPE = value`. The `AS` form causes "unexpected 'AS'" syntax error. Also: `VARIABLES` must appear **after** `TABLES` — placing it before TABLES causes a parse error.
 
 Variables enable parameterized semantic views. Define variables at the top level and reference them in expressions using `$var_name`.
 
@@ -138,8 +141,8 @@ Variables enable parameterized semantic views. Define variables at the top level
 **Example**:
 ```sql
 VARIABLES (
-  region_filter AS VARCHAR = 'US_EAST' COMMENT = 'Filter metrics to a specific region',
-  lookback_days AS INT = 30 COMMENT = 'Number of days for historical aggregations'
+  region_filter VARCHAR DEFAULT 'US_EAST' COMMENT = 'Filter metrics to a specific region',
+  lookback_days INT DEFAULT 30 COMMENT = 'Number of days for historical aggregations'
 )
 ```
 
@@ -179,11 +182,13 @@ FACTS (
   AS <sql_expr>
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
-  [ IS_ENUM ]
-  [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
+  [ IS_ENUM ]                                         ← IS_ENUM must be last — nothing follows it
+  [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name> [ USING <col_name> ] ]
 ```
+
+> ⚠️ **IS_ENUM is terminal.** `IS_ENUM COMMENT = '...'` is a hard syntax error ("unexpected 'COMMENT'"). COMMENT must appear **before** IS_ENUM. Confirmed by test: `SAMPLE_VALUES → IS_ENUM → COMMENT` fails; `COMMENT → SAMPLE_VALUES → IS_ENUM` and `SAMPLE_VALUES → COMMENT → IS_ENUM` both work.
 
 `LABELS = ( FILTER )` on a dimension marks it as a preferred WHERE-clause filter. Typically used on BOOLEAN dimensions (IS_ACTIVE, HAS_DISCOUNT, etc.).
 
@@ -199,7 +204,8 @@ When to use these metadata clauses to guide AI generation:
 
 **IS_ENUM**
 - Mark a dimension as an enumeration (finite, known set of values) — dimensions only, not facts
-- `IS_ENUM` can be used without `SAMPLE_VALUES`; if both are present, `SAMPLE_VALUES` must appear first
+- `IS_ENUM` can be used without `SAMPLE_VALUES`; if both are present, `SAMPLE_VALUES` must appear before IS_ENUM
+- `COMMENT` must also appear before IS_ENUM — IS_ENUM must be the last modifier on the dimension entry
 - AI will prefer IN lists over LIKE patterns for query generation
 - Improves natural language question matching
 
@@ -211,8 +217,8 @@ When to use these metadata clauses to guide AI generation:
 ```sql
 orders.region AS region_code
   SAMPLE_VALUES ( 'US_EAST', 'US_WEST', 'EU_WEST', 'APAC' )
-  IS_ENUM
   COMMENT = 'Region code for order fulfillment center'
+  IS_ENUM
 ```
 
 This tells the AI that:
@@ -289,6 +295,65 @@ Window function metrics apply a window function over an existing metric. Key con
 ```
 
 `VERIFIED_BY` references a Snowflake Contact object. `<purpose>` is a predefined purpose (e.g. `STEWARD`). Example: `VERIFIED_BY '(STEWARD = data_stewards)'`.
+
+---
+
+## IMPORTS clause — composable semantic views
+
+> ⚠️ **Cortex Analyst and Snowsight do not support IMPORTS-based views.** For Analyst/Agent workflows, use multi-SV agent composition instead (Pattern 2 in `references/composable-sv-patterns.md`).
+
+The `IMPORTS` clause lets one SV pull in tables, dimensions, facts, metrics, and relationships from another SV. IMPORTS must appear **before** `TABLES`.
+
+```sql
+-- Full import (all public calculations):
+CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+  IMPORTS ( <db>.<schema>.<source_sv> )
+  TABLES ( ... )      -- optional if only using imported entities
+  ...
+
+-- Selective import (only named calcs):
+CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+  IMPORTS (
+    <db>.<schema>.<source_sv>
+      FACTS ( <table>.<fact_name> [, ...] )
+      DIMENSIONS ( <table>.<dim_name> [, ...] )
+      METRICS ( <table>.<metric_name> [, ...] )
+  )
+  ...
+
+-- Multiple imports:
+CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+  IMPORTS ( <sv_a>, <sv_b> )
+  ...
+```
+
+**Key behaviors:**
+- By default, all public calcs (dims, facts, metrics, VQRs, AI instructions) are imported
+- Selective import: only listed calcs are directly queryable; Snowflake auto-includes the minimal subgraph of entities/relationships needed to support them. Dependent calcs are included structurally but not queryable unless also listed.
+- `TABLES` may be omitted entirely if the composed view only uses imported entities
+- A composed view can define new metrics on imported entities (shadow table); DESCRIBE shows shadow TABLE rows with empty `BASE_TABLE_*` values
+- Diamond imports (same upstream SV reachable via multiple paths) are **supported** — entities appear exactly once. Cross-source name collisions still cause a creation error.
+- Variables from imported SVs are **not** available in the composing view
+- Imported objects resolve at query time (late binding) — if source SV removes an entity, queries fail with error 000904
+- Privilege required: REFERENCES on each imported SV + SELECT on any new base tables in the composing view's own TABLES clause. At query time, imported base tables resolve under the source SV's owner role.
+- Cross-schema and cross-database imports are supported (same REFERENCES + SELECT rules apply)
+
+**Introspection for composed views:**
+```sql
+-- EXPANDED (default): full flattened view incl. transitive imports
+DESC SEMANTIC VIEW <db>.<schema>.<sv_name> MODE = EXPANDED;
+
+-- COMPACT: local definitions + IMPORTS clause only
+DESC SEMANTIC VIEW <db>.<schema>.<sv_name> MODE = COMPACT;
+
+-- SHOW: 'imports' column lists direct imports as FQN array
+SHOW SEMANTIC VIEWS LIKE '<sv_name>';
+
+-- Get YAML including imported_semantic_models block
+SELECT SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW('<db>.<schema>.<sv_name>');
+```
+
+See `references/composable-sv-patterns.md` for full patterns, selective imports examples, and YAML format details.
 
 ---
 
@@ -494,8 +559,11 @@ ORDER BY C_MKTSEGMENT;
 | Error message | Root cause | Fix |
 |--------------|-----------|-----|
 | `No queryable expression` | TABLES defined but no FACTS or DIMENSIONS | Add at least one FACTS or DIMENSIONS clause |
-| `invalid identifier 'X'` | Fact/dim alias doesn't match physical column name | Change alias to match exact physical column name |
+| `invalid identifier 'X'` (where X is your alias) | Two confirmed causes: (1) duplicate physical column name across entities — see C6 in composable SV pitfalls; (2) specific column `DAYPART_IDX` from `CONTENT_TAXONOMY` fails in all SVs for unknown reasons — see C1 | See composable SV pitfalls section |
+| `invalid identifier 'X'` (non-composable SV, no imports) | Fact/dim alias doesn't match physical column name | Change alias to match exact physical column name |
 | `Duplicate identifier` | Same column name defined in multiple tables' FACTS/DIMENSIONS | Keep definition on one table, remove from others |
+| `duplicate alias 'X'` | Selective IMPORTS across SVs that share a common ancestor (diamond without dedup) | Use full IMPORTS (no FACTS/DIMENSIONS/METRICS sub-clauses) when diamond deduplication is needed — selective imports do not support diamond dedup |
+| `syntax error ... unexpected 'COMMENT'` after IS_ENUM | IS_ENUM is the terminal modifier — nothing can follow it. The grammar documentation previously showed COMMENT after IS_ENUM which was wrong. | Move COMMENT before IS_ENUM: `SAMPLE_VALUES (...) COMMENT = '...' IS_ENUM` |
 | `relationship ... requires primary key` | Right-hand table in REFERENCES has no PRIMARY KEY or UNIQUE | Add PRIMARY KEY to the referenced table |
 | `ambiguous relationship` | Two relationship paths between same tables | Add `USING (relationship_name)` on the metric |
 | `Object does not exist` | Physical table path wrong or role lacks access | Verify `SELECT * FROM db.schema.table LIMIT 1` first |
@@ -508,7 +576,21 @@ ORDER BY C_MKTSEGMENT;
 | `SQL compilation error` on COMMENT before TABLES | Top-level COMMENT placed before TABLES clause | Move COMMENT to after the last clause (METRICS), before AI_SQL_GENERATION |
 | `Referenced key ... does not match` | FK column count doesn't match referenced table's PK column count | Ensure the number of columns in `(<fk_cols>)` matches the PK declaration on the REFERENCES target. For composite PKs, list all PK columns or omit the column list (auto-match). |
 | `Object '<X>' does not exist or not authorized` | Source object FQN is wrong, object doesn't exist, or role lacks SELECT | Verify with `SHOW OBJECTS LIKE '<name>' IN SCHEMA <db>.<schema>` and check grants |
-| `Semantic view cannot reference another semantic view` | Attempted to use an SV as a source in TABLES clause | Composable SVs are in Private Preview — use the underlying tables/views instead |
+| `Semantic view cannot reference another semantic view` | Attempted to use an SV as a source in TABLES clause | Use the `IMPORTS` clause instead of referencing an SV in TABLES. Note: Cortex Analyst does not support IMPORTS-based views — use multi-SV agent composition for Analyst workflows |
+
+---
+
+## Composable SV pitfalls (IMPORTS clause) — validated August 2026
+
+These were confirmed by targeted unit tests (composable SV deployment, August 2026).
+
+| # | Issue | Fix |
+|---|-------|-----|
+| C1 | **Alias = physical name required for certain columns** — if a column fails with `invalid identifier 'ALIAS'` despite correct order and no name conflict, try alias = physical column name (`ct.DAYPART_IDX AS DAYPART_IDX`). Workaround when custom alias is blocked for unknown reasons. | Use alias = physical column name |
+| C2 | **IS_ENUM must be the last dimension modifier** — `IS_ENUM COMMENT = '...'` is a hard `syntax error: unexpected 'COMMENT'`. Nothing can follow IS_ENUM. | Put COMMENT before IS_ENUM |
+| C4 | **Selective IMPORTS do not support diamond deduplication** — `IMPORTS(sv_a METRICS(...), sv_b METRICS(...))` across SVs sharing a common upstream SV produces `duplicate alias 'X'`. | Use full IMPORTS (no sub-clauses) when any shared ancestor exists |
+| C5 | **SEMANTIC_VIEW() output columns are unqualified** — `entity.metric_name` works in the METRICS input clause, but output columns drop the entity prefix. `ORDER BY entity.metric_name` fails. | `ORDER BY metric_name` (unqualified) |
+| C6 | **Local column with same name as imported dimension cannot be exposed** — if column `X` is already a dimension in an imported SV, a local table's same-named column cannot be exposed under any alias. | Omit the local dimension; query via the imported one |
 
 ---
 

@@ -343,10 +343,7 @@ GROUP BY a."object_kind";
 | 10–25% of tables missing COMMENT | MEDIUM |
 | > 30% of columns (facts/dims/metrics) missing COMMENT | MEDIUM |
 
-**Check 3 — WITH SYNONYMS coverage**
-From DESCRIBE, SYNONYMS appear as `property = 'SYNONYMS'` rows. Count tables and key columns with no synonyms entry, or where `property_value` = `'[]'` (empty array).
-
-**Check 4 — SAMPLE_VALUES and IS_ENUM coverage**
+**Check 3 — SAMPLE_VALUES and IS_ENUM coverage** *(SYNONYMS are no longer recommended — skip synonyms check)*
 `SAMPLE_VALUES` and `IS_ENUM` are **not exposed in DESCRIBE output** (per Snowflake docs — only `TABLE`, `EXPRESSION`, `DATA_TYPE`, `ACCESS_MODIFIER`, `SYNONYMS`, `COMMENT`, and Cortex Search properties are listed). To check these, retrieve the full DDL:
 ```sql
 SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');

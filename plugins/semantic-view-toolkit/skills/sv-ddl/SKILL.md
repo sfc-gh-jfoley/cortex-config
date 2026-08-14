@@ -62,7 +62,7 @@ Phase 3: Classify Columns           → FACT / DIMENSION / TIME_DIMENSION / METR
     ↓
 Phase 4: Relationship Detection     → FK pattern matching + cardinality validation
     ↓
-Phase 5: Generate DDL               → BUILD + self-check (23 checks verified)
+Phase 5: Generate DDL               → BUILD + self-check (26 checks verified)
     ↓ [STOP: user approves DDL]
 Phase 6: Execute & Validate         → run DDL → DESCRIBE → self-test question loop
     ↓
@@ -106,7 +106,7 @@ To begin, load Phase 1:
 
 ## Key Design Principles
 
-1. **Self-checking at every phase**: Phase 5 runs 23 checks (18 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
+1. **Self-checking at every phase**: Phase 5 runs 26 checks (21 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
 
 2. **Iterative loop**: Phases 5-6 loop until passing. The agent fixes its own DDL based on structured error output — no copy-paste debugging.
 
@@ -124,11 +124,13 @@ These rules are embedded in Phase 5's self-check. Reference `reference/ddl_synta
 
 | Rule | |
 |------|-|
-| Clause order is mandatory | TABLES → RELATIONSHIPS → FACTS → DIMENSIONS → METRICS |
-| Direct column alias must match physical name | `AS col_name` must equal the physical column name exactly |
-| Duplicate column names across tables | Define from one table only |
+| Clause order is mandatory | TABLES → VARIABLES → RELATIONSHIPS → FACTS → DIMENSIONS → METRICS (VARIABLES after TABLES, not before) |
+| Direct column alias must match physical name when column exists in multiple entities | For columns whose name appears in more than one table in the SV (local or imported), alias must equal the physical column name exactly. Custom aliases work when the column name is unique across all entities. Exception: `DAYPART_IDX` from `CONTENT.CONTENT_TAXONOMY` requires alias = physical in all SVs — root cause unknown. |
+| Duplicate column names across tables | Define from one table only. If a column name is already an imported dimension, the local table's same-named column cannot be exposed under any alias — omit it entirely. |
+| IS_ENUM must be the last dimension modifier | Nothing can follow IS_ENUM — `IS_ENUM COMMENT = '...'` is a hard syntax error. Put COMMENT before IS_ENUM or omit it on that dimension. |
 | REFERENCES table needs PRIMARY KEY or UNIQUE | Right-hand side of all relationships |
 | Multiple relationship paths → use USING | Disambiguate on affected metrics |
+| VARIABLES syntax: no `AS` keyword | `var_name TYPE DEFAULT value` — not `var_name AS TYPE = value` |
 
 ---
 

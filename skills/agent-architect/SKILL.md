@@ -19,6 +19,8 @@ triggers:
   - coordinate agents
   - spawn teams
   - headless build
+  - arch status
+  - arch ship
 ---
 
 # Agent Architect v3.1
@@ -503,29 +505,35 @@ halt_on:
   - scope_creep_detected
 ```
 
-**Two distinct polling modes (do not conflate):**
+**Two distinct modes (do not conflate):**
 - **Single-team** (`num_teams: 1`): Primary runs the Phase 3 git-first drain loop directly
-  (30s poll, 120s stuck threshold). `team_poll_interval_seconds` is unused.
-- **Multi-team** (`num_teams: 2+`): Primary delegates worker-level drain to Team Architects.
-  Primary runs a separate team-health poll at `team_poll_interval_seconds` (default 90s).
-  Team-level stuck is a different threshold (`team_stuck_threshold_seconds`, default 30 min)
-  because a team doing Phase 1 research legitimately produces no commits for 15+ minutes.
+  (30s poll, 120s stuck threshold). Session stays alive; user is watching. `team_poll_interval_seconds` unused.
+- **Multi-team** (`num_teams: 2+`): Primary launches Team Architects then **returns to user**.
+  Team Architects own their own drain loops. Primary session is not long-lived.
+  User checks status on demand via `arch status`; triggers Phase 6 via `arch ship`.
 
 **Primary Architect behavior (multi-team headless)**:
 1. Phases 0-2 run normally (plan requires user approval unless `auto_approve_plan: true`)
 2. Decompose into team charters (see Phase 2 charter decomposition)
 3. Create integration branch: `git checkout -b arch/<slug>/main`
 4. Launch N Team Architects in one batch (see spawn pattern below)
-5. Poll loop every `team_poll_interval_seconds` (90s):
-   `git log --all --since="90 seconds ago" --oneline`
-   → append activity summary to manifest.log + commit
-   → check for ESCALATION commits: `git log --all --grep="ESCALATION" --since="90 seconds ago"`
-     → if found: read escalation, determine if halt_on condition triggered
-   → check for team stuck: any team with no commits for `team_stuck_threshold_seconds`
-     → if found: see `references/cleanup-protocol.md` Multi-Team Stuck-Team Escalation
-6. Cross-team dependency gate: before unblocking Team B that `depends_on_teams: [1]`, verify:
-   `git log --all --grep="\[SHIPPED\] team-1" --oneline` → must be non-empty
-7. When ALL teams have SHIPPED tag → proceed to Phase 6 merge + retrospective
+5. **Return control to the user immediately after launch — do NOT block in a poll loop.**
+   Log `TEAMS_LAUNCHED | <N> teams | <timestamp>` to manifest.log + commit.
+   Then output to the user:
+   ```
+   <N> teams launched headlessly. Each team runs Phases 1–5 autonomously and
+   commits all state to git. Your working session is free.
+
+   Check progress:  arch status
+   Trigger ship:    arch ship   (once all teams show SHIPPED)
+   ```
+   The Primary Architect session ends here. Team Architects are fully self-contained.
+   Phase 6 is triggered by the user via `arch ship` (see Status & Ship Commands below).
+
+   Cross-team dependency gates are the Team Architect's responsibility: each Team
+   Architect checks `git log --all --grep="\[SHIPPED\] team-<N>"` before starting
+   work that `depends_on_teams`. If the upstream team has not shipped, the Team
+   Architect sleeps and polls git — it does NOT need the Primary to coordinate.
 
 **Team Architect behavior** (per team, backgrounded Sonnet):
 - Receives: slug, team number, charter task list, integration branch, manifest path
@@ -574,11 +582,12 @@ Task(
 Use this only after plan is approved. Primary then handles charter decomp + team spawning autonomously.
 
 **Headless behavior**:
-- Escalations → `git commit -m "ESCALATION: <team/task> — <summary>"` on relevant branch
+- Escalations → `git commit -m "ESCALATION: <team/task> — <summary>"` on relevant branch.
   Review across all teams: `git log --all --grep=ESCALATION`
 - SecArch + Tester gates still block — never bypassed
-- On `halt_on` conditions: write to `.agent-project/escalation.md` + commit, STOP all teams
-- See `references/cleanup-protocol.md` for stuck-team and crash-recovery procedures
+- On `halt_on` conditions: Team Architect writes `.agent-project/escalation.md` + commits, stops its own team.
+  Primary does NOT need to be alive — user sees it on next `arch status` run.
+- Primary session is intentionally short-lived in multi-team mode. Teams run and commit autonomously.
 
 ---
 
@@ -695,6 +704,66 @@ Task(subagent_type="general-purpose", model="<MODEL_WORKER>",  # balanced tier �
      run_in_background=True, worktree_isolation=True,
      team_name="arch-<slug>", name="team-arch-<N>-<slug>", prompt="...")
 ```
+
+---
+
+## Status & Ship Commands (Headless Multi-Team Mode)
+
+### `arch status`
+
+Triggered by the user at any time after teams are launched. Reads manifest.log and git
+state — no running session required.
+
+```bash
+M=.agent-project/manifest.log
+
+# Team summary
+echo "=== TEAMS ==="
+grep "| TEAM_SHIPPED |" "$M" | awk -F'|' '{print $2, "SHIPPED"}'
+grep "| TEAMS_LAUNCHED |" "$M" | head -1
+
+# Task summary
+echo "=== TASKS ==="
+reg=$(grep -c "| TASK_REGISTERED |" "$M")
+done_n=$(grep -c "| DONE |" "$M")
+echo "Registered: $reg | Done: $done_n | Remaining: $((reg - done_n))"
+
+# Open security conditions
+open_c=$(grep -c "| CONDITION_OPEN |"   "$M")
+closed_c=$(grep -c "| CONDITION_CLOSED |" "$M")
+[ "$open_c" -gt "$closed_c" ] && echo "⚠ $((open_c - closed_c)) security condition(s) open"
+
+# Escalations
+esc=$(git log --all --grep="ESCALATION" --oneline | wc -l | tr -d ' ')
+[ "$esc" -gt 0 ] && echo "🚨 $esc escalation(s) — git log --all --grep=ESCALATION"
+
+# Recent activity (last 10 min)
+echo "=== RECENT GIT ACTIVITY ==="
+git log --all --since="10 minutes ago" --oneline
+```
+
+Present the output as a clean status table. If all tasks are DONE and no open conditions,
+tell the user: "All teams complete — run `arch ship` to merge and tag the release."
+
+---
+
+### `arch ship`
+
+Triggered by the user when `arch status` shows all teams SHIPPED. Runs Phase 6.
+
+```bash
+M=.agent-project/manifest.log
+reg=$(grep -c "| TASK_REGISTERED |" "$M")
+done_n=$(grep -c "| DONE |" "$M")
+open_c=$(grep -c "| CONDITION_OPEN |" "$M")
+closed_c=$(grep -c "| CONDITION_CLOSED |" "$M")
+
+[ "$reg" -eq "$done_n" ]      || { echo "BLOCKED: $reg registered, $done_n done"; exit 1; }
+[ "$open_c" -eq "$closed_c" ] || { echo "BLOCKED: $((open_c - closed_c)) conditions open"; exit 1; }
+```
+
+If both checks pass → run Phase 6 (merge branches, tag release, design-doc, retrospective,
+cleanup, SHIPPED entry). If either check fails → report exactly what is blocking and stop.
 
 ---
 

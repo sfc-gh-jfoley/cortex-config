@@ -6,73 +6,85 @@ Two composition patterns for building complex analytical systems from multiple s
 
 ### Concept
 
-A semantic view can reference another semantic view as a source table, creating a hierarchical structure where shared definitions are maintained in one place.
+A semantic view can import another semantic view via the `IMPORTS` clause, pulling in its tables, dimensions, facts, metrics, and relationships. By default all public calculations are imported; you can also selectively import only specific calculations using FACTS/DIMENSIONS/METRICS sub-clauses. This creates a reusable, shared semantic layer where common business definitions are authored once and referenced by many downstream views.
 
 ### Syntax
 
-> ⚠️ **Not yet GA — Private Preview only.** Semantic views referencing other semantic views
-> are not supported in production accounts. Use Multi-SV Agent Composition (Pattern 2) instead.
+> ⚠️ **Cortex Analyst does not support IMPORTS-based composed views.** Queries sent through
+> Cortex Analyst or Cortex Agents that reference a composed semantic view will fail.
+> Use Pattern 2 (Multi-SV Agent Composition) for any Analyst/Agent workflow.
+> Pattern 1 is valid only for direct `SEMANTIC_VIEW()` function queries.
 
 ```sql
--- Base SV: shared customer dimension
-CREATE OR REPLACE SEMANTIC VIEW analytics.shared.customer_dimension
+-- Base SV: shared account dimension (standalone — no IMPORTS needed)
+CREATE OR REPLACE SEMANTIC VIEW analytics.shared.sv_account_dimension
   TABLES (
-    customers AS analytics.core.customers
-      PRIMARY KEY (customer_id)
-      COMMENT = 'Customer master data',
-    segments AS analytics.core.customer_segments
-      PRIMARY KEY (segment_id)
-      COMMENT = 'Customer segments'
-  )
-  RELATIONSHIPS (
-    customers_to_segments AS customers (segment_id) REFERENCES segments
+    accounts AS analytics.core.accounts
+      PRIMARY KEY (d_account_id)
+      COMMENT = 'Account master data'
   )
   DIMENSIONS (
-    customers.customer_id AS customer_id
-      COMMENT = 'Unique customer identifier',
-    customers.customer_name AS customer_name
-      COMMENT = 'Full customer name',
-    customers.email AS email
-      COMMENT = 'Customer email address',
-    segments.segment_name AS segment_name
-      COMMENT = 'Customer segment (Enterprise, SMB, Startup)',
-    segments.tier AS tier
-      COMMENT = 'Value tier (Gold, Silver, Bronze)'
+    accounts.d_account_id AS account_id
+      COMMENT = 'Unique account identifier',
+    accounts.d_account_name AS account_name
+      WITH SYNONYMS = ('company', 'client')
+      COMMENT = 'Account name',
+    accounts.d_industry AS industry
+      COMMENT = 'Industry vertical',
+    accounts.d_region AS region
+      COMMENT = 'Geographic region'
+  )
+  METRICS (
+    accounts.m_account_count AS COUNT(account_id)
+      COMMENT = 'Total number of accounts'
   )
 ;
 
--- Domain SV: references the customer dimension SV
--- ⚠️ Composable SVs (SV referencing another SV) are not yet GA
-CREATE OR REPLACE SEMANTIC VIEW analytics.sales.order_analytics
+-- Domain SV: imports the shared account dimension via IMPORTS clause
+CREATE OR REPLACE SEMANTIC VIEW analytics.sales.sv_sales
+  IMPORTS (sv_account_dimension)           -- ← brings in ALL entities from sv_account_dimension
   TABLES (
-    orders AS analytics.core.orders
-      PRIMARY KEY (order_id)
-      COMMENT = 'Order transactions',
-    customers AS analytics.shared.customer_dimension  -- References another SV!
-      PRIMARY KEY (customer_id)
-      COMMENT = 'Shared customer dimension'
-  )
-  RELATIONSHIPS (
-    orders_to_customers AS orders (customer_id) REFERENCES customers
-  )
-  FACTS (
-    orders.order_amount AS order_amount
-      COMMENT = 'Order total in USD',
-    orders.quantity AS quantity
-      COMMENT = 'Number of items ordered'
+    sales AS analytics.core.sales
+      PRIMARY KEY (sale_id)
+      COMMENT = 'Sales transactions'
   )
   DIMENSIONS (
-    customers.customer_name AS customer_name
-      COMMENT = 'From shared customer dimension',
-    customers.segment_name AS segment_name
-      COMMENT = 'From shared customer dimension'
+    sales.d_sale_date AS sale_date
+      COMMENT = 'Date of sale',
+    sales.d_account_id AS account_id
+      COMMENT = 'FK to accounts'
   )
   METRICS (
-    orders.total_revenue AS SUM(order_amount)
-      COMMENT = 'Total revenue from orders'
+    sales.m_total_revenue AS SUM(amount)
+      COMMENT = 'Total revenue from sales',
+    sales.m_deal_count AS COUNT(sale_id)
+      COMMENT = 'Number of deals'
+  )
+  RELATIONSHIPS (
+    sales_to_accounts AS sales (d_account_id) REFERENCES accounts
   )
 ;
+
+-- Query: revenue by industry (imported dimension + local metric)
+SELECT * FROM SEMANTIC_VIEW(
+  sv_sales
+  DIMENSIONS accounts.d_industry
+  METRICS sales.m_total_revenue
+);
 ```
+
+**Key syntax rules:**
+- `IMPORTS` clause appears **before** `TABLES`
+- By default, all public calculations (dims, facts, metrics) from the imported SV are imported, including associated entities, relationships, PKs, synonyms, comments, `ai_sql_generation`, `ai_question_categorization`, and VQRs
+- To import only specific calculations, use FACTS/DIMENSIONS/METRICS sub-clauses inside IMPORTS (see Selective Imports below)
+- Reference imported entities by their logical table name and calc name (e.g. `accounts.d_region`)
+- Cannot reference physical columns of imported entities — only their defined dimensions/facts/metrics
+- Relationships to imported entities use logical dimension/fact names
+- Transitive: if SV_A imports SV_B which imports SV_C, SV_A sees all of C's entities too
+- **Diamond imports are supported**: if the same upstream SV is reachable through multiple import paths, its entities appear exactly once. Name collisions between *different* (unrelated) imported views still cause a creation error.
+  > ⚠️ **Exception: selective imports do not support diamond dedup.** Sub-clause syntax `IMPORTS (sv_a METRICS(...), sv_b METRICS(...))` does not deduplicate when sv_a and sv_b share a common ancestor — results in `duplicate alias 'X'`. Use full imports when any shared ancestor exists.
+- TABLES can be omitted entirely if the composed view only uses imported entities
+- A composed view can define new local metrics on imported entities (shadow table pattern)
 
 ### Use Case
 
@@ -84,12 +96,16 @@ CREATE OR REPLACE SEMANTIC VIEW analytics.sales.order_analytics
 
 | Issue | Description | Workaround |
 |-------|-------------|------------|
-| Circular references | SV A → SV B → SV A | Not allowed; design acyclic hierarchy |
-| Depth limit | Deep nesting (3+ levels) may impact query planning | Keep hierarchy flat (max 2 levels) |
-| ALTER propagation | Altering base SV may break referencing SVs | Test all dependents after change |
-| Column resolution | Ambiguous columns across nested SVs | Always use table alias prefix |
-| Performance | Additional indirection layer | Negligible for most queries |
-| Evaluation | VQR evaluation tests the full resolved query | Base SV changes can affect domain SV eval scores |
+| No Cortex Analyst support | Queries via Cortex Analyst/Agents fail on IMPORTS views | Use Pattern 2 (multi-SV agent) for Analyst workflows |
+| No Snowsight support | Cannot view or manage composed SVs in Snowsight | Use SQL or GET_DDL to inspect |
+| Not replicated | IMPORTS-based SVs are skipped during account/database replication | Recreate in target account |
+| Selective vs. full import | By default all public calcs are imported. Use FACTS/DIMENSIONS/METRICS sub-clauses inside IMPORTS to restrict to specific calcs (only listed calcs are queryable; dependent calcs auto-included via minimal subgraph but not directly queryable). ⚠️ Selective imports do not support diamond deduplication — if two imported SVs share a common ancestor, use full imports. | Use full IMPORTS when any shared ancestor exists; selective IMPORTS only when imported SVs have independent entity graphs |
+| Diamond imports supported | Same upstream SV reachable through multiple paths: entities appear exactly once (deduped by owning-view identity). Cross-source name collisions (two *different* views defining the same calc name) still cause a creation error. ⚠️ Only full IMPORTS deduplicates — selective imports (with METRICS/DIMS/FACTS sub-clauses) do not. | Ensure unique calc names across unrelated imported views; use full IMPORTS for diamond patterns |
+| Duplicate column name in imported + local entity | If a column name is already a dimension in an imported SV, a local table with the same physical column name cannot expose that column under any alias — not even a different alias. Must omit the local dimension entirely and query via the imported one. | Omit local dimension; query via the imported dimension |
+| Logical names only | Cannot reference physical columns of imported entities | Use only the defined dims/facts/metrics from the source SV |
+| Late binding | Imported objects resolved at query time — if source SV drops an entity, queries fail (error 000904) | Monitor source SVs for breaking changes |
+| Variables not imported | Variables defined in the source SV are not available in the composing view — importing a view with variables has no effect on the composing view's variable namespace | Define needed variables directly on the composing view |
+| TABLES optional when composing | A composed view can omit TABLES entirely if it only uses imported entities | N/A — this is intentional |
 
 ### Best Practices
 
@@ -97,6 +113,79 @@ CREATE OR REPLACE SEMANTIC VIEW analytics.sales.order_analytics
 2. **One level of nesting:** Base → Domain (avoid Base → Intermediate → Domain)
 3. **Clear naming:** Prefix shared SVs with `shared_` or place in dedicated schema
 4. **Document dependencies:** Note which SVs depend on which base SVs
+5. **Privilege setup:** Creating a composed view requires both `REFERENCES` and `SELECT` on each imported SV. At query time, imported base tables resolve under the source SV's owner role — users don't need direct access to the underlying tables.
+
+### Selective Imports
+
+To import only specific calculations from a source SV, list them by name using FACTS, DIMENSIONS, and METRICS sub-clauses inside IMPORTS:
+
+```sql
+CREATE OR REPLACE SEMANTIC VIEW sv_subset
+  IMPORTS (
+    sv_large
+      DIMENSIONS ( nation.d_nation_name )
+      METRICS ( orders.m_order_count )
+  );
+```
+
+**Rules:**
+- Only the explicitly listed calculations are directly queryable in the composed view
+- Any sub-clause omitted imports nothing for that calculation type (e.g. specifying only `METRICS(...)` means no dims or facts are imported)
+- Snowflake automatically imports the **minimal subgraph** of entities and relationships needed to support the listed calcs: each entity that owns a listed calc is included, plus all entities and relationships along any path between included entities
+- Dependent calculations (calcs that the listed calcs reference internally) are auto-included as part of the minimal subgraph but are **not directly queryable** unless also explicitly listed
+
+**Use case — top-down decomposition**: Start with a large SV and extract smaller scoped views for specific teams by importing only the calcs they need, without creating new SVs from scratch.
+
+### Introspection
+
+**DESCRIBE SEMANTIC VIEW — MODE option:**
+```sql
+DESC SEMANTIC VIEW <db>.<schema>.<sv_name> MODE = EXPANDED;  -- default: all entities incl. transitive imports
+DESC SEMANTIC VIEW <db>.<schema>.<sv_name> MODE = COMPACT;   -- local definitions + IMPORTS clause only
+```
+
+DESCRIBE output row types for composed views:
+- **IMPORT rows** — one row per directly imported SV with properties `IMPORTED_SEMANTIC_VIEW_DATABASE_NAME`, `IMPORTED_SEMANTIC_VIEW_SCHEMA_NAME`, `IMPORTED_SEMANTIC_VIEW_NAME`
+- **Shadow TABLE rows** — appear when the composed view defines a local calc on an imported entity (empty `BASE_TABLE_*` values); associated METRIC/DIMENSION rows then appear under the shadow table
+
+**SHOW SEMANTIC VIEWS** — includes an `imports` column listing direct imports as an array of FQNs:
+```sql
+SHOW SEMANTIC VIEWS LIKE 'SV_COMPOSED';
+-- imports column: ["MY_DB.PUBLIC.SV_CUSTOMERS","MY_DB.PUBLIC.SV_ORDERS"]
+
+SHOW SEMANTIC VIEWS LIKE 'SV_CUSTOMERS';
+-- imports column: []   (non-composed views show empty array)
+```
+
+**SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW** — returns the YAML representation of a composed SV, including an `imported_semantic_models` block with the full YAML of every SV in the transitive import closure:
+```sql
+SELECT SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW('db.schema.sv_composed');
+```
+
+### YAML Format
+
+Composable SVs are supported in the YAML format. Use the `imports` top-level block:
+
+```yaml
+imports:
+  - database_name: <DB>
+    schema_name: <SCHEMA>
+    name: <SEMANTIC_VIEW_NAME>
+```
+
+When a composed view defines a local calc on an imported entity (shadow table), the exported YAML marks that table entry with `is_imported: true`:
+
+```yaml
+tables:
+  - name: ORDERS
+    is_imported: true
+    metrics:
+      - name: M_DOUBLE_TOTAL
+        expr: orders.m_total * 2
+        access_modifier: public_access
+```
+
+The `SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW` output also includes an `imported_semantic_models` block containing the full YAML body of every SV in the transitive import closure.
 
 ---
 

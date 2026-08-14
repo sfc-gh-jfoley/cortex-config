@@ -325,6 +325,9 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | SAMPLE_VALUES must contain only valid SQL string literals (quoted), and uses no `WITH` prefix | For every dimension or fact with `SAMPLE_VALUES (...)`, verify: (1) each value is a quoted string literal: `'US_EAST'` ✓, `US_EAST` ✗; (2) the clause is written as `SAMPLE_VALUES (...)` not `WITH SAMPLE_VALUES (...)` — the `WITH` prefix is a syntax error. |
 | If IS_ENUM is used, SAMPLE_VALUES should be provided (warning, not error) | For dimensions with `IS_ENUM` but no `SAMPLE_VALUES`, warn: "This dimension is marked as an enumeration but has no sample values. Consider adding `SAMPLE_VALUES (...)` to guide AI generation." Proceeding without sample values is allowed but degrades Analyst quality. |
 | Dimension with SAMPLE_VALUES but no IS_ENUM is valid but redundant | For dimensions with `SAMPLE_VALUES` but no `IS_ENUM`: flag as informational: "This dimension provides sample values but is not marked as an enumeration. If values are finite and known, add `IS_ENUM` to improve AI query generation." User may ignore this suggestion. |
+| IS_ENUM must be the last modifier on a dimension | Scan DIMENSIONS for any entry where `IS_ENUM` is followed by `COMMENT = '...'` or any other modifier. If found, reorder: move COMMENT before IS_ENUM, or omit COMMENT on that line. `IS_ENUM COMMENT` is a hard syntax error. |
+| No local dimension re-exposes an imported dimension's column name | If the SV uses IMPORTS, collect all dimension names from the imported SVs (via their DESCRIBE output or DDL). Flag any local DIMENSIONS entry whose source physical column name matches an imported dimension name — the local entry cannot be exposed under any alias and must be omitted. |
+| Selective IMPORTS flag when shared ancestor possible | If IMPORTS uses METRICS/DIMENSIONS/FACTS sub-clauses AND more than one SV is imported, warn: "Selective imports do not support diamond deduplication. If these SVs share a common upstream SV, you will get `duplicate alias` errors. Use full IMPORTS (no sub-clauses) to be safe." |
 
 ### Semantic correctness checks (all must pass)
 
@@ -340,7 +343,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 
 Present internally (not to user yet):
 ```
-Self-check: 23/23 checks passed ✓
+Self-check: 26/26 checks passed ✓
 Proceeding to present DDL.
 ```
 

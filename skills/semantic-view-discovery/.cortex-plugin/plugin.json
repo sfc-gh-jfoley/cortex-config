@@ -1,6 +1,0 @@
-{
-  "name": "semantic-view-discovery",
-  "description": "Discover optimal semantic view domain groupings or audit existing SVs against actual query usage patterns",
-  "version": "1.0.0",
-  "skills": ["./"]
-}

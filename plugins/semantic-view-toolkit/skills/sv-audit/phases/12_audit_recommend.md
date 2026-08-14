@@ -185,7 +185,6 @@ Aggregate patterns found in user queries that could be defined as SV metrics.
 | AI\_SQL\_GENERATION missing | HIGH | — | No `CUSTOM_INSTRUCTIONS` row with `property='AI_SQL_GENERATION'` in DESCRIBE output |
 | Tables missing COMMENT | MEDIUM/HIGH | `<N>` | `<list of table names>` |
 | Columns missing COMMENT | MEDIUM | `<N>` | >30% of facts/dims/metrics uncovered |
-| Tables or columns missing synonyms | LOW | `<N>` | `<list>` |
 | VARCHAR dims missing SAMPLE\_VALUES | MEDIUM | `<N>` | Requires DDL inspection: `GET_DDL('SEMANTIC VIEW', ...)` |
 
 **AI\_SQL\_GENERATION fix:** Add via `CREATE OR ALTER SEMANTIC VIEW` with guidance on: which date column to use, gross vs net revenue distinction, filters to always/never apply, column disambiguation rules. For YAML models: use `module_custom_instructions.sql_generation` (modern) or `custom_instructions` (legacy).

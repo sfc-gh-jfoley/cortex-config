@@ -27,7 +27,7 @@ location works.
 | `sv-optimization` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
 | `sv-gepa-optimizer` | Population-based evolutionary optimization via tournament selection | Sequential optimizer hit a plateau — explore broadly |
 | `sv-watch` | Drift detection, schema change monitoring, coverage decay alerts | Ongoing production maintenance |
-| `sv-composer` | Multi-SV agent composition patterns (note: nested SVs referencing other SVs are not yet GA — use multi-tool Agent composition instead) | Multiple domains that need to work together in a single agent |
+| `sv-composer` | Multi-SV composition patterns: IMPORTS clause (GA, not Analyst-compatible) or multi-tool Agent composition (GA, Analyst-compatible) | Multiple domains that need to work together |
 | `vqr-generator` | Auto-generate verified query candidates from query history | Need more VQRs for eval coverage |
 
 ## Entry Point

@@ -29,19 +29,14 @@ Use this skill when:
 
 ## Two Composition Patterns
 
-### Pattern 1: Nested SVs
+### Pattern 1: Composable SVs via `IMPORTS`
 
-> ⚠️ **Not yet GA — do not recommend to customers**
-> Semantic views referencing other semantic views ("composable SVs") are not supported
-> in production accounts. The sv-ddl reference confirms: "Semantic views referencing
-> other semantic views are not yet GA."
->
-> **Default to multi-SV Agent composition instead**: configure multiple
-> `cortex_analyst_text_to_sql` tools on the Cortex Agent, one per semantic view.
-> Each SV handles its domain; the agent routes between them. This pattern is fully GA
-> and works for all accounts today.
+> ⚠️ **Cortex Analyst does NOT support `IMPORTS`-based views.**
+> If your workflow involves Cortex Analyst or Cortex Agents with `cortex_analyst_text_to_sql`
+> tools, use **Pattern 2 (multi-SV agent)** instead. The `IMPORTS` clause is GA for direct
+> `SEMANTIC_VIEW()` function queries only. Snowsight also does not support composed views.
 
-One SV references columns/tables from another SV. Enables layered semantic models:
+One SV imports all entities from another SV via the `IMPORTS` clause. Enables layered semantic models:
 
 ```
 Core SV (customers, products, regions)
@@ -50,15 +45,26 @@ Core SV (customers, products, regions)
   └── Inventory SV (references Core for product dimensions)
 ```
 
-**When to use nested:**
+**When to use IMPORTS:**
 - Shared entity tables (customers, products, employees) used by 2+ domain SVs
 - Want single source of truth for dimension definitions
 - Domain SVs always need the shared dimensions for their queries
+- You do NOT need Cortex Analyst or Snowsight on the importing SV
+
+**Key Rules:**
+- **Default imports all calcs**: By default, IMPORTS brings in every public calculation (dims, facts, metrics, VQRs, AI instructions) from the imported SV. To import only specific calcs, use FACTS/DIMENSIONS/METRICS sub-clauses inside IMPORTS (selective import).
+- **Diamond imports supported**: if the same upstream SV is reachable via multiple import paths, its entities appear exactly once (deduped by owning-view identity). Name collisions between *different* (unrelated) imported views still cause a creation error.
+  > ⚠️ **Selective imports do not support diamond dedup.** Using `IMPORTS (sv_a METRICS(...), sv_b METRICS(...))` sub-clauses when sv_a and sv_b share a common upstream SV produces `duplicate alias 'X'`. Only full imports (no sub-clauses) correctly deduplicate. If any two SVs you're importing share an ancestor, use full IMPORTS.
+- **Logical-name references only**: Reference imported entities by logical name (e.g. `accounts.d_region`), not physical columns
+- **Late binding**: Imported entities resolve at query time, not DDL time — changes to the source SV propagate automatically
+- **Privileges**: Requires REFERENCES on the imported SV + SELECT on its underlying tables (base tables resolve under the source SV owner's role)
+- **Transitive resolution**: If A imports B and B imports C, then A sees C's entities
 
 **Limitations:**
-- Nested SVs must be in the same database
-- Changes to the parent SV affect all child SVs (tighter coupling)
-- More complex DDL to maintain
+- Cortex Analyst does NOT support IMPORTS-based views
+- Snowsight does NOT support IMPORTS-based views
+- Not replicated across accounts
+- Variables from imported SVs are not available in the composing view (variables clause is not supported in composability)
 
 **Size guardrail — each composed SV should stay under ~100,000 tokens.** Composition is itself a tool for staying under the 100K limit: when a single domain SV grows past ~100K tokens (the combined size of tables, columns, metrics, relationships, and VQRs), Cortex Agents prunes it to fit the context window, adding latency and reducing answer quality. Splitting into a core SV + domain SVs, or into multiple independent SVs composed as separate agent tools, keeps each under the threshold while preserving coverage. Estimate each SV's size (~1 token per ~4 chars of serialized DDL) before composing.
 
@@ -85,16 +91,16 @@ Cortex Agent
 ## Decision Framework
 
 ```
-Do your SVs share > 2 tables?
-  ├── YES → Are shared tables dimension tables (customers, products)?
-  │         ├── YES → Pattern 1: Nested SVs (extract shared dims to core SV)
-  │         └── NO  → Likely need to merge into one SV (not compose)
-  └── NO  → Pattern 2: Multi-SV Agent Composition
+Do you need Cortex Analyst / Cortex Agent text-to-sql?
+  ├── YES → Pattern 2: Multi-SV Agent Composition (IMPORTS not supported by Analyst)
+  └── NO  → Do your SVs share > 2 dimension tables?
+            ├── YES → Pattern 1: Composable SVs via IMPORTS (extract shared dims to core SV)
+            └── NO  → Pattern 2: Multi-SV Agent Composition (independent domains)
 ```
 
 ---
 
-## Pattern 1 Workflow: Nested SVs
+## Pattern 1 Workflow: Composable SVs via IMPORTS
 
 ### Step 1: Identify shared dimensions
 
@@ -117,26 +123,66 @@ Extract shared tables into a "core" or "shared dimensions" SV:
 
 ### Step 3: Refactor Domain SVs
 
-Remove shared tables from domain SVs and reference the core SV instead. DDL pattern:
+Remove shared tables from domain SVs and import the core SV instead using the `IMPORTS` clause:
 
 ```sql
 CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV
+  IMPORTS (<DB>.<SCHEMA>.CORE_SV)
   TABLES (
     orders AS <DB>.<SCHEMA>.ORDERS,
     order_items AS <DB>.<SCHEMA>.ORDER_ITEMS
   )
-  -- Reference columns from core SV for shared dimensions
   RELATIONSHIPS (
-    orders (customer_id) REFERENCES <DB>.<SCHEMA>.CORE_SV.customers (customer_id)
+    -- Reference imported entities by logical name
+    orders (customer_id) REFERENCES customers (customer_id)
   )
-  ...
+  FACTS (
+    orders.order_total AS order_total COMMENT = 'Order Total'
+  )
+  METRICS (
+    orders.total_revenue AS SUM(orders.order_total) COMMENT = 'Total Revenue'
+  );
 ```
 
-### Step 4: Validate
+**Notes:**
+- `IMPORTS` must appear before `TABLES`
+- You reference imported entities (e.g. `customers`) by their logical name from the core SV
+- You cannot reference physical columns of imported tables directly — only their defined entities
+- Grant REFERENCES on the core SV and SELECT on its base tables to the domain SV owner
 
-- DESCRIBE each SV to confirm structure
-- Run sv-evaluation on each refactored SV
-- Compare accuracy vs pre-refactor baseline
+### Step 4: Validate IMPORTS Resolution
+
+Verify that the importing SV correctly resolves entities from the imported SV:
+
+```sql
+-- 1. Confirm the IMPORTS relationship is established
+DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV;
+-- Look for rows with kind = 'IMPORT' — these show the imported SVs
+
+-- 2. Verify imported entities are visible
+-- DESCRIBE output should list imported dimensions/facts/metrics
+-- with their source SV indicated
+
+-- 3. Test a query that exercises imported entities
+SELECT * FROM TABLE(
+  SNOWFLAKE.CORTEX.RUN_SEMANTIC_VIEW_QUERY(
+    '<DB>.<SCHEMA>.ORDERS_SV',
+    'What is total revenue by region?'  -- 'region' comes from imported CORE_SV
+  )
+);
+
+-- 4. Validate privilege chain
+SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.CORE_SV;
+-- Confirm the domain SV owner role has REFERENCES
+-- Confirm SELECT exists on CORE_SV's underlying tables
+```
+
+**Validation checklist:**
+- [ ] `DESCRIBE` shows IMPORT rows for each imported SV
+- [ ] Imported entities (dimensions, facts, metrics) appear in DESCRIBE output
+- [ ] Queries referencing imported entities return correct results
+- [ ] Privilege chain is complete (REFERENCES + SELECT on base tables)
+- [ ] Run sv-evaluation on each refactored SV — compare accuracy vs pre-refactor baseline
 
 ---
 

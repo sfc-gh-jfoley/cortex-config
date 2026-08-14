@@ -159,6 +159,7 @@ Test the semantic view by constructing and executing SQL against the source obje
 >   METRICS <table_alias>.<metric_name>
 > ) ORDER BY <dimension_name>;
 > ```
+> ⚠️ **ORDER BY must use unqualified column names.** SEMANTIC_VIEW() output columns are always unqualified (`M_TOTAL_SPEND`, not `DELIVERIES.M_TOTAL_SPEND`). The METRICS input clause accepts `entity.metric_name` (both forms work), but the resulting output column strips the entity prefix. `ORDER BY entity.metric_name` will fail with `invalid identifier` — use `ORDER BY metric_name` instead.
 >
 > **Approach B — Direct FROM (implicit rewrite):**
 > ```sql
