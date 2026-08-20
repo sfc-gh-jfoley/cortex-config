@@ -58,6 +58,11 @@ LIMIT 5000;
 
 1. **Tables referenced** — identify any tables in FROM/JOIN clauses that are NOT in the SV
    - Store as `MISSING_TABLE_CANDIDATES` with co-occurrence counts
+   - **Do not conflate subquery filter targets with FROM/JOIN tables.** A table that appears
+     only inside a WHERE subquery (`WHERE id IN (SELECT id FROM t_lookup)`) is not a FROM/JOIN
+     dependency — store it separately as a `SUBQUERY_FILTER_CANDIDATE`. The distinction matters
+     for recommendation: FROM/JOIN tables need SV relationships; subquery-only tables can remain
+     outside the SV for programmatic consumers.
 2. **JOIN patterns** — extract JOIN ON clauses between tables
    - Compare against `SV_RELATIONSHIPS`
    - Store unmatched joins as `RELATIONSHIP_GAPS`
@@ -221,13 +226,14 @@ Before proceeding to Phase 12, display a brief scan status:
 ```
 Audit scan complete.
 
-  Queries analyzed:      <N> (last 30 days)
-  Distinct users:        <N>
-  Missing table candidates:  <N> (tables joined with SV tables but not in SV)
-  Missing column candidates: <N> (frequently accessed columns not in SV)
-  Unused columns found:      <N> (SV columns with zero access in 30 days)
-  Relationship gaps:         <N> (JOIN patterns without SV relationships)
-  Neighboring tables:        <N> (same-schema tables not in SV)
+  Queries analyzed:             <N> (last 30 days)
+  Distinct users:               <N>
+  Missing table candidates:     <N> (tables in FROM/JOIN with SV tables but not in SV)
+  Subquery filter candidates:   <N> (tables used only in WHERE subquery contexts)
+  Missing column candidates:    <N> (frequently accessed columns not in SV)
+  Unused columns found:         <N> (SV columns with zero access in 30 days)
+  Relationship gaps:            <N> (JOIN patterns without SV relationships)
+  Neighboring tables:           <N> (same-schema tables not in SV)
 
 Loading Phase 12 for detailed recommendations...
 ```
@@ -242,7 +248,8 @@ No user gate here — proceed directly to Phase 12.
 |----------|----------|
 | `QUERY_COUNT` | Number of queries analyzed |
 | `DISTINCT_USERS` | Count of distinct users in query set |
-| `MISSING_TABLE_CANDIDATES` | List: {table, co_query_count, join_key, distinct_users, classification} |
+| `MISSING_TABLE_CANDIDATES` | List: {table, co_query_count, join_key, distinct_users, classification} — FROM/JOIN references only |
+| `SUBQUERY_FILTER_CANDIDATES` | List: {table, filter_query_count, distinct_users} — tables appearing only in WHERE subquery contexts |
 | `MISSING_COLUMNS` | List: {table_fqn, column_name, access_count, distinct_users} |
 | `UNUSED_COLUMNS` | List: {table_fqn, column_name, classification_in_sv} |
 | `FILTER_COLUMNS` | List: {column, table, frequency} — WHERE clause columns from query parsing |

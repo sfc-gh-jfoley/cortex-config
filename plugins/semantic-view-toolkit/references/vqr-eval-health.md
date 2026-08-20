@@ -322,9 +322,50 @@ uses a different aggregation, add a note explaining the deviation.
 
 ---
 
+### Check 8 — Subquery SQL in VQRs  `[HIGH]`
+
+**What it catches:** VQR SQL containing subqueries (`WHERE col IN (SELECT ...)`,
+`WHERE EXISTS (SELECT ...)`, scalar subqueries, etc.). Cortex Analyst cannot generate
+subquery-based semantic queries — this is a documented structural limitation. A VQR whose
+ground-truth SQL relies on a subquery will always fail during eval because Analyst can never
+produce a matching query, regardless of SV quality. This contaminates the eval baseline in the
+same way as an aggregation mismatch (Check 7).
+
+**Detection:**
+```python
+import re
+
+def check_vqr_subqueries(vqr_list):
+    """Detect VQR SQL containing subqueries (nested SELECT statements)."""
+    issues = []
+    for vqr in vqr_list:
+        sql = vqr['sql']
+        # More than one SELECT means a subquery is present
+        select_count = len(re.findall(r'\bSELECT\b', sql, re.IGNORECASE))
+        if select_count > 1:
+            issues.append({
+                'vqr': vqr['name'],
+                'issue': 'contains subquery — Analyst cannot generate subquery-based SQL',
+                'fix': 'rewrite without subquery, or add the filtering table as an SV relationship'
+            })
+    return issues
+```
+
+**Fix:** Two options depending on intent:
+- **For Analyst use**: Add the filtering table as an SV relationship. Rewrite the VQR SQL without
+  the subquery, expressing the filter as a dimension-based WHERE condition Analyst can generate.
+- **For programmatic-only filtering**: Remove the VQR. Subquery filtering is valid at query time
+  for manual consumers, but should not be benchmarked in eval since Analyst will never produce it.
+
+> Note: Subqueries in SV queries are fully supported by Snowflake at runtime (WHERE clause and
+> DIMENSIONS ad-hoc expressions). This check targets VQR SQL only — it does not prohibit subquery
+> use in manually authored queries against the SV.
+
+---
+
 ## Pre-Flight Summary Report
 
-After running Checks 1–7, report:
+After running Checks 1–8, report:
 
 ```
 VQR Health Report
@@ -334,7 +375,7 @@ VQR Health Report
   CA extension:    PRESENT / CLEAN
 
   CRITICAL:  <N> issues  (Check 3: CA extension)
-  HIGH:      <N> issues  (Checks 1, 2, 7)
+  HIGH:      <N> issues  (Checks 1, 2, 7, 8)
   MEDIUM:    <N> issues  (Checks 4, 5)
   LOW:       <N> issues  (Check 6)
 
@@ -415,3 +456,4 @@ a specific table or join path.
 | 2026-07-23 | Initial version — checks 1–10, CA extension strip procedure, failure patterns |
 | 2026-07-23 | T5: Added live verification evidence appendix for Checks 1–7 (later removed as provenance) |
 | 2026-07-31 | Check 1 broadened to flag bare logical names missing `__` (not just FQN); removed session-specific live-verification appendix (provenance, not operational reference) |
+| 2026-08-19 | Check 8 added: detect subquery SQL in VQRs (Analyst cannot generate subquery-based queries; these poison the eval baseline) |

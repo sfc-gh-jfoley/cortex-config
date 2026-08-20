@@ -127,6 +127,7 @@ Each iteration applies ONE mutation from `references/mutation-operators.md`:
 | Analyst refuses question | `add_vqr` (teach by example) |
 | Wrong filter applied | `add_filter` |
 | VQR SQL missing filter that metric definition requires | **Read-only analysis** (exclude/flag; do not modify) |
+| VQR always fails and SQL contains a subquery | **Read-only finding** (flag; remove VQR or rewrite without subquery — Analyst cannot generate subquery-based SQL; do not mutate the SV) |
 | Same metric name with different filter logic on two tables | `sync_metric_definitions_across_tables` |
 | Metric uses SUM(CASE WHEN ...) on the same column repeatedly | `extract_metric_filter_to_fact` |
 | Pre-check: VQR health classification before eval | `detect_contaminated_vqr_baseline` |

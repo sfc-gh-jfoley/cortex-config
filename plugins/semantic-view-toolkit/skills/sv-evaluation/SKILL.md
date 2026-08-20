@@ -104,7 +104,7 @@ B) Exclude contaminated VQRs from this eval run
 > DESCRIBE SEMANTIC VIEW shows property `PHYSICAL_EXPR` per dimension.
 > Always cross-check VQR SQL column references against PHYSICAL_EXPR, not the logical name.
 
-Run all pre-flight checks from `references/vqr-eval-health.md` (Checks 1–7). This catches
+Run all pre-flight checks from `references/vqr-eval-health.md` (Checks 1–8). This catches
 every known category of silent eval failure before any compute is spent.
 
 ```
@@ -116,6 +116,7 @@ Checks to run:
   Check 5 — Metric coverage (metrics with no VQR)
   Check 6 — Table/dimension coverage
   Check 7 — Aggregation mismatch (VQR agg ≠ SV metric expression)
+  Check 8 — Subquery SQL in VQRs (Analyst cannot generate; poisons baseline)
 ```
 
 - **Check 2 — physical column name mismatch**: The SV DIMENSIONS clause uses syntax

@@ -9,7 +9,7 @@ description: Present prioritized audit findings with improvement recommendations
 Compile all findings from Phase 11 into a structured audit report, rank recommendations by impact, and present to the user for approval before any modifications are made.
 
 **Inputs required from Phase 10:** `SV_FQN`, `SV_TABLES`, `SV_COLUMNS`, `SV_RELATIONSHIPS`, `TOTAL_SV_COLUMNS`, `TOTAL_SOURCE_COLUMNS`, `VQR_HEALTH_FINDINGS`, `TOPOLOGY_FINDINGS`, `METRIC_INTEGRITY_FINDINGS`, `METADATA_QUALITY_FINDINGS`
-**Inputs required from Phase 11:** `MISSING_TABLE_CANDIDATES`, `MISSING_COLUMNS`, `UNUSED_COLUMNS`, `RELATIONSHIP_GAPS`, `FILTER_COLUMNS`, `GROUPBY_COLUMNS`, `AGGREGATE_COLUMNS`, `NEIGHBORING_TABLES`, `ACCESS_HISTORY_AVAILABLE`, `QUERY_COUNT`, `DISTINCT_USERS`
+**Inputs required from Phase 11:** `MISSING_TABLE_CANDIDATES`, `SUBQUERY_FILTER_CANDIDATES`, `MISSING_COLUMNS`, `UNUSED_COLUMNS`, `RELATIONSHIP_GAPS`, `FILTER_COLUMNS`, `GROUPBY_COLUMNS`, `AGGREGATE_COLUMNS`, `NEIGHBORING_TABLES`, `ACCESS_HISTORY_AVAILABLE`, `QUERY_COUNT`, `DISTINCT_USERS`
 
 ---
 
@@ -107,6 +107,27 @@ Recommendation logic:
 - **ADD** — >= 50 co-queries OR >= 5 distinct users
 - **CONSIDER** — 20-49 co-queries OR 3-4 distinct users
 - **SKIP** — < 20 co-queries AND < 3 distinct users
+
+---
+
+## 5b. Subquery Filter Candidates
+
+**Only include this section if `SUBQUERY_FILTER_CANDIDATES` is non-empty.**
+
+Tables observed in user queries only as WHERE subquery filter targets — not as FROM/JOIN tables.
+These are not missing SV relationships; they are already usable at query time via WHERE subquery.
+
+| # | Table | Filter-query Count | Users | Example Pattern | Recommendation |
+|---|-------|-------------------|-------|-----------------|----------------|
+| 1 | <TABLE> | <N> | <N> | `WHERE id IN (SELECT id FROM <TABLE>)` | ANALYST_RELATIONSHIP / SKIP |
+
+Recommendation logic:
+- **ANALYST_RELATIONSHIP** — If users would benefit from asking Cortex Analyst to filter by this
+  table's attributes (e.g., "show revenue for EAST region customers"), add it as an SV relationship.
+  Without a relationship, Analyst cannot perform this filtering; it is only available in
+  manually-authored queries.
+- **SKIP** — If the filtering is exclusively programmatic/manual and Analyst access is not needed,
+  no SV change is required. WHERE subquery at query time is sufficient.
 
 ---
 
@@ -268,6 +289,11 @@ Priority Ranking
  PRIORITY 5 — Missing Tables (ADD-classified)  [HIGH — users bypass the SV]
    Tables frequently joined by users but invisible to the SV.
    → See Section 5
+
+ PRIORITY 5b — Subquery Filter Candidates  [MEDIUM — Analyst gap, not a hard failure]
+   Tables used only via WHERE subquery filtering in user queries.
+   No SV change needed for programmatic use; add as relationship only if Analyst access desired.
+   → See Section 5b
 
  PRIORITY 6 — Relationship Gaps  [HIGH — Analyst cannot auto-join]
    JOIN patterns from user queries that have no SV RELATIONSHIP defined.
