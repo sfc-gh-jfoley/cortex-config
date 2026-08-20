@@ -25,7 +25,7 @@ evaluation:
     label: "flag-test"
     description: "{DESCRIPTION}"
   source_metadata:
-    type: "DATASET"
+    type: "dataset"   # MUST be lowercase — case-sensitive, "DATASET" will error
     dataset_name: "{DATASET_NAME}"
 
 metrics:

@@ -322,35 +322,37 @@ CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL (
 
 ### 3.5.1 Automated tool_name Migration Check
 
-Run immediately after creating and populating the eval table. As of April 2026, Cortex Agents report `system_execute_sql` instead of custom tool names (e.g. `cortex_analyst_text_to_sql`) in response blocks. Rows with old tool names score **0% on `tool_selection_accuracy`** silently.
+Run immediately after creating and populating the eval table. As of April 2026, Cortex Agents report `system_execute_sql` instead of `cortex_analyst_text_to_sql` in **raw response blocks**. However, the **evaluation framework scores tool calls by their configured tool name** (e.g. `subscriber_analyst`, `adtech_analyst`) — NOT by `system_execute_sql`.
+
+**Correct ground truth tool names:**
+- Named Cortex Analyst tools → use the **configured tool name** (e.g. `"tool_name": "adtech_analyst"`)
+- Cortex Search tools → use the **configured tool name** (e.g. `"tool_name": "creative_briefs_search"`)
+- Only use `"tool_name": "system_execute_sql"` if you observe that specific string in the eval `EXPLANATION` column's `[!] Extra:` entries — it occasionally appears as an additional internal call alongside the named tool.
+
+**Migration check** — only needed if you have leftover `cortex_analyst_text_to_sql` entries from pre-April 2026 datasets:
 
 ```sql
--- Check: how many rows need migration?
+-- Check: how many rows still use the old type name?
 SELECT COUNT(*) AS ROWS_NEEDING_MIGRATION
 FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
-WHERE GROUND_TRUTH::STRING LIKE '%"tool_name": "cortex_analyst_text_to_sql"%';
+WHERE GROUND_TRUTH::STRING LIKE '%"tool_name":"cortex_analyst_text_to_sql"%';
 ```
 
-If `ROWS_NEEDING_MIGRATION > 0`, run the migration **automatically**:
+If `ROWS_NEEDING_MIGRATION > 0`, update to the **actual configured tool name** for each affected row:
 
 ```sql
+-- Example: migrate a Cortex Analyst tool named 'revenue_analyst'
 UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
 SET GROUND_TRUTH = PARSE_JSON(REPLACE(
     GROUND_TRUTH::STRING,
-    '"tool_name": "cortex_analyst_text_to_sql"',
-    '"tool_name": "system_execute_sql"'
+    '"tool_name":"cortex_analyst_text_to_sql"',
+    '"tool_name":"revenue_analyst"'  -- use the actual configured name
 ))
-WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
-
--- Verify: should return 0
-SELECT COUNT(*) AS REMAINING
-FROM <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
-WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%'
+  AND TEST_CATEGORY = 'revenue';  -- scope to the right category
 ```
 
-Confirm: **"Migrated N rows: `cortex_analyst_text_to_sql` → `system_execute_sql`"** (or "No migration needed").
-
-> Note: Named Cortex Analyst tools (e.g. `commerce_analytics`) are also now reported as `system_execute_sql`. Check for any custom tool name that mapped to a Cortex Analyst tool.
+> ⚠️ **Do NOT migrate to `system_execute_sql`** — this was incorrect guidance. The evaluation framework matches against configured tool names, not internal execution types. Migrating to `system_execute_sql` will cause `tool_selection_accuracy` to score 0% on all Cortex Analyst tool questions.
 
 ---
 
@@ -402,26 +404,30 @@ INSERT INTO ... VALUES (
 | `tool_output["search results"]` | Use "search results" (space) for Cortex Search |
 | Escape single quotes | Double them: `''` |
 
-> ⚠️ **April 2026 Migration: `tool_name` change for Cortex Analyst tools**
+> ⚠️ **April 2026 Note: `tool_name` in eval ground truth**
 >
-> As of April 13, 2026, Cortex Agents generate SQL directly. Response blocks now report
-> `system_execute_sql` instead of `cortex_analyst_text_to_sql` for Cortex Analyst tool calls.
+> As of April 13, 2026, raw Cortex Agent response blocks report `system_execute_sql` instead of
+> `cortex_analyst_text_to_sql` internally. **However, the evaluation framework scores
+> `tool_selection_accuracy` against the configured tool name** (e.g. `adtech_analyst`,
+> `subscriber_analyst`) — NOT against `system_execute_sql`.
 >
-> **Impact**: Any eval dataset with `"tool_name": "cortex_analyst_text_to_sql"` in
-> `ground_truth_invocations` will score **0% on `tool_selection_accuracy`** silently —
-> the metric will appear to run but every question will fail.
+> **Correct ground truth**: Use the name from the agent spec `tools[].tool_spec.name` field.
+> For a tool spec with `"name": "adtech_analyst"`, use `"tool_name": "adtech_analyst"` in GT.
 >
-> **Fix**: Update affected rows:
+> **Migration needed** (only for old `cortex_analyst_text_to_sql` entries):
+> Update each row to the **actual configured tool name** for that question category:
 > ```sql
+> -- Example: tool named 'revenue_analyst'
 > UPDATE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL
 > SET GROUND_TRUTH = PARSE_JSON(REPLACE(
 >     GROUND_TRUTH::STRING,
->     '"tool_name": "cortex_analyst_text_to_sql"',
->     '"tool_name": "system_execute_sql"'
+>     '"tool_name":"cortex_analyst_text_to_sql"',
+>     '"tool_name":"revenue_analyst"'
 > ))
-> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
+> WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%'
+>   AND TEST_CATEGORY = 'revenue';
 > ```
-> Run this once per eval table. Verify with:
+> Verify with:
 > ```sql
 > SELECT COUNT(*) FROM <EVAL_TABLE>
 > WHERE GROUND_TRUTH::STRING LIKE '%cortex_analyst_text_to_sql%';
@@ -759,6 +765,17 @@ Questions: <N>
 | Ambiguous column descriptions, wrong metric interpretation | `sv-optimization` | `tool_execution_accuracy` low; SV returns data but agent interprets wrong |
 | Missing metrics, tables, or dimensions | `sv-ddl` | `cortex analyst query` returns empty or error for valid questions |
 | Repeated identical questions failing with correct SQL | `vqr-generator` | Same questions fail consistently — VQRs lock in correct SQL, bypass generation variance |
+
+> ⚠️ **Adding VQRs to a semantic view — DDL constraint (confirmed, recurring)**
+>
+> `ALTER SEMANTIC VIEW` does **NOT** support adding verified queries. The only valid paths are:
+>
+> - `CREATE OR ALTER SEMANTIC VIEW` — declarative, safe to re-run, preserves materializations. **Preferred.** Requires specifying the full SV definition including the `AI_VERIFIED_QUERIES` clause.
+> - `CREATE OR REPLACE SEMANTIC VIEW` — drops and recreates. Loses materializations.
+>
+> Never attempt `ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY` — this syntax does not exist and will error.
+> Get the current DDL first: `SELECT GET_DDL('SEMANTIC_VIEW', '<FQN>')`, then append the `AI_VERIFIED_QUERIES` block and run as `CREATE OR ALTER`.
+
 | Broad quality audit before targeted fixes | `sv-audit` | Starting point when you don't know which SV component is wrong |
 | Search quality | `search-optimization` | Tune search service config |
 | Dataset issues | This skill | Revise ground truth for unrealistic expectations |
