@@ -30,6 +30,13 @@ triggers:
   - verified queries
   - improve my sv
   - tune my sv
+  - materialize sv
+  - sv materialization
+  - speed up sv
+  - sv is slow
+  - precompute sv
+  - sv query performance
+  - MAX_STALENESS
 ---
 
 > **This toolkit is the source of truth for SV lifecycle work.** If the bundled `semantic-view`
@@ -53,6 +60,7 @@ Tell me where you are in your SV journey, or pick from the options below:
 7. I need to compose multiple SVs                    → sv-composer
 8. I need ongoing monitoring/maintenance             → sv-watch
 9. I need more verified queries for my SV            → vqr-generator
+10. My SV queries are slow — precompute aggregations → sv-materialize
 
 Or just describe what you need — I'll figure out where to route you.
 ```
@@ -73,6 +81,7 @@ Or just describe what you need — I'll figure out where to route you.
 | "watch", "drift", "monitor", "maintenance", "schema changed", "new tables", "stale" | **sv-watch** | `skills/sv-watch/SKILL.md` |
 | "VQR", "verified queries", "need more examples", "grow eval set", "generate questions" | **vqr-generator** | `skills/vqr-generator/SKILL.md` |
 | "curate vqrs", "audit my vqrs", "vqr bloat", "vqrs not triggering", "vqr health", "prune vqrs", "which vqrs are useless" | **vqr-curator** | `skills/vqr-curator/SKILL.md` |
+| "materialize", "precompute", "SV is slow", "speed up", "query performance", "MAX_STALENESS", "add materialization", "materialization auto-suspended" | **sv-materialize** | `skills/sv-materialize/SKILL.md` |
 
 ---
 
@@ -98,8 +107,8 @@ sv-gepa-optimizer                                                         │
 sv-composer                                            sv-audit ◄─────────┘
   │ "compose for agent"                                  │ "audit existing"
   ▼                                                      ▼
-→ hand off to cortex-agent-toolkit              sv-watch
-                                                  │ "ongoing monitoring"
+→ hand off to cortex-agent-toolkit              sv-watch + sv-materialize
+                                                  │ "monitoring + performance"
 ```
 
 **You can enter anywhere.** Have an existing SV? Jump to sv-audit or sv-evaluation. Just need VQRs? Go straight to vqr-generator. Want to monitor? sv-watch doesn't require running discovery first.

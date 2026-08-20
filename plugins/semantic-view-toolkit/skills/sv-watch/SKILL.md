@@ -107,6 +107,55 @@ Compare column access patterns from last 30 days vs previous 30 days:
 - Columns with growing access that aren't in SV → suggest adding
 - SV columns with declining access → informational (don't auto-remove)
 
+### Check 6: Materialization Health
+
+For SVs that have `MAX_STALENESS` set (indicating materializations may exist), check that
+all materializations are ACTIVE and refreshing within their staleness window.
+
+```sql
+-- Check if any SV has MAX_STALENESS set
+SELECT semantic_view_name, semantic_view_database_name, semantic_view_schema_name,
+       max_stalesness_sec
+FROM SNOWFLAKE.ACCOUNT_USAGE.SEMANTIC_VIEWS
+WHERE max_stalesness_sec IS NOT NULL
+  AND semantic_view_database_name = '<DB>'
+  AND deleted IS NULL;
+```
+
+For each SV with MAX_STALENESS set:
+
+```sql
+-- Check refresh history — flag SUSPENDED state or long gaps between refreshes
+SELECT name, state, state_message,
+       refresh_start_time, refresh_end_time,
+       warehouse, refresh_action
+FROM TABLE(INFORMATION_SCHEMA.SEMANTIC_VIEW_MATERIALIZATION_REFRESH_HISTORY(
+  NAME => '<mat_name>'
+))
+ORDER BY refresh_start_time DESC
+LIMIT 5;
+```
+
+**Flag as WARNING when:**
+- `state = 'SUSPENDED'` — materialization auto-suspended (refreshes falling behind MAX_STALENESS)
+- Last successful refresh timestamp is > 2× MAX_STALENESS ago
+
+**Flag as INFO when:**
+- `refresh_action = 'NO_DATA'` consistently — no new data arriving; materialization is current
+- Refresh duration is approaching MAX_STALENESS — staleness risk increasing
+
+**Output format for Check 6:**
+```
+## WARNING (Materialization Health)
+- [MAT_SUSPENDED] Materialization 'cust_year_rollup' on sv_revenue is SUSPENDED
+    state_message: <error from refresh>
+    Last refresh: <timestamp>
+  → Cause: MAX_STALENESS too tight or base table too large for warehouse
+  → Fix: ALTER SEMANTIC VIEW sv_revenue SET MAX_STALENESS = <higher_value>;
+         ALTER SEMANTIC VIEW sv_revenue RESUME MATERIALIZATION cust_year_rollup;
+  → Or route to sv-materialize for full diagnosis
+```
+
 ---
 
 ## Output Format
@@ -156,7 +205,7 @@ Watch results are stored in `_SV_TOOLKIT_META.WATCH_LOG`:
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.WATCH_LOG (
     RUN_TIMESTAMP TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP(),
     SV_FQN VARCHAR,
-    CHECK_TYPE VARCHAR,  -- SCHEMA_DRIFT, COVERAGE_DECAY, VQR_STALE, SOURCE_HEALTH, USAGE_SHIFT
+    CHECK_TYPE VARCHAR,  -- SCHEMA_DRIFT, COVERAGE_DECAY, VQR_STALE, SOURCE_HEALTH, USAGE_SHIFT, MAT_HEALTH
     SEVERITY VARCHAR,    -- CRITICAL, WARNING, INFO
     FINDING VARCHAR,
     RECOMMENDED_ACTION VARCHAR,
@@ -182,5 +231,6 @@ Alternatively, tell the user to type `/loop` in Cortex Code to set up an interac
 
 - **Triggers sv-audit**: CRITICAL/WARNING findings can feed into sv-audit for deeper analysis
 - **Triggers sv-optimization**: repeated drift patterns suggest optimization opportunities
+- **Triggers sv-materialize**: MAT_HEALTH SUSPENDED findings route to sv-materialize for diagnosis
 - **Fed by sv-ddl**: after creating/modifying a SV, set up watch
 - **Independent**: can run standalone without any prior toolkit usage

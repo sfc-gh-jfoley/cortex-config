@@ -197,6 +197,47 @@ Aggregate patterns found in user queries that could be defined as SV metrics.
 
 ---
 
+## 9b. Materialization Opportunities
+
+**Only include this section if `AGGREGATE_COLUMNS` contains high-frequency patterns AND at least one
+SV source table is large (> 100M rows or > 10GB from Phase 11 INFORMATION_SCHEMA data).**
+
+> **Scope note:** Materializations benefit Semantic SQL only — queries via `SEMANTIC_VIEW()` or
+> direct SQL against the SV. Cortex Analyst and Cortex Agents are NOT accelerated.
+> Only recommend if the user has Semantic SQL consumers.
+
+Identify the strongest materialization candidate from the audit findings:
+
+| Signal | Evidence from Audit | Weight |
+|---|---|---|
+| Large source table | `> 100M rows` in table size data | HIGH |
+| Additive metrics queried repeatedly | Same SUM/COUNT/MIN/MAX expressions in `AGGREGATE_COLUMNS` | HIGH |
+| Same dimension group in many queries | Same column set in `GROUPBY_COLUMNS` across multiple queries | HIGH |
+| Non-additive metrics dominate | AVG, COUNT DISTINCT in `AGGREGATE_COLUMNS` | LOW |
+
+**If HIGH signals present, emit:**
+
+```
+## 9b. Materialization Opportunities
+
+The following pattern appears in <N> queries and could benefit from a materialization:
+
+  Suggested grain:    <top GROUPBY_COLUMNS> 
+  Suggested metrics:  <top additive AGGREGATE_COLUMNS>
+  Largest table:      <TABLE> (<N>M rows, <N>GB)
+  Potential speedup:  Queries scanning this table could be 10x–100x faster
+
+  Prerequisite: Only useful if consumers query via SEMANTIC_VIEW() or direct SQL against
+  the SV. Cortex Analyst queries are not accelerated by materializations.
+
+  → Route to sv-materialize for full eligibility assessment and DDL generation
+```
+
+This section is **informational only** — audit does not create or modify materializations. Hand
+off to `sv-materialize` for eligibility classification, design, and creation.
+
+---
+
 ## 10. Metadata Quality
 
 **Only include this section if `METADATA_QUALITY_FINDINGS` contains issues.**
@@ -310,6 +351,11 @@ Priority Ranking
  PRIORITY 9 — Metric Opportunities  [MEDIUM]
    Common aggregations that could be defined as SV metrics.
    → See Section 9
+
+ PRIORITY 9b — Materialization Opportunities  [MEDIUM — Semantic SQL consumers only]
+   Repeated additive-metric query patterns on large tables; potential 10x–100x speedup.
+   Does NOT help Cortex Analyst queries.
+   → See Section 9b; route to sv-materialize for implementation
 
  PRIORITY 10 — Unused Columns  [LOW — cleanup only]
    SV columns with zero access in last 30 days.
