@@ -134,6 +134,84 @@ Based on response:
 
 ---
 
+## Step 4.2.6: Join column data type compatibility — BLOCKING check
+
+For every candidate relationship that survived Steps 4.1–4.2.5, verify that the join columns on both sides have compatible data types before accepting them. This is a **hard block** — a type-mismatched relationship passes SV validation but causes every SQL generation attempt on that join path to fail at runtime. The agent has no way to detect or recover from this.
+
+**Why this matters:** The SV relationship graph is trusted verbatim by the SQL generator. A `NUMBER(38,0)` column joined to a `VARCHAR(30)` column cannot match, regardless of what SQL is generated. This is the single most invisible defect class in semantic views — it passes `CREATE SEMANTIC VIEW`, passes `DESCRIBE`, but silently breaks every query that traverses that path.
+
+Query `INFORMATION_SCHEMA.COLUMNS` for both sides of each relationship:
+
+```sql
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH
+FROM <SV_DB>.INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = '<schema>'
+  AND (
+      (TABLE_NAME = '<left_table>'  AND COLUMN_NAME = '<left_col>')
+   OR (TABLE_NAME = '<right_table>' AND COLUMN_NAME = '<right_col>')
+  );
+```
+
+> If tables span multiple databases, run one query per database using that database's `INFORMATION_SCHEMA`.
+
+**Severity rules:**
+
+| Left type | Right type | Severity | Action |
+|---|---|---|---|
+| `NUMBER` / `INT` / `FLOAT` | `VARCHAR` / `TEXT` / `CHAR` | **BLOCK** | Remove relationship — do not proceed |
+| `BOOLEAN` | any non-boolean | **BLOCK** | Remove relationship — do not proceed |
+| `VARIANT` / `OBJECT` / `ARRAY` | any structured type | **BLOCK** | Remove relationship — do not proceed |
+| `DATE` | `TIMESTAMP_*` | **WARN** | Implicit cast exists but may lose time precision — confirm with data owner |
+| `NUMBER(x,0)` | `NUMBER(y,0)` (different precision) | **WARN** | Potential truncation — confirm values fit |
+| `VARCHAR(x)` | `VARCHAR(y)` (different lengths) | **INFO** | Usually fine — flag if left max length > right max length |
+| Same base type, same precision | — | **PASS** | |
+
+**On BLOCK — present to user:**
+
+```
+🚫 TYPE MISMATCH — RELATIONSHIP BLOCKED
+
+  Relationship: <rel_name>
+  Left:   <left_table>.<left_col>   →  <LEFT_DATA_TYPE>
+  Right:  <right_table>.<right_col> →  <RIGHT_DATA_TYPE>
+
+  These types are incompatible. This join will fail at query time.
+  The relationship cannot be included in the semantic view as defined.
+
+  Options:
+    A) Find the correct join column — the matching key may be a different column.
+       Run: SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME IN ('<left>', '<right>')
+            ORDER BY DATA_TYPE, COLUMN_NAME;
+       Look for a column that is <correct_type> on BOTH sides.
+
+    B) Add an indirect bridge — if a third table has compatible keys to both sides,
+       define two relationships through it rather than one broken direct relationship.
+       Example: FCT.PRODUCT_SKU_ID (NUMBER) → GGC_LEVEL2.PRODUCT_SKU_ID (NUMBER) →
+                DIM.PRODUCT_SKU_ID (NUMBER) — 2 clean hops instead of 1 broken hop.
+
+    C) Fix at source — cast or coerce the mismatched column in the source table DDL
+       or create a view that applies the cast, then re-point the SV table entry to the view.
+
+    D) Remove this relationship — these tables don't share a compatible join key.
+```
+
+Remove the blocked relationship from `RELATIONSHIPS`. **Do not present it to the user in Step 4.3 as a valid candidate.** Present only the resolution options above and wait for the user to resolve before continuing.
+
+Store all findings (BLOCK, WARN, INFO) as `TYPE_MISMATCH_FINDINGS`:
+```
+[{
+  "rel_name": "...",
+  "left_table": "...", "left_col": "...", "left_type": "...",
+  "right_table": "...", "right_col": "...", "right_type": "...",
+  "severity": "BLOCK|WARN|INFO"
+}]
+```
+
+Add `TYPE_MISMATCH_FINDINGS` to the output variables for this phase (Step 4.8 → output).
+
+---
+
 ## Step 4.3: Present relationship candidates for confirmation
 
 ```
@@ -352,3 +430,4 @@ Based on user response:
 | `MULTI_REL_PAIRS` | Pairs of tables with >1 relationship path (need USING clause) |
 | `ASOF_RELATIONSHIPS` | List of {name, left_table, fk_col, date_col, right_table, pk_col, asof_col, asof_col_type} |
 | `RANGE_RELATIONSHIPS` | List of {name, left_table, match_col, right_table, start_col, end_col, constraint_name} |
+| `TYPE_MISMATCH_FINDINGS` | List of {rel_name, left_table, left_col, left_type, right_table, right_col, right_type, severity} — BLOCK entries are excluded from RELATIONSHIPS |

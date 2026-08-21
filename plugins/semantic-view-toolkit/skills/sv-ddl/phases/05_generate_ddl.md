@@ -319,6 +319,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | Window metric references valid inner metric | For every window function metric, verify the inner `<metric_ref>` exists as a defined metric in the same table's METRICS section. Missing inner metrics will fail at creation. |
 | PARTITION BY EXCLUDING dims are accessible | For every `PARTITION BY EXCLUDING <dims>`, verify each excluded dimension is defined and accessible from the same entity. Inaccessible dims cause silent wrong results. |
 | ASOF column type is DATE/TIMESTAMP/NUMBER | For every ASOF relationship, verify the ASOF-marked column's data type is DATE, TIMESTAMP_*, or NUMBER. Other types are not supported for point-in-time joins. |
+| **Join column types are compatible on both sides of every RELATIONSHIP** | For each relationship, compare `left_col` data type against `right_col` data type from `TYPE_MISMATCH_FINDINGS` (Phase 4). If Phase 4 ran correctly, BLOCK-severity mismatches will have already been removed. If any relationships were added manually after Phase 4 (e.g., user pasted in custom YAML), re-run the INFORMATION_SCHEMA check from Step 4.2.6. NUMBER↔VARCHAR and BOOLEAN↔non-boolean are **HARD BLOCK** — remove the relationship and halt. DATE↔TIMESTAMP is WARN — surface to user before Phase 6. This is **CRITICAL**: a type-mismatched join passes SV creation silently but causes every downstream query on that path to fail. |
 | COMMENT placement is AFTER all clauses | Verify COMMENT = '...' appears only after METRICS (or last present clause), never before TABLES or between clauses. Top-level COMMENT is NOT part of any clause block. |
 | No COMMENT inside RELATIONSHIPS block | Verify no relationship definition includes a COMMENT — relationship grammar only supports: `<name> AS <left> (<col>) REFERENCES <right> [(<col>)]`. COMMENT on relationships is NOT supported syntax. |
 | All SYNONYMS use `WITH SYNONYMS = (...)` prefix | Verify every SYNONYMS entry uses `WITH SYNONYMS = ('...', '...')` — bare `SYNONYMS = (...)` without `WITH` will fail. Must appear on tables, facts, dims (not relationships, not metrics without WITH). |
@@ -343,7 +344,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 
 Present internally (not to user yet):
 ```
-Self-check: 26/26 checks passed ✓
+Self-check: 27/27 checks passed ✓
 Proceeding to present DDL.
 ```
 

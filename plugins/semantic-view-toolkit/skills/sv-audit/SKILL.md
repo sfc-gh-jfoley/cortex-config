@@ -72,6 +72,7 @@ Findings are ranked by impact:
 
 | Priority | Category | Impact |
 |----------|----------|--------|
+| 0 | **Join Type Mismatches** (CRITICAL) | **BLOCKING** — type-mismatched relationship join columns cause every query on that path to fail at runtime; passes SV creation silently |
 | 1 | Relationship Gaps | HIGH — without relationships, Analyst can't auto-join |
 | 2 | Missing Tables (ADD-classified) | HIGH — frequently joined but invisible to SV |
 | 3 | Missing Columns (high access) | MEDIUM — common patterns not served |

@@ -62,7 +62,7 @@ Phase 3: Classify Columns           → FACT / DIMENSION / TIME_DIMENSION / METR
     ↓
 Phase 4: Relationship Detection     → FK pattern matching + cardinality validation
     ↓
-Phase 5: Generate DDL               → BUILD + self-check (26 checks verified)
+Phase 5: Generate DDL               → BUILD + self-check (27 checks verified)
     ↓ [STOP: user approves DDL]
 Phase 6: Execute & Validate         → run DDL → DESCRIBE → self-test question loop
     ↓
@@ -106,7 +106,7 @@ To begin, load Phase 1:
 
 ## Key Design Principles
 
-1. **Self-checking at every phase**: Phase 5 runs 26 checks (21 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
+1. **Self-checking at every phase**: Phase 5 runs 27 checks (22 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
 
 2. **Iterative loop**: Phases 5-6 loop until passing. The agent fixes its own DDL based on structured error output — no copy-paste debugging.
 

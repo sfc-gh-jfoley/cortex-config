@@ -406,6 +406,79 @@ Calculate:
 
 ---
 
+---
+
+## Step 10.4f: Relationship join type compatibility — CRITICAL check
+
+For each relationship in `SV_RELATIONSHIPS`, verify that the join columns on both sides have compatible data types. This is a **CRITICAL severity finding** — a type-mismatched relationship passes SV validation and DESCRIBE silently, but causes every SQL generation attempt on that join path to fail at runtime. This check is entirely static and requires no ACCOUNT_USAGE access.
+
+**Why it matters:** The agent reads the SV relationship graph and generates SQL joins on those columns. If the join columns have incompatible types (e.g., `NUMBER(38,0)` joined to `VARCHAR(30)`), the generated SQL fails. The SV toolkit previously had no check for this class of defect. Any SV created before this check was added may silently carry broken relationships — and this is the defect most likely to cause repeated 500-level errors in agent responses.
+
+For each relationship, retrieve both join columns' types from `INFORMATION_SCHEMA.COLUMNS`:
+
+```sql
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH
+FROM <DB>.INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = '<schema>'
+  AND (
+      (TABLE_NAME = '<left_table>'  AND COLUMN_NAME = '<left_col>')
+   OR (TABLE_NAME = '<right_table>' AND COLUMN_NAME = '<right_col>')
+  );
+```
+
+> If the SV spans multiple databases, run one query per database using that database's `INFORMATION_SCHEMA`.
+
+**Severity rules:**
+
+| Mismatch | Severity |
+|---|---|
+| `NUMBER` / `INT` / `FLOAT` ↔ `VARCHAR` / `TEXT` / `CHAR` | **CRITICAL** — every query on this join path will fail |
+| `BOOLEAN` ↔ any non-boolean | **CRITICAL** |
+| `VARIANT` / `OBJECT` / `ARRAY` ↔ any structured type | **CRITICAL** |
+| `DATE` ↔ `TIMESTAMP_*` | **HIGH** — implicit cast exists but may lose time precision |
+| `NUMBER(x,0)` ↔ `NUMBER(y,0)` (different precision) | **MEDIUM** — potential truncation |
+| `VARCHAR(x)` ↔ `VARCHAR(y)` (different lengths) | **LOW** — flag if left max length > right |
+
+**On CRITICAL — present to user:**
+
+```
+🚫 CRITICAL: TYPE MISMATCH ON RELATIONSHIP JOIN
+
+  Relationship: <rel_name>
+  Left:   <left_table>.<left_col>   →  <LEFT_DATA_TYPE>
+  Right:  <right_table>.<right_col> →  <RIGHT_DATA_TYPE>
+
+  Every query that traverses this relationship will fail at runtime.
+  This is a HARD BLOCK — the relationship must be fixed before this SV
+  can be trusted for production use.
+
+  Resolution options:
+    A) Find the correct join column — run:
+       SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME IN ('<left>', '<right>')
+       ORDER BY DATA_TYPE, COLUMN_NAME;
+       Look for a column with a matching type on both sides.
+
+    B) Add an indirect bridge — if a third table has compatible keys to both
+       sides, replace this direct relationship with two clean hops:
+       FCT → (NUMBER key) → BRIDGE → (NUMBER key) → DIM
+
+    C) Fix at source — cast or coerce the mismatched column by pointing the
+       SV table entry to a view that applies the cast.
+```
+
+Store all findings as `JOIN_TYPE_FINDINGS`:
+```
+[{
+  "rel_name": "...",
+  "left_table": "...", "left_col": "...", "left_type": "...",
+  "right_table": "...", "right_col": "...", "right_type": "...",
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW"
+}]
+```
+
+---
+
 ## Step 10.5: Present audit scope summary
 
 Display the following summary:
@@ -421,6 +494,7 @@ Semantic View Audit Scope
   Relationships:    <N> defined
   Verified Queries: <N> defined — VQR Health: <X> issues (<Y> HIGH, <Z> MEDIUM)
   Topology:         <fan_traps> fan traps, <chasm_traps> chasm traps, <orphans> orphans
+  Join type safety: <N> relationships checked — <X> CRITICAL, <Y> HIGH, <Z> MEDIUM
   Metric integrity: <N> issues found
   Metadata quality: <N> issues found (<Y> HIGH, <Z> MEDIUM)
 
@@ -471,6 +545,7 @@ After user confirms, store these variables for subsequent phases:
 | `SV_VQRS` | List of verified query representations |
 | `VQR_HEALTH_FINDINGS` | Dict: fqn_bypass, bare_physical, unknown_cols, duplicate_keys |
 | `TOPOLOGY_FINDINGS` | Dict: fan_traps, chasm_traps, orphans, missing_using |
+| `JOIN_TYPE_FINDINGS` | List of {rel_name, left_table, left_col, left_type, right_table, right_col, right_type, severity} |
 | `METRIC_INTEGRITY_FINDINGS` | Dict: semi_additive_candidates, non_boolean_filter_facts, pk_cardinality_suspects |
 | `METADATA_QUALITY_FINDINGS` | Dict: ai_sql_generation_missing, tables/cols missing comment/synonyms, sample_values gaps, inaccessible tables |
 | `TOTAL_SV_COLUMNS` | Count of columns in the SV |
