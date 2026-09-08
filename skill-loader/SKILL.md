@@ -174,6 +174,7 @@ If unsure which skill matches, ask the user.
 | Skill | When to use | Path |
 |-------|-------------|------|
 | coco-usage | CoCo token/credit consumption analysis | `skills/coco-usage/` |
+| coco-patch-usage | Paired CoCo usage reports (accounts + SEs) for a named SE leader's patch, month-over-month | `skills/coco-patch-usage/` |
 | google-doc-formatter | Format markdown as Google Doc | `skills/google-doc-formatter/` |
 | snowflake-workspaces | Write Python in Snowflake Workspaces UI (GA Jun 18, 2026). Schedule Python jobs, create NPOs (Native Python Objects), integrate with Tasks. Understand when to use Workspaces vs. Notebooks | `skills/snowflake-workspaces/` |
 
