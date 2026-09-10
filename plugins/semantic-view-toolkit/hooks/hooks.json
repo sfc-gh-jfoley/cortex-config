@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CORTEX_PLUGIN_ROOT}/hooks/sessionstart.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

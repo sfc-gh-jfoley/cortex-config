@@ -688,6 +688,13 @@ if __name__ == "__main__":
         args = [a for a in sys.argv[1:] if not a.startswith("--")]
         if args:
             text = " ".join(args)
+        elif not sys.stdin.isatty():
+            print(
+                "Error: no input text provided.\n"
+                "Usage: python3 -m specbuilder discover-skills <text>",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         else:
             text = sys.stdin.read()
 

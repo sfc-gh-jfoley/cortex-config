@@ -64,7 +64,7 @@ ALERT_THRESHOLDS = {
 # Last updated: 2026-01-06
 # Sources: https://www.anthropic.com/pricing, https://openai.com/pricing
 COST_PER_1M_TOKENS = {
-    "claude-sonnet-45": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "claude-opus-45": {"input": 15.00, "output": 75.00},
     "gpt-4-turbo": {"input": 10.00, "output": 30.00},
     "default": {"input": 5.00, "output": 15.00},
@@ -992,7 +992,7 @@ def main():
         epilog="""
 Examples:
   # Start timing a skill
-  %(prog)s start --skill rule-reviewer --target rules/100.md --model claude-sonnet-45
+  %(prog)s start --skill rule-reviewer --target rules/100.md --model claude-sonnet-4-6
 
   # Record a checkpoint
   %(prog)s checkpoint --run-id a1b2c3d4e5f67890 --name schema_validated
@@ -1002,7 +1002,7 @@ Examples:
       --input-tokens 1000 --output-tokens 500
 
   # Set performance baseline
-  %(prog)s baseline set --skill rule-reviewer --mode FULL --model claude-sonnet-45
+  %(prog)s baseline set --skill rule-reviewer --mode FULL --model claude-sonnet-4-6
 
   # Analyze recent timing data
   %(prog)s analyze --skill rule-reviewer --days 7
@@ -1016,7 +1016,7 @@ For detailed documentation, see skills/skill-timing/README.md
     start_parser = subparsers.add_parser("start", help="Start timing for a skill execution")
     start_parser.add_argument("--skill", required=True, help="Skill name (e.g., rule-reviewer)")
     start_parser.add_argument("--target", required=True, help="Target file path")
-    start_parser.add_argument("--model", required=True, help="Model slug (e.g., claude-sonnet-45)")
+    start_parser.add_argument("--model", required=True, help="Model slug (e.g., claude-sonnet-4-6)")
     start_parser.add_argument(
         "--mode", default="FULL", help="Review mode (FULL, FOCUSED, STALENESS)"
     )

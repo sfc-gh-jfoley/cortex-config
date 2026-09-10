@@ -87,7 +87,7 @@ Regular proposals remain the default. Batch format is opt-in — use only when a
 
 ```yaml
 ---
-id: NN               # unique, zero-padded 2-digit number
+id: MOD-NN    # unique module identifier; prefix MOD- followed by zero-padded 2-digit number
 title: "<title>"
 status: <status>     # see valid statuses below
 version: "X.Y.Z"    # semver
@@ -115,7 +115,7 @@ origin: EXT-NNN     # optional — proposal ID this module was promoted from
 
 ### Format Rules
 
-- Each criterion is a section headed `## AC-NN.XX` (module number + criterion number).
+- Each criterion is a section headed `## AC-N: Title` (e.g. `## AC-1: Validates required fields`).
 - Every AC section **must** contain a table with columns: **#**, **Criterion**, **Pass**, **Notes**.
 - Do NOT use Given/When/Then (BDD) format.
 - The file **must** end with a `## Sign-Off` section.
@@ -123,7 +123,7 @@ origin: EXT-NNN     # optional — proposal ID this module was promoted from
 ### Example
 
 ```markdown
-## AC-01.01 — Validates required fields
+## AC-1: Validates required fields
 
 | # | Criterion | Pass | Notes |
 |---|-----------|------|-------|
@@ -132,10 +132,9 @@ origin: EXT-NNN     # optional — proposal ID this module was promoted from
 
 ## Sign-Off
 
-| Role       | Name | Date | Status   |
-|------------|------|------|----------|
-| Author     |      |      | draft    |
-| Reviewer   |      |      |          |
+| Reviewer | Date | Result | Comments |
+|----------|------|--------|----------|
+|          |      | ☐ Pass / ☐ Fail | |
 ```
 
 **Valid statuses:** `draft` | `in-review` | `accepted` | `signed-off`

@@ -193,6 +193,7 @@ def sign_off(
     project_root: Path | None = None,
     entry_type: str = "feature",
     dry_run: bool = False,
+    confirm: bool = False,
 ) -> Path | None:
     """Transition a module to 'implemented' and create a changelog entry.
 
@@ -206,16 +207,26 @@ def sign_off(
         project_root: Project root directory (auto-detected if None).
         entry_type: Changelog type (feature, fix, pattern, governance).
         dry_run: If True, print what would happen without writing files.
+        confirm: Must be True for live sign-off (required unless dry_run is True).
 
     Returns:
         Path to the created changelog file, or None if dry_run.
+        Exits with code 1 if confirm is False and dry_run is False.
     """
+    if not dry_run and not confirm:
+        print(
+            "sign-off blocked: pass --confirm to attest that you have reviewed "
+            "the test report and approve this sign-off.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     import re as _re
 
     if project_root is None:
         project_root = get_project_root()
 
-    from specbuilder.src.config import DEFAULT_MODULES_DIR
+    from specbuilder.src.config import DEFAULT_MODULES_DIR, is_poc_mode
     from specbuilder.src.validation import parse_frontmatter
 
     # Find the spec file
@@ -242,12 +253,16 @@ def sign_off(
         print(f"Module {module_id} is already implemented.", file=sys.stderr)
         return None
 
-    if status not in ("accepted", "in-review"):
-        print(
-            f"Error: Module {module_id} status is '{status}'. "
-            f"Only 'accepted' or 'in-review' modules can be signed off.",
-            file=sys.stderr,
-        )
+    allowed_statuses = {"accepted", "in-review"} if is_poc_mode(project_root) else {"accepted"}
+    if status not in allowed_statuses:
+        if status == "in-review" and not is_poc_mode(project_root):
+            print(
+                "Cannot sign off module with status 'in-review' in non-POC mode. "
+                "Module must be in 'accepted' status. Run 'release accept <module>' first, "
+                "or use POC mode for the collapsed lifecycle."
+            )
+        else:
+            print(f"Cannot sign off module with status '{status}'.")
         return None
 
     # Determine version bump
@@ -271,6 +286,53 @@ def sign_off(
 
     changelog_title = f"{title} ({module_id})"
 
+    # Step 0: breaking-drift gate (SKILL.md:146–150)
+    from specbuilder.src.diff import diff_spec
+    drift_result = diff_spec(module_num, project_root)
+    if drift_result.get("summary", {}).get("breaking", 0) > 0:
+        breaking_count = drift_result["summary"]["breaking"]
+        print(
+            f"sign-off blocked: {breaking_count} breaking spec change(s) detected. "
+            "Resolve or document all breaking changes before signing off.",
+            file=sys.stderr,
+        )
+        return None
+
+    # Pre-flight: AC gate
+    from specbuilder.src.test_acceptance import run_tests
+    test_summary = run_tests(module_num, project_root)
+    if test_summary.get("summary", {}).get("fail", 0) > 0:
+        fail_count = test_summary["summary"]["fail"]
+        print(
+            f"sign-off blocked: {fail_count} acceptance test(s) failing. "
+            "Fix all ACs before signing off.",
+            file=sys.stderr,
+        )
+        return None
+
+    # Pre-flight: quality gate
+    from specbuilder.src.config import (
+        QUALITY_GATE_THRESHOLD,
+        QUALITY_PROFILES,
+        get_effective_profile,
+    )
+    from specbuilder.src.spec_quality import assess_quality
+    quality_result = assess_quality(spec_path)
+    profile = get_effective_profile(project_root)
+    threshold = profile.get(
+        "threshold",
+        QUALITY_PROFILES.get(profile.get("name", "full"), {}).get(
+            "threshold", QUALITY_GATE_THRESHOLD
+        ),
+    )
+    if quality_result.get("score", 0) < threshold:
+        print(
+            f"sign-off blocked: quality score {quality_result['score']:.0f} below "
+            f"threshold {threshold}. Resolve quality findings before signing off.",
+            file=sys.stderr,
+        )
+        return None
+
     if dry_run:
         print(f"[dry-run] Would sign off {module_id}: '{title}'")
         print(f"[dry-run] Version: {current} → {next_ver} ({bump_level} from --type={entry_type})")
@@ -288,37 +350,77 @@ def sign_off(
         context=context,
     )
 
-    # Update spec frontmatter status to 'implemented'
-    updated_content = _re.sub(
-        r"^(status:\s*).*$",
-        r"\1implemented",
-        spec_content,
-        count=1,
-        flags=_re.MULTILINE,
-    )
-    spec_path.write_text(updated_content, encoding="utf-8")
+    # Atomically update spec frontmatter; rollback changelog on any failure
+    try:
+        fm_match = _re.match(r'^(---[\r\n]+.*?[\r\n]+---[\r\n]+)', spec_content, _re.DOTALL)
+        if not fm_match:
+            raise ValueError(
+                f"Cannot update status: no YAML frontmatter found in {spec_path}. "
+                "Expected file to begin with '---'."
+            )
+        old_fm = fm_match.group(1)
+        new_fm = _re.sub(
+            r'^(status:\s*).*$', r'\g<1>implemented', old_fm,
+            count=1, flags=_re.MULTILINE
+        )
+        today = str(date.today())
+        if _re.search(r'^last_updated:\s*', new_fm, _re.MULTILINE):
+            new_fm = _re.sub(
+                r'^(last_updated:\s*).*$',
+                f'\\g<1>{today}',
+                new_fm,
+                flags=_re.MULTILINE,
+            )
+        else:
+            # Insert last_updated immediately after the status line
+            new_fm = _re.sub(
+                r'^(status:\s*implemented.*)$',
+                f'\\g<1>\nlast_updated: {today}',
+                new_fm,
+                flags=_re.MULTILINE,
+            )
+        updated_content = new_fm + spec_content[len(old_fm):]
+        spec_path.write_text(updated_content, encoding="utf-8")
+    except Exception:
+        if filepath.exists():
+            filepath.unlink()
+        raise
 
-    # Regenerate index to propagate version
-    from specbuilder.src.generate_index import generate
-
-    generate(project_root=project_root)
+    # Regenerate index — isolated so a failure here does not roll back a completed sign-off
+    try:
+        from specbuilder.src.generate_index import generate
+        generate(project_root=project_root)
+    except Exception as exc:
+        print(f"Warning: manifest index not updated — {exc}", file=sys.stderr)
 
     # POC mode: auto-generate summary artifact (EXT-037)
-    from specbuilder.src.config import is_demo_mode, is_poc_mode
+    from specbuilder.src.config import get_handover_flag
 
     if is_poc_mode(project_root):
         from specbuilder.src.poc_summary import generate_summary
 
-        generate_summary(project_root)
-        print("POC Summary generated: spec/POC-SUMMARY.md")
+        result = generate_summary(project_root)
+        if result is not None:
+            print("POC Summary generated: spec/POC-SUMMARY.md")
 
-    # Demo mode: auto-generate handover module (EXT-048)
-    if is_demo_mode(project_root):
-        from specbuilder.src.demo_orchestrator import generate_handover
+    # Handover flag: auto-generate handover module (EXT-071 / EXT-193)
+    if get_handover_flag(project_root):
+        from specbuilder.src.demo_orchestrator import demo_handover
 
-        handover_path = generate_handover(str(module_num), project_root)
-        if handover_path:
-            print(f"Demo handover generated: {handover_path}")
+        exit_code = demo_handover(str(module_num), project_root)
+        if exit_code == 0:
+            print("Demo handover generated.")
+        else:
+            print(
+                f"Warning: demo handover generation failed (exit code {exit_code}).",
+                file=sys.stderr,
+            )
+            # Sign-off itself succeeded — emit confirmation before returning
+            print(f"Signed off {module_id}: '{title}'")
+            print(f"  Version: {current} → {next_ver}")
+            print(f"  Changelog: {filepath.relative_to(project_root)}")
+            print("  Spec status: → implemented")
+            return filepath              # return filepath even when handover step failed
 
     print(f"Signed off {module_id}: '{title}'")
     print(f"  Version: {current} → {next_ver}")
@@ -389,6 +491,14 @@ def _build_parser() -> argparse.ArgumentParser:
     so_p.add_argument(
         "--dry-run", action="store_true", help="Show what would happen without writing files"
     )
+    so_p.add_argument(
+        "--confirm",
+        action="store_true",
+        help=(
+            "Confirm that you have reviewed the test report and approve sign-off. "
+            "Required unless --dry-run is set."
+        ),
+    )
 
     return parser
 
@@ -453,6 +563,7 @@ def main(argv: list[str] | None = None) -> None:
             project_root=project_root,
             entry_type=args.type,
             dry_run=args.dry_run,
+            confirm=args.confirm,
         )
         return
 

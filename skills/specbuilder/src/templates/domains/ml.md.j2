@@ -1,0 +1,143 @@
+{#- Domain template: Machine Learning -#}
+---
+id: {{ mod_id }}
+title: "{{ title }}"
+status: draft
+version: "0.1.0"
+last_updated: {{ date }}
+template: ml
+---
+
+# Module {{ module_num_padded }}: {{ title }}
+
+---
+
+## Executive Summary
+
+{{ description | default("An ML module that defines the problem framing, training strategy, and deployment approach for a machine learning model.") }}
+
+**Problem type**: {{ problem_type | default("TODO: e.g., classification, regression, anomaly detection") }}
+
+**Business objective**: {{ business_objective | default("TODO: Describe the business goal this model supports.") }}
+
+---
+
+## ML Inputs and Target Definition
+
+### Feature Sources
+
+| Feature | Type | Source Table | Description |
+|---------|------|-------------|-------------|
+{% if features is defined -%}
+{% for feature in features -%}
+| {{ feature.name }} | {{ feature.type }} | {{ feature.source | default("TODO") }} | {{ feature.description | default("") }} |
+{% endfor -%}
+{% else -%}
+| _feature_name_ | _FLOAT_ | _DB.SCHEMA.TABLE_ | _TODO: Define input features_ |
+{% endif -%}
+
+### Target / Label
+
+- **Target column**: `{{ target_column | default("TODO") }}`
+- **Label definition**: {{ label_definition | default("TODO: Describe how the label is derived.") }}
+- **Class distribution**: {{ class_distribution | default("TODO: e.g., 90% negative / 10% positive") }}
+
+---
+
+## Feature Engineering Approach
+
+{{ feature_engineering | default("TODO: Describe transformations, encodings, and derived features.") }}
+
+### Transformations
+
+| Feature | Transformation | Rationale |
+|---------|---------------|-----------|
+{% if transformations is defined -%}
+{% for t in transformations -%}
+| {{ t.feature }} | {{ t.transform }} | {{ t.rationale | default("") }} |
+{% endfor -%}
+{% else -%}
+| _feature_name_ | _e.g., StandardScaler, one-hot encoding_ | _TODO_ |
+{% endif -%}
+
+---
+
+## Model Selection and Training Strategy
+
+- **Algorithm(s) to evaluate**: {{ algorithms | default("TODO: e.g., XGBoost, LightGBM, logistic regression") }}
+- **Training framework**: {{ framework | default("TODO: e.g., Snowflake ML, scikit-learn, PyTorch") }}
+- **Training data split**: {{ data_split | default("80% train / 10% validation / 10% test") }}
+- **Hyperparameter tuning**: {{ hpo_strategy | default("TODO: e.g., grid search, Optuna, Cortex ML HPO") }}
+- **Cross-validation**: {{ cv_strategy | default("TODO: e.g., 5-fold stratified CV") }}
+
+---
+
+## Evaluation Criteria and Success Metrics
+
+### Primary Metrics
+
+| Metric | Threshold | Rationale |
+|--------|-----------|-----------|
+{% if eval_metrics is defined -%}
+{% for m in eval_metrics -%}
+| {{ m.name }} | {{ m.threshold }} | {{ m.rationale | default("") }} |
+{% endfor -%}
+{% else -%}
+| _e.g., AUC-ROC_ | _≥ 0.85_ | _TODO: Justify threshold_ |
+{% endif -%}
+
+### Baseline Comparison
+
+- **Current baseline**: {{ baseline | default("TODO: e.g., rule-based heuristic, previous model version") }}
+- **Minimum improvement over baseline**: {{ min_improvement | default("TODO") }}
+
+---
+
+## Deployment and Inference Notes
+
+- **Serving pattern**: {{ serving_pattern | default("TODO: e.g., batch scoring via Snowpark, real-time via SPCS, Cortex Functions") }}
+- **Inference latency SLA**: {{ latency_sla | default("TODO") }}
+- **Model registry**: {{ model_registry | default("TODO: e.g., Snowflake Model Registry") }}
+- **Retraining schedule**: {{ retrain_schedule | default("TODO: e.g., weekly, triggered by drift alert") }}
+- **Monitoring**: {{ monitoring | default("TODO: e.g., prediction distribution drift, label drift") }}
+
+---
+
+## Acceptance Criteria
+
+### AC-1: Model Performance
+
+- [ ] Primary metric meets or exceeds threshold on holdout test set
+- [ ] Model outperforms documented baseline by minimum required margin
+- [ ] No data leakage from target into feature set
+
+### AC-2: Training Reproducibility
+
+- [ ] Training pipeline produces identical results given the same seed and data
+- [ ] Feature engineering steps are deterministic and documented
+- [ ] All preprocessing transformations are fit on training data only
+
+### AC-3: Deployment Readiness
+
+- [ ] Model artifact is registered in the model registry
+- [ ] Inference endpoint or batch job runs end-to-end without errors
+- [ ] Predictions are logged for future monitoring and drift detection
+
+### AC-4: Data Quality
+
+- [ ] Feature distributions in serving data match training distribution (within tolerance)
+- [ ] NULL handling for each feature follows documented fallback behavior
+- [ ] No unseen categorical values crash inference
+
+---
+
+## Edge Cases and Constraints
+
+| Scenario | Expected Behavior |
+|----------|-------------------|
+| Feature column is entirely NULL at inference | Use documented fallback value; log warning |
+| Training data is too small (< {{ min_rows | default("1 000") }} rows) | Abort training; raise error with guidance |
+| Class imbalance exceeds {{ imbalance_threshold | default("95/5") }} ratio | Apply oversampling or class weights; document choice |
+| Model registry unavailable at deploy time | Fail fast with actionable error; do not serve stale model silently |
+| Schema drift in feature source table | Fail inference with schema mismatch error; alert on-call |
+| Retraining produces lower metric than current prod model | Block promotion; alert model owner for manual review |

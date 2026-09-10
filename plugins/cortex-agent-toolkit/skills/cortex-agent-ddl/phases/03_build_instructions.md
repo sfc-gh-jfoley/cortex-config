@@ -138,7 +138,7 @@ Apply these 5 checks to the drafted instructions. Fix any failures before presen
 
 ---
 
-### BP-5: Chart / visualization guidance (if EnableAgenticAnalyst = true)
+### BP-5: Chart / visualization guidance (if agent has data_to_chart tool)
 - ✅ PASS: Instructions mention charts, visualizations, or when to present data visually
 - ⚠️ WARN if absent: Agent won't know when to generate charts vs. tables
 

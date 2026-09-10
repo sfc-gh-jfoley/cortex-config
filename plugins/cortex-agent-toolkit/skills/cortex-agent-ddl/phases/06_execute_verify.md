@@ -14,6 +14,8 @@ This phase has **one mandatory stopping point** after the grant workflow complet
 
 ## Step 6.1: Execute CREATE AGENT
 
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 ```sql
 CREATE OR REPLACE AGENT <AGENT_FQN>
 FROM SPECIFICATION $$
@@ -133,7 +135,7 @@ Parse the `agent_spec` column from the returned row and verify against `AGENT_SP
 Report:
 ```
 DESCRIBE verification:
-  ✓ Model: <value of default_agent alias from LLMs.md — currently claude-sonnet-4-6>
+  ✓ Model: <value of default_agent alias from the model table>
   ✓ Tools: 2 — [SubscriberAnalytics, CustomerSupportSearch]
   ✓ Warehouse: COMPUTE_WH
   ✓ Profile: "Customer Analytics 360" / robot / #0057B8

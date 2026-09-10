@@ -29,7 +29,7 @@ IF current_generation >= max_generations:
     STOP → promote best candidate to Phase 4 validation
 ```
 
-**Default:** `max_generations = 10` (configurable in gepa_state.yaml)
+**Default:** `max_generations = 10` (configurable in gepa_state.json)
 
 **Rationale:** Upper bound prevents runaway GEPA sessions. Even without convergence, 10 generations of evolution with pop_size=6 explores 60+ candidate variants — sufficient for instruction-level optimization.
 
@@ -110,7 +110,7 @@ Recommendation: Instruction-level optimization unlikely to help. Consider:
 
 ## Convergence State Tracking
 
-All convergence state lives in `gepa_state.yaml` at the top level:
+All convergence state lives in `gepa_state.json` at the top level:
 
 ```yaml
 # Top-level fields (flat, not nested)
@@ -144,12 +144,12 @@ After each generation's tournament completes:
 8. None triggered → continue to next generation
 ```
 
-**Priority:** Checks are evaluated in the order above. First matching condition determines the stop reason logged in gepa_state.yaml.
+**Priority:** Checks are evaluated in the order above. First matching condition determines the stop reason logged in gepa_state.json.
 
 ## Post-Convergence Actions
 
 On successful convergence (conditions 1-5):
-1. Log stop reason and final generation number to `gepa_state.yaml`
+1. Log stop reason and final generation number to `gepa_state.json`
 2. Identify winner: candidate with `best_fitness_ever` (may not be from the final generation — elitism preserves it)
 3. Proceed to Phase 4: full DEV validation with `runs_per_split` from metadata.yaml
 4. If Phase 4 confirms improvement → accept (hand off to review/SKILL.md accept flow)

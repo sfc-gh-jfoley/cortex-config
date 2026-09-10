@@ -51,12 +51,12 @@ Classify each as one of:
 - `TABLE` — standard table
 - `VIEW` — standard or secure view
 - `DYNAMIC TABLE` — dynamic table
-- `SEMANTIC VIEW` — another semantic view (composable — **not yet supported**, warn user)
+- `SEMANTIC VIEW` — another semantic view (composable via IMPORTS clause — redirect to sv-composer)
 
 Store as `SOURCE_OBJECT_TYPES` dict: `{fqn: type}`.
 
-**If any object is a SEMANTIC VIEW**: Warn the user:
-> "Composable semantic views (referencing one SV from another) are in Private Preview and not yet generally available. This skill does not yet support SV-as-source. Consider using the underlying physical tables instead, or wait for composable SV PrPr enrollment."
+**If any object is a SEMANTIC VIEW**: Redirect the user:
+> "Composable semantic views use the `IMPORTS` clause (GA). This skill (sv-ddl) creates standard SVs from physical tables. To compose SVs together, use the **sv-composer** skill which handles the IMPORTS workflow. Note: Cortex Analyst does not support IMPORTS-based views — if your goal is Analyst/Agent integration, sv-composer will guide you to the multi-SV agent pattern instead."
 
 **Verification**: Each object must be queryable. For TABLE/VIEW/DYNAMIC TABLE, run:
 ```sql

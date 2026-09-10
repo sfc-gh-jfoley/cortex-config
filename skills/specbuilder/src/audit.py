@@ -5,7 +5,10 @@ current expectations, and generates an upgrade proposal documenting
 what's behind and recommending specific fixes.
 """
 
+from __future__ import annotations
+
 import argparse
+import datetime
 import json
 import re
 import sys
@@ -16,7 +19,10 @@ from typing import Any
 
 from specbuilder.src.config import (
     QUALITY_PROFILES,
+    README_TABLE_BEGIN,
+    REQUIRED_PROPOSAL_FIELDS,
     SPECBUILDER_TOML_FILE,
+    VALID_PROPOSAL_STATUSES,
     get_project_root,
 )
 
@@ -35,10 +41,12 @@ except ImportError:
 class AuditFinding:
     """A single audit finding."""
 
-    category: str  # "config", "hooks", "profile", "structure"
-    severity: str  # "missing", "stale", "deprecated"
+    category: str  # "config", "hooks", "structure", "changelog", "skill-coverage", "readme"
+    severity: str  # "missing", "stale", "deprecated", "warning", "info"
     description: str
     fix_description: str
+    auto_fixable: bool = False
+    fix_type: str = ""  # stable dispatch key for apply_fixes; description is display-only
 
 
 # ---------------------------------------------------------------------------
@@ -54,8 +62,16 @@ def _read_toml(project_root: Path) -> dict[str, Any]:
     try:
         result: dict[str, Any] = tomllib.loads(toml_path.read_text(encoding="utf-8"))
         return result
-    except Exception:
+    except Exception as e:
+        print(
+            f"Warning: Failed to parse .specbuilder.toml: {e}. "
+            "All config-dependent audit checks will be skipped.",
+            file=sys.stderr,
+        )
         return {}
+        # Note: check_toml_exists is unaffected — it calls toml_path.exists() directly
+        # (audit.py:73–83) and never calls _read_toml(), so it reports correctly even
+        # when the TOML is present but malformed.
 
 
 def check_toml_exists(project_root: Path) -> list[AuditFinding]:
@@ -84,6 +100,8 @@ def check_version_stamp(project_root: Path) -> list[AuditFinding]:
             severity="missing",
             description="Missing [project].specbuilder_version field",
             fix_description="Add specbuilder_version to track upgrade state",
+            fix_type="version_stamp",
+            auto_fixable=True,
         )]
     return []
 
@@ -101,7 +119,7 @@ def check_quality_profile_fields(project_root: Path) -> list[AuditFinding]:
     profile_name = quality.get("profile", "")
     if profile_name and profile_name not in QUALITY_PROFILES:
         findings.append(AuditFinding(
-            category="profile",
+            category="config",
             severity="stale",
             description=(
                 f"Quality profile '{profile_name}' not recognized. "
@@ -114,21 +132,25 @@ def check_quality_profile_fields(project_root: Path) -> list[AuditFinding]:
 
 
 def check_validation_tier_awareness(project_root: Path) -> list[AuditFinding]:
-    """Check if the project config is aware of validation tiers."""
+    """Check if the project config carries an explicit validation_tier override."""
     config = _read_toml(project_root)
     if not config:
         return []
 
-    quality = config.get("quality", {})
-    # If there's a quality section but no validation_tier mentioned anywhere
-    if quality and "validation_tier" not in str(config):
+    quality_section = config.get("quality", {})
+    if not quality_section:
+        return []  # No [quality] section — skip check
+    if "validation_tier" not in quality_section:
         return [AuditFinding(
             category="config",
-            severity="missing",
-            description="No validation_tier configured (added in v1.12.0)",
+            severity="info",
+            description=(
+                "No explicit validation_tier in [quality] section "
+                "(tier is auto-resolved from the active quality profile)"
+            ),
             fix_description=(
-                "Validation tier is now resolved from the quality profile. "
-                "No config change needed unless you want to override the default."
+                "No action needed. Add validation_tier only if you want to "
+                "override the profile default."
             ),
         )]
     return []
@@ -147,11 +169,17 @@ def check_hook_exists(project_root: Path) -> list[AuditFinding]:
 
     try:
         hooks = json.loads(hooks_json.read_text(encoding="utf-8"))
-        # Check for PreToolUse hook (change-control gate)
-        has_pretool = any(
-            h.get("event") == "PreToolUse" or "PreToolUse" in str(h)
-            for h in (hooks if isinstance(hooks, list) else hooks.get("hooks", []))
-        )
+        # Check for PreToolUse hook — handles both schema formats:
+        #   Current dict-keyed: {"hooks": {"PreToolUse": [...]}}
+        #   Legacy list:        {"hooks": [...]} or [{"event": "PreToolUse"}]
+        inner = hooks if isinstance(hooks, list) else hooks.get("hooks", {})
+        if isinstance(inner, dict):
+            has_pretool = "PreToolUse" in inner
+        else:
+            has_pretool = any(
+                h.get("event") == "PreToolUse" or "PreToolUse" in str(h)
+                for h in inner
+            )
         if not has_pretool:
             return [AuditFinding(
                 category="hooks",
@@ -176,16 +204,18 @@ def check_spec_readme_header(project_root: Path) -> list[AuditFinding]:
     if not readme.exists():
         return []
 
-    content = readme.read_text(encoding="utf-8")
-    if "> **Status**:" in content or "> **Version**:" in content:
+    lines = readme.read_text(encoding="utf-8").split("\n")
+    if any(re.match(r"^>\s*\*\*(Status|Last Updated|Version)\*\*", line) for line in lines):
         return [AuditFinding(
             category="structure",
             severity="stale",
-            description="spec/README.md has stale Status/Version header",
+            description="spec/README.md has stale Status/Last Updated/Version header",
             fix_description=(
                 "Remove status header — spec/README.md is an auto-generated "
                 "index, not a deliverable with a lifecycle"
             ),
+            fix_type="readme_header",
+            auto_fixable=True,
         )]
     return []
 
@@ -197,14 +227,14 @@ def check_root_readme_sentinels(project_root: Path) -> list[AuditFinding]:
         return []
 
     content = readme.read_text(encoding="utf-8")
-    if "<!-- BEGIN_AUTO_COMMANDS -->" not in content:
+    if README_TABLE_BEGIN not in content:
         return [AuditFinding(
-            category="structure",
+            category="readme",
             severity="missing",
             description="Root README.md missing auto-generation markers",
             fix_description=(
-                "Add <!-- BEGIN_AUTO_COMMANDS --> sentinels so "
-                "generate-index can keep the command table current"
+                f"Add {README_TABLE_BEGIN} sentinels so "
+                "generate-index can keep the module table current"
             ),
         )]
     return []
@@ -234,6 +264,36 @@ def check_spec_directory(project_root: Path) -> list[AuditFinding]:
     return findings
 
 
+def _resolve_source_paths(project_root: Path) -> tuple[str, str]:
+    """Return (src_path, skills_path) relative strings for git log path filters.
+
+    Resolution order:
+    1. [project].src_root and [project].skills_root from .specbuilder.toml
+    2. Probe for specbuilder/src/ and specbuilder/skills/ (dev-repo layout)
+    3. Probe for src/ and skills/ (flat layout)
+    4. Fall back to ("", "") — caller must skip the git log invocation entirely
+       when both paths are empty to avoid false-positive findings from unfiltered
+       git invocations in non-specbuilder consumer projects.
+    """
+    config_path = project_root / SPECBUILDER_TOML_FILE
+    if config_path.exists():
+        try:
+            cfg = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            project_cfg = cfg.get("project", {})
+            if "src_root" in project_cfg and "skills_root" in project_cfg:
+                return project_cfg["src_root"], project_cfg["skills_root"]
+        except Exception:
+            pass
+
+    # Probe common layouts
+    if (project_root / "specbuilder" / "src").is_dir():
+        return "specbuilder/src/", "specbuilder/skills/"
+    if (project_root / "src").is_dir():
+        return "src/", "skills/"
+
+    return "", ""
+
+
 def check_changelog_freshness(project_root: Path) -> list[AuditFinding]:
     """Check if source commits have accumulated since last changelog entry."""
     import subprocess
@@ -254,12 +314,18 @@ def check_changelog_freshness(project_root: Path) -> list[AuditFinding]:
     if not latest_date:
         return []
 
+    # Derive source path roots from config or probe common locations
+    _src_root, _skills_root = _resolve_source_paths(project_root)
+    if not _src_root and not _skills_root:
+        # Unrecognised project layout — skip to avoid false positives
+        return []
+
     # Count source commits since that date
     try:
         result = subprocess.run(
             [
                 "git", "log", f"--after={latest_date}", "--oneline",
-                "--", "specbuilder/src/", "specbuilder/skills/",
+                "--", _src_root, _skills_root,
             ],
             capture_output=True, text=True, cwd=str(project_root),
             timeout=10,
@@ -290,6 +356,100 @@ def check_changelog_freshness(project_root: Path) -> list[AuditFinding]:
     return []
 
 
+def check_skill_coverage(project_root: Path) -> list[AuditFinding]:
+    """Check that all CLI flags are documented in their corresponding SKILL.md files."""
+    import subprocess
+
+    skills_dir = project_root / "specbuilder" / "skills"
+    if not skills_dir.exists():
+        return []  # Consumer project — not an error
+
+    # Mapping from skill directory name to CLI subcommands.
+    # NOTE: update this map when adding subcommands to any listed subskill —
+    # check_skill_coverage silently misses new flags until this dict is updated.
+    skill_command_map: dict[str, list[str]] = {
+        "implement-spec": ["implement"],
+        "verify-spec": ["detect-drift", "test-acceptance", "ac-coverage", "release"],
+        "generate-spec": ["generate-module"],
+        "scaffold-spec": ["scaffold"],
+        "audit-spec": ["audit"],
+        "checkpoint-spec": ["checkpoint"],
+        "handover-consumer": ["handover-consumer"],
+        # specbuilder (orchestrator) and propose-spec have no direct subcommand — skip
+    }
+
+    excluded_flags = {"--help", "--version"}
+    findings: list[AuditFinding] = []
+
+    for skill_name, subcommands in skill_command_map.items():
+        skill_md = skills_dir / skill_name / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        skill_text = skill_md.read_text(encoding="utf-8")
+
+        for subcommand in subcommands:
+            try:
+                result = subprocess.run(
+                    ["python3", "-m", "specbuilder", subcommand, "--help"],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(project_root),
+                    timeout=15,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                findings.append(AuditFinding(
+                    category="skill-coverage",
+                    severity="warning",
+                    description=(
+                        f"Could not invoke '{subcommand} --help' to check flag coverage: {exc}"
+                    ),
+                    fix_description=(
+                        "Ensure specbuilder is importable from the project root "
+                        "(check PYTHONPATH)."
+                    ),
+                    auto_fixable=False,
+                ))
+                continue
+
+            if result.returncode != 0:
+                findings.append(AuditFinding(
+                    category="skill-coverage",
+                    severity="warning",
+                    description=(
+                        f"'python3 -m specbuilder {subcommand} --help' exited "
+                        f"{result.returncode} — flag coverage check skipped"
+                    ),
+                    fix_description=(
+                        f"Investigate why 'python3 -m specbuilder {subcommand} --help' "
+                        "returns a non-zero exit code."
+                    ),
+                    auto_fixable=False,
+                ))
+                continue
+
+            flags = {
+                m.group(0)
+                for m in re.finditer(r"--[a-z][a-z0-9-]+", result.stdout)
+            } - excluded_flags
+
+            for flag in sorted(flags):
+                if flag not in skill_text:
+                    findings.append(AuditFinding(
+                        category="skill-coverage",
+                        severity="warning",
+                        description=(
+                            f"Flag '{flag}' from '{subcommand} --help' not documented "
+                            f"in {skill_name}/SKILL.md"
+                        ),
+                        fix_description=(
+                            f"Add documentation for '{flag}' to {skill_name}/SKILL.md"
+                        ),
+                        auto_fixable=False,
+                    ))
+
+    return findings
+
+
 # Registry of all checks
 ALL_CHECKS: list[Callable[[Path], list[AuditFinding]]] = [
     check_toml_exists,
@@ -301,6 +461,7 @@ ALL_CHECKS: list[Callable[[Path], list[AuditFinding]]] = [
     check_root_readme_sentinels,
     check_spec_directory,
     check_changelog_freshness,
+    check_skill_coverage,
 ]
 
 
@@ -322,6 +483,35 @@ def run_audit(project_root: Path) -> list[AuditFinding]:
 # ---------------------------------------------------------------------------
 
 
+def _parse_frontmatter_str(content: str) -> dict:
+    """Parse YAML frontmatter from a content string. Returns dict or {}."""
+    if not content.startswith("---"):
+        return {}
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}
+    raw = parts[1].strip()
+    if not raw:
+        return {}
+    try:
+        import yaml
+        result = yaml.safe_load(raw)
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        pass
+    # Fallback: simple key: value parser
+    fm: dict = {}
+    for line in raw.splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                fm[k.strip()] = []
+            else:
+                fm[k.strip()] = v.strip('"').strip("'")
+    return fm
+
+
 def generate_upgrade_proposal(
     project_root: Path,
     findings: list[AuditFinding],
@@ -336,7 +526,21 @@ def generate_upgrade_proposal(
 
     proposals_dir = project_root / "spec" / "architecture" / "proposals"
     if not proposals_dir.exists():
-        # Can't generate proposal without proposal infrastructure
+        print(
+            f"Warning: proposals directory not found at {proposals_dir}. "
+            "Skipping proposal generation.",
+            file=sys.stderr,
+        )
+        return None
+
+    # Idempotency guard: skip if an infrastructure-upgrade proposal already exists
+    existing_upgrade = list(proposals_dir.glob("*infrastructure-upgrade*.md"))
+    if existing_upgrade:
+        print(
+            f"Warning: upgrade proposal already exists ({existing_upgrade[0].name}). "
+            "Skipping generation.",
+            file=sys.stderr,
+        )
         return None
 
     # Determine next proposal number
@@ -360,15 +564,23 @@ def generate_upgrade_proposal(
     for category, category_findings in findings_by_category.items():
         finding_lines.append(f"\n### {category.title()}\n")
         for f in category_findings:
-            icon = "⚠" if f.severity == "missing" else "ℹ"
+            icon = (
+                "⚠" if f.severity == "missing"
+                else "⊘" if f.severity == "deprecated"
+                else "▲" if f.severity == "warning"
+                else "ℹ"
+            )
             finding_lines.append(f"- {icon} **{f.severity}**: {f.description}")
             finding_lines.append(f"  - Fix: {f.fix_description}")
+
+    today = datetime.date.today().isoformat()
 
     content = f"""---
 id: EXT-{proposal_num}
 title: "Infrastructure upgrade to SpecBuilder v{__version__}"
 phase: 3
-status: in-progress
+status: planned
+created: {today}
 depends_on: []
 impacts_modules: []
 ---
@@ -378,6 +590,14 @@ impacts_modules: []
 Project infrastructure is behind SpecBuilder v{__version__}. The audit detected \
 {len(findings)} finding(s) that indicate missing configuration, stale templates, \
 or structural gaps.
+
+## Summary
+
+<!-- Auto-generated: summarise the upgrade work here. -->
+
+## Prerequisites
+
+None identified.
 
 ## Findings
 
@@ -400,6 +620,20 @@ beyond appending new fields or sections.
 - Project configuration matches SpecBuilder v{__version__} expectations
 """
 
+    # Pre-write schema validation
+    fm = _parse_frontmatter_str(content)
+    missing_fields = REQUIRED_PROPOSAL_FIELDS - set(fm.keys())
+    if missing_fields:
+        raise ValueError(
+            f"generate_upgrade_proposal: generated frontmatter is missing required "
+            f"field(s): {sorted(missing_fields)}"
+        )
+    if fm.get("status") not in VALID_PROPOSAL_STATUSES:
+        raise ValueError(
+            f"generate_upgrade_proposal: invalid status '{fm.get('status')}'; "
+            f"must be one of {sorted(VALID_PROPOSAL_STATUSES)}"
+        )
+
     proposal_path = proposals_dir / f"{proposal_num}-infrastructure-upgrade.md"
     proposal_path.write_text(content, encoding="utf-8")
     return proposal_path
@@ -415,48 +649,101 @@ def apply_fixes(project_root: Path, findings: list[AuditFinding]) -> list[str]:
     actions: list[str] = []
 
     for finding in findings:
-        if finding.category == "config" and "specbuilder_version" in finding.description:
-            _fix_version_stamp(project_root)
-            actions.append("Added specbuilder_version to .specbuilder.toml")
-        elif finding.category == "structure" and "stale Status" in finding.description:
-            _fix_spec_readme_header(project_root)
-            actions.append("Removed stale header from spec/README.md")
+        if finding.fix_type == "version_stamp":
+            if _fix_version_stamp(project_root):
+                actions.append("Added specbuilder_version to .specbuilder.toml")
+        elif finding.fix_type == "readme_header":
+            if _fix_spec_readme_header(project_root):
+                actions.append("Removed stale header from spec/README.md")
 
     return actions
 
 
-def _fix_version_stamp(project_root: Path) -> None:
-    """Add specbuilder_version to .specbuilder.toml."""
+def preview_fixes(findings: list[AuditFinding], project_root: Path) -> None:
+    """Preview fixes that would be applied without writing any files."""
+    from specbuilder import __version__
+
+    fixable = [f for f in findings if f.auto_fixable]
+    if not fixable:
+        print("No auto-fixable findings.", file=sys.stderr)
+        return
+
+    print("Proposed fixes (dry-run — no files written):", file=sys.stderr)
+    for finding in fixable:
+        if finding.fix_type == "version_stamp":
+            print(
+                f'  • Would add specbuilder_version = "{__version__}" '
+                "to .specbuilder.toml [project] section",
+                file=sys.stderr,
+            )
+        elif finding.fix_type == "readme_header":
+            print(
+                "  • Would remove stale Status/Version/Last Updated header "
+                "from spec/README.md",
+                file=sys.stderr,
+            )
+
+
+def _fix_version_stamp(project_root: Path) -> bool:
+    """Add specbuilder_version to .specbuilder.toml.
+
+    Returns True if the file was written, False if the fix was skipped or failed.
+    """
     from specbuilder import __version__
 
     toml_path = project_root / SPECBUILDER_TOML_FILE
     if not toml_path.exists():
-        return
+        print(
+            "Warning: .specbuilder.toml not found; version stamp fix was not written.",
+            file=sys.stderr,
+        )
+        return False
 
     content = toml_path.read_text(encoding="utf-8")
     if "specbuilder_version" in content:
-        return
+        return False
 
-    # Append after [project] section
-    if "[project]" in content:
-        content = content.replace(
-            "[project]",
-            f"[project]\nspecbuilder_version = \"{__version__}\"",
-            1,
+    try:
+        parsed = tomllib.loads(content)
+    except Exception as e:
+        print(
+            f"Warning: Failed to parse .specbuilder.toml during --apply: {e}. "
+            "Version stamp fix was not written.",
+            file=sys.stderr,
         )
-        # Clean up: avoid double newline
-        content = content.replace(
-            f"specbuilder_version = \"{__version__}\"\n\n",
-            f"specbuilder_version = \"{__version__}\"\n",
+        return False
+
+    if "project" not in parsed:
+        print(
+            "Warning: .specbuilder.toml has no [project] table; "
+            "version stamp fix was not written.",
+            file=sys.stderr,
         )
-    toml_path.write_text(content, encoding="utf-8")
+        return False
+
+    # Replace only the bare [project] section header line
+    new_content = re.sub(
+        r"(?m)^(\[project\])",
+        f"[project]\nspecbuilder_version = \"{__version__}\"",
+        content,
+        count=1,
+    )
+    if new_content == content:
+        print(
+            "Warning: .specbuilder.toml [project] header not matched by version-stamp regex; "
+            "fix was not applied.",
+            file=sys.stderr,
+        )
+        return False
+    toml_path.write_text(new_content, encoding="utf-8")
+    return True
 
 
-def _fix_spec_readme_header(project_root: Path) -> None:
+def _fix_spec_readme_header(project_root: Path) -> bool:
     """Remove stale Status/Version/Last Updated header from spec/README.md."""
     readme = project_root / "spec" / "README.md"
     if not readme.exists():
-        return
+        return False
 
     content = readme.read_text(encoding="utf-8")
     # Remove lines matching > **Status**: ... / > **Last Updated**: ... / > **Version**: ...
@@ -469,6 +756,7 @@ def _fix_spec_readme_header(project_root: Path) -> None:
     result = "\n".join(filtered)
     result = re.sub(r"\n{3,}", "\n\n", result)
     readme.write_text(result, encoding="utf-8")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +777,22 @@ def main(argv: list[str] | None = None) -> None:
         "--apply", action="store_true",
         help="Generate upgrade proposal and apply safe fixes.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview proposed changes without writing any file.",
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required with --apply to confirm destructive writes.",
+    )
+    parser.add_argument(
+        "--envelope",
+        action="store_true",
+        help="Wrap --format json output in a DiagnosticEnvelope."
+        " Has no effect without --format json.",
+    )
 
     args = parser.parse_args(argv)
     project_root = get_project_root()
@@ -503,11 +807,24 @@ def main(argv: list[str] | None = None) -> None:
                 "severity": f.severity,
                 "description": f.description,
                 "fix": f.fix_description,
+                "auto_fixable": f.auto_fixable,
             }
             for f in findings
         ]
-        print(json.dumps(output, indent=2))
-        sys.exit(0 if not findings else 1)
+        if args.envelope:
+            from specbuilder.src.diagnostic_schema import wrap_findings
+            print(json.dumps(wrap_findings("audit", output), indent=2))
+        else:
+            print(json.dumps(output, indent=2))
+        if not args.apply:
+            sys.exit(0 if not findings else 1)
+        # --apply is set: fall through to the apply block below
+        if args.apply or args.dry_run:
+            print(
+                "Note: --format json combined with --apply/--dry-run — "
+                "JSON findings on stdout, progress output on stderr.",
+                file=sys.stderr,
+            )
     else:
         from specbuilder import __version__
 
@@ -527,40 +844,56 @@ def main(argv: list[str] | None = None) -> None:
         for category, category_findings in by_category.items():
             print(f"{category.title()}:")
             for f in category_findings:
-                icon = "⚠" if f.severity == "missing" else "ℹ"
+                icon = (
+                    "⚠" if f.severity == "missing"
+                    else "⊘" if f.severity == "deprecated"
+                    else "▲" if f.severity == "warning"
+                    else "ℹ"
+                )
                 print(f"  {icon} {f.description}")
             print()
 
         print(f"Summary: {len(findings)} finding(s)")
         print()
 
-    if not findings:
-        sys.exit(0)
+    if args.dry_run:
+        preview_fixes(findings, project_root)
+        sys.exit(1 if findings else 0)
 
     if args.apply:
+        if not args.confirm:
+            preview_fixes(findings, project_root)
+            print("\n--apply requires --confirm to prevent accidental writes.", file=sys.stderr)
+            print("  python3 -m specbuilder audit --apply --confirm", file=sys.stderr)
+            sys.exit(1)
         # Generate proposal
         proposal_path = generate_upgrade_proposal(project_root, findings)
         if proposal_path:
-            print(f"Generated upgrade proposal: {proposal_path}")
+            print(f"Generated upgrade proposal: {proposal_path}", file=sys.stderr)
 
         # Apply safe fixes
         actions = apply_fixes(project_root, findings)
         if actions:
-            print("\nApplied fixes:")
+            print("\nApplied fixes:", file=sys.stderr)
             for action in actions:
-                print(f"  ✓ {action}")
+                print(f"  ✓ {action}", file=sys.stderr)
 
         # Re-run audit to show remaining
         remaining = run_audit(project_root)
         if remaining:
-            print(f"\n{len(remaining)} finding(s) remaining (manual action needed)")
+            print(
+                f"\n{len(remaining)} finding(s) remaining (manual action needed)",
+                file=sys.stderr,
+            )
         else:
-            print("\n✓ All findings resolved.")
+            print("\n✓ All findings resolved.", file=sys.stderr)
+
+        sys.exit(0 if not remaining else 1)
     else:
         print("To generate an upgrade proposal and apply fixes:")
         print("  python3 -m specbuilder audit --apply")
 
-    sys.exit(0 if not findings else 1)
+        sys.exit(0 if not findings else 1)
 
 
 if __name__ == "__main__":

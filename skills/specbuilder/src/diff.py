@@ -4,7 +4,7 @@ Compares spec module versions section-by-section and classifies changes
 as breaking, additive, or cosmetic.
 
 Usage:
-    python3 -m specbuilder.diff <module_num> [--from COMMIT] [--to COMMIT]
+    python3 -m specbuilder diff <module_num> [--from COMMIT] [--to COMMIT]
         [--json] [--breaking-only]
 
 Exit codes:
@@ -256,7 +256,7 @@ def diff_spec(
             )
         new_fm = parse_frontmatter(spec_path) if not to_commit else {}
         return {
-            "module": new_fm.get("id", f"MOD-{module_num:02d}"),
+            "module": new_fm.get("id", f"MOD-{module_num:03d}"),
             "version_from": "(none)",
             "version_to": new_fm.get("version", "unknown"),
             "changes": changes,
@@ -328,7 +328,7 @@ def diff_spec(
     }
 
     return {
-        "module": new_fm.get("id", f"MOD-{module_num:02d}"),
+        "module": new_fm.get("id", f"MOD-{module_num:03d}"),
         "version_from": old_version,
         "version_to": new_version,
         "changes": changes,
@@ -400,7 +400,7 @@ def main() -> None:
     """CLI entry point."""
     if len(sys.argv) < 2:
         print(
-            "Usage: python3 -m specbuilder.diff <module_num> "
+            "Usage: python3 -m specbuilder diff <module_num> "
             "[--from COMMIT] [--to COMMIT] [--json] [--breaking-only]",
             file=sys.stderr,
         )

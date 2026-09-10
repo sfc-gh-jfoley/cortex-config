@@ -1,6 +1,6 @@
 # Checkpoint Protocol
 
-Use this protocol when implementing multiple proposals as a batch (3 or more) for resumption on failure.
+Use this protocol when implementing multiple proposals as a batch (2 or more) for resumption on failure.
 
 ## Before starting
 
@@ -25,4 +25,4 @@ python3 -m specbuilder checkpoint --init EXT-055,EXT-056,EXT-057,EXT-058,EXT-059
 python3 -m specbuilder checkpoint --complete
 ```
 
-The execution log is local (`.specbuilder/execution-log.md`, gitignored). If the session crashes and the log is lost, `--status` re-derives state from committed proposal frontmatter. The `cortex memory remember` calls bridge sessions.
+The execution log is local (`.specbuilder/execution-log.md`, gitignored). If the session crashes and the log is lost, `--status` returns an empty result — it cannot re-derive state without the log. Re-run `--init` with the original proposal list to regenerate the wave plan. The `cortex memory remember` calls bridge sessions.

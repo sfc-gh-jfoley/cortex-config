@@ -30,7 +30,7 @@ No installation required. The skill uses Python standard library only.
 bash skills/skill-timing/scripts/run_timing.sh start \
     --skill rule-reviewer \
     --target rules/100-snowflake-core.md \
-    --model claude-sonnet-45
+    --model claude-sonnet-4-6
 
 # Output: TIMING_RUN_ID=a1b2c3d4e5f67890
 
@@ -58,7 +58,7 @@ Initialize a timing session.
 |----------|----------|-------------|
 | `--skill` | Yes | Skill name being timed |
 | `--target` | Yes | Target file path |
-| `--model` | Yes | Model slug (e.g., claude-sonnet-45) |
+| `--model` | Yes | Model slug (e.g., claude-sonnet-4-6) |
 | `--mode` | No | Review mode (default: FULL) |
 | `--agent` | No | Agent name (auto-detected from env) |
 
@@ -66,7 +66,7 @@ Initialize a timing session.
 bash skills/skill-timing/scripts/run_timing.sh start \
     --skill rule-reviewer \
     --target rules/100-snowflake-core.md \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --mode FULL
 ```
 
@@ -176,7 +176,7 @@ Set a performance baseline from recent timing data. Requires at least 5 data poi
 bash skills/skill-timing/scripts/run_timing.sh baseline set \
     --skill rule-reviewer \
     --mode FULL \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --days 30
 ```
 
@@ -213,7 +213,7 @@ TIMING: skill-timing v1.2.0
 Run ID:      a1b2c3d4e5f67890
 Skill:       rule-reviewer
 Target:      rules/100-snowflake-core.md
-Model:       claude-sonnet-45
+Model:       claude-sonnet-4-6
 Agent:       cortex-code
 ----------------------------------------
 Start:       2026-01-06T10:30:00+00:00
@@ -239,7 +239,7 @@ Baseline:    +7.4% vs avg (within normal)
 {
   "run_id": "a1b2c3d4e5f67890",
   "skill_name": "rule-reviewer",
-  "model": "claude-sonnet-45",
+  "model": "claude-sonnet-4-6",
   "duration_seconds": 225.5,
   "duration_human": "3m 45s",
   "status": "completed",
@@ -266,7 +266,7 @@ Baseline:    +7.4% vs avg (within normal)
 TIMING: Analysis v1.2.0
 ----------------------------------------
 Count:       12 runs
-Filters:     skill=rule-reviewer, model=claude-sonnet-45, days=30
+Filters:     skill=rule-reviewer, model=claude-sonnet-4-6, days=30
 ----------------------------------------
 Average:     3m 45s (225.50s)
 Median:      3m 30s (210.00s)
@@ -352,7 +352,7 @@ Edit `COST_PER_1M_TOKENS` in `scripts/skill_timing.py`:
 
 ```python
 COST_PER_1M_TOKENS = {
-    "claude-sonnet-45": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "claude-opus-45": {"input": 15.00, "output": 75.00},
     "gpt-4-turbo": {"input": 10.00, "output": 30.00},
     "default": {"input": 5.00, "output": 15.00},

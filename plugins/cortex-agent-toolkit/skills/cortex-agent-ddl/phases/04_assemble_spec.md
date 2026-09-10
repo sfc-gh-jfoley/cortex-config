@@ -14,13 +14,13 @@ This phase produces one artifact: `AGENT_SPEC` — the full spec JSON. No user i
 
 ## Step 4.1: Select model
 
-If not already specified by the user, recommend the `default_agent` alias from `~/.snowflake/cortex/vault/LLMs.md`:
+If not already specified by the user, recommend the `default_agent` alias from `reference/agent_spec_syntax.md` (Valid Model Names):
 
 ```
-Recommended model: default_agent → claude-sonnet-4-6
-(Read LLMs.md to resolve current value. Best balance of instruction-following and speed.)
+Recommended model: use default_agent alias — read reference/agent_spec_syntax.md for current value. Do not hardcode a model version string.
+(Best balance of instruction-following and speed.)
 
-Other options: heavy_agent → claude-opus-4-7 (highest quality), fast_agent → claude-haiku-4-5 (fastest)
+Other options: heavy_agent (highest quality), fast_agent (fastest) — resolve from `reference/agent_spec_syntax.md` (Valid Model Names)
 Confirm model or override:
 ```
 
@@ -115,9 +115,20 @@ For each CSS tool:
 For each generic tool:
 ```json
 "<TOOL_NAME>": {
-  "function": "<DB>.<SCHEMA>.<FUNCTION_NAME>"
+  "type": "function",
+  "identifier": "<DB>.<SCHEMA>.<FUNCTION_NAME>",
+  "execution_environment": {
+    "type": "warehouse",
+    "warehouse": "<AGENT_WAREHOUSE>"
+  }
 }
 ```
+
+> **Schema is `type` + `identifier`, not `"function": "<FQN>"`.** Confirmed against
+> the Cortex Agents REST API `ToolResource` schema. Set `type` to `"function"` for a
+> UDF or `"procedure"` for a stored procedure; put the FQN in `identifier`. A
+> `{"function": "<FQN>"}` entry is silently ignored or errors at invocation — the
+> agent will create successfully and then fail when the tool is called.
 
 ---
 
@@ -125,9 +136,32 @@ For each generic tool:
 
 ### MCP Connector Tools
 
-For `web_search`, `data_to_chart`, and `code_execution` tools discovered in Phase 2:
-- These tools have **no `tool_resources` entry** — include them in the `tools` array only
+For `web_search`, `data_to_chart`, `code_execution`, and `code_toolset_all` tools discovered in Phase 2:
+- These tools do **not require a `tool_resources` entry** — include them in the `tools` array at minimum
 - Format: `{"tool_spec": {"type": "<tool_type>", "name": "<tool_name>"}}`
+
+**Optional `code_execution` config block** — add to `tool_resources` when the user needs PyPI packages or external network access:
+
+```json
+"tool_resources": {
+  "code_execution": {
+    "permission_policy": {
+      "type": "always_ask"
+    },
+    "artifact_repositories": [
+      "SNOWFLAKE.SNOWPARK.PYPI_SHARED_REPOSITORY"
+    ],
+    "external_access_integrations": [
+      "<EAI_NAME>"
+    ]
+  }
+}
+```
+
+Fields (all optional — omit any you don't need):
+- `permission_policy.type`: `"always_ask"` (default — prompts user before state-modifying code) or `"always_allow"` (skip approval — use only in trusted automated workflows)
+- `artifact_repositories`: include only when PyPI packages needed; requires agent owner role = `SNOWFLAKE.PYPI_REPOSITORY_USER`
+- `external_access_integrations`: list of External Access Integration FQNs for outbound network access
 
 For MCP connectors (stored in `MCP_SERVERS` from Phase 2):
 - MCP connectors are NOT in the `tools` array — they use a separate `mcp_servers` section

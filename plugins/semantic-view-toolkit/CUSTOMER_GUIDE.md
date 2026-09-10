@@ -42,6 +42,7 @@ The toolkit will:
 - Scan FK/PK constraints, column name patterns, and query co-occurrence
 - Cluster tables into recommended domain groupings
 - Score confidence based on evidence strength
+- Estimate each proposed SV's token size and warn if any exceeds ~100,000 tokens (above that, Cortex Agents prunes the SV — latency + reduced accuracy); recommend splitting oversized domains
 - Present recommendations for your approval
 
 **Time:** scales with table count and column cardinality.
@@ -82,10 +83,13 @@ The toolkit will:
 ```
 
 The toolkit will:
-- Generate eval config YAML
-- Run `EXECUTE_AI_EVALUATION` against your VQRs
+- Generate eval config YAML and upload it to a stage
+- Call `SNOWFLAKE.CORTEX.ANALYST_PREVIEW` against the stage-hosted YAML config to evaluate each question against the SV
+- Parse the response to extract generated SQL and `verified_query_used`, then score `sql_correctness`
 - Report accuracy %, regressions, and per-query results
 - Identify which VQRs fail and suggest why
+
+> **Note on `EXECUTE_AI_EVALUATION`.** The documented procedure (`EXECUTE_AI_EVALUATION('START', ...)`) is currently broken for `analyst_type='SEMANTIC VIEW'` (error 392700, as of Jul 2026). The toolkit uses `ANALYST_PREVIEW` + stage YAML as the working eval path instead. See `references/eval-polling.md § ANALYST_PREVIEW Eval Path` for the full call pattern. If Snowflake fixes `EXECUTE_AI_EVALUATION` for SV type, the toolkit will migrate back to the documented procedure.
 
 **Time:** depends on warehouse size and number of questions.
 

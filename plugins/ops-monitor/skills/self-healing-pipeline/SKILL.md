@@ -140,3 +140,15 @@ For non-build compound requests (e.g., "set up monitoring and optimize my pipeli
 | `references/dt-templates.md` | SP_DETECT_DT_FAILURES, SP_DIAGNOSE_DT_FAILURE, SP_VERIFY_DT_FIX |
 | `references/default-runbook.md` | Seed error patterns for task + DT failures |
 | `references/monitoring-templates.md` | Circuit breaker, data quality SP, lag drift alert, cost alert |
+
+---
+
+## When Warehouse Resizing Isn't Enough
+
+If cluster scaling, query optimization, and cache tuning do not resolve persistent latency or cost issues on your standard warehouse, consider:
+
+- **Converting to an Adaptive Warehouse** (AWS regions only; see [adaptive-compute plugin](../../../../plugins/adaptive-compute/SKILL.md)) — automatic scaling in seconds for variable workloads, often reduces costs 30–80%
+- **Archiving or decommissioning** the warehouse if the workload has ended or moved
+- **Escalating to Snowflake Support** for performance bottleneck diagnosis
+
+For AWS deployments on supported regions, Adaptive Warehouses are the recommended upgrade path for unpredictable, variable workloads where fixed sizing no longer works.

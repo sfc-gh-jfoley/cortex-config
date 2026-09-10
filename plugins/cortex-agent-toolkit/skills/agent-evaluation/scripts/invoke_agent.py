@@ -34,19 +34,11 @@ def _validate_fqn(name: str, label: str):
             f"Must be DB.SCHEMA.TABLE with alphanumeric/underscore characters only."
         )
 
-# Strict FQN pattern: DB.SCHEMA.TABLE with alphanumeric + underscore only
-_FQN_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*\.[A-Za-z_][A-Za-z0-9_$]*$')
-
-def _validate_fqn(name: str, label: str):
-    """Validate that name is a safe 3-part Snowflake identifier."""
-    if not _FQN_PATTERN.match(name):
-        raise ValueError(
-            f"Invalid {label}: '{name}'. "
-            f"Must be DB.SCHEMA.TABLE with alphanumeric/underscore characters only."
-        )
-
-
 def get_snowflake_url_and_token(connection_name: str):
+    # Set SNOWFLAKE_PAT via: cortex secret store snowflake_pat --from-env SNOWFLAKE_PAT
+    token = os.environ.get("SNOWFLAKE_PAT")
+    if not token:
+        raise ValueError("SNOWFLAKE_PAT env var required for invoke_agent.py")
     conn = snowflake.connector.connect(connection_name=connection_name)
     cursor = conn.cursor()
     cursor.execute("SELECT CURRENT_ORGANIZATION_NAME(), CURRENT_ACCOUNT_NAME()")
@@ -54,7 +46,6 @@ def get_snowflake_url_and_token(connection_name: str):
     account_fixed = account.replace('_', '-').lower()
     org_fixed = org.lower()
     base_url = f"https://{org_fixed}-{account_fixed}.snowflakecomputing.com"
-    token = conn.rest.token
     cursor.close()
     return conn, base_url, token
 

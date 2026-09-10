@@ -10,6 +10,7 @@ Handles the full pipeline from requirement intake to generated spec module:
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import sys
@@ -19,11 +20,14 @@ from pathlib import Path
 from specbuilder.src.config import (
     DEFAULT_AC_DIR,
     DEFAULT_MODULES_DIR,
-    DEFAULT_README_FILE,
-    DEFAULT_SPEC_DIR,
+    GATE_SENTINEL_MAX_AGE_SECONDS,
     TEMPLATES_DIR,
+    get_active_profile,
     get_project_root,
+    is_poc_mode,
+    is_prototype_mode,
 )
+from specbuilder.src.spec_quality import check_spec_quality
 
 # ---------------------------------------------------------------------------
 # Section headers in INTAKE.md (order matters for sequential parsing)
@@ -33,6 +37,7 @@ _INTAKE_HEADERS: list[tuple[str, str]] = [
     ("## Module Title", "title"),
     ("## Description", "description"),
     ("## Input Data", "inputs"),
+    ("## Existing Environment", "existing_environment"),
     ("## Desired Output", "outputs"),
     ("## Business Rules & Constraints", "business_rules"),
     ("## Reference Examples", "references"),
@@ -170,6 +175,36 @@ def _parse_freeform(text: str) -> dict:
     if rules_match:
         result["business_rules"] = rules_match.group(1).strip()[:500]
 
+    ref_match = re.search(
+        r"(?:reference|example|related)[:\s]*(.+?)(?:\n\n|\Z)", full, re.DOTALL
+    )
+    if ref_match:
+        result["references"] = ref_match.group(1).strip()[:500]
+
+    priority_match = re.search(
+        r"(?:priorit(?:y|ies)|important|critical)[:\s]*(.+?)(?:\n\n|\Z)", full, re.DOTALL
+    )
+    if priority_match:
+        result["priorities"] = priority_match.group(1).strip()[:500]
+
+    unknown_match = re.search(
+        r"(?:unknown|question|unclear|open item)[:\s]*(.+?)(?:\n\n|\Z)", full, re.DOTALL
+    )
+    if unknown_match:
+        result["unknowns"] = unknown_match.group(1).strip()[:500]
+
+    dep_match = re.search(
+        r"(?:dependenc(?:y|ies)|depend(?:s)? on|requires?)[:\s]*(.+?)(?:\n\n|\Z)", full, re.DOTALL
+    )
+    if dep_match:
+        result["dependencies"] = dep_match.group(1).strip()[:500]
+
+    skills_match = re.search(
+        r"(?:skill|tool|framework|librar(?:y|ies))[:\s]*(.+?)(?:\n\n|\Z)", full, re.DOTALL
+    )
+    if skills_match:
+        result["skills"] = skills_match.group(1).strip()[:500]
+
     return result
 
 
@@ -184,7 +219,7 @@ def get_next_module_number(spec_dir: Path) -> int:
     Scans ``spec_dir`` for files matching ``NN-*.md``.  Module 00 is
     always reserved and excluded.  Handles gaps by using max+1.
     """
-    pattern = re.compile(r"^(\d{2})-.*\.md$")
+    pattern = re.compile(r"^(\d{2,})-.*\.md$")
     numbers: list[int] = []
     if spec_dir.is_dir():
         for f in spec_dir.iterdir():
@@ -369,8 +404,8 @@ def generate_spec_module(
             "",
         ]
         for rec in recommendations:
-            name = rec.get("name", "Unknown skill")
-            desc = rec.get("description", "")
+            name = rec.get("skill_name", "Unknown skill")  # matches discover_skills.py:513
+            desc = rec.get("useful_for", "")               # matches discover_skills.py:517
             lines.append(f"- **{name}**: {desc}")
         lines.append("")
 
@@ -475,22 +510,14 @@ def generate_ac_file(spec_content: str, module_number: int, title: str) -> str:
     """
     today = date.today().isoformat()
     slug = slugify(title)
-    spec_ref = f"../{module_number:02d}-{slug}.md"
-
     lines: list[str] = [
-        f"# AC — Module {module_number:02d}: {title}",
-        "",
-        "> **Status**: DRAFT  ",
-        "> **Version**: 0.1.0  ",
-        f"> **Last Updated**: {today}  ",
-        f"> **Spec Reference**: [spec/{module_number:02d}-{slug}.md]({spec_ref})",
-        "",
         "---",
-        "",
-        "## Summary",
-        "",
-        f"Acceptance criteria for Module {module_number:02d}: {title}.",
-        "",
+        f"id: AC-{module_number:02d}",
+        f'title: "AC — {title}"',
+        "status: draft",
+        'version: "0.1.0"',
+        f"last_updated: {today}",
+        f'spec_reference: "../modules/{module_number:02d}-{slug}.md"',
         "---",
         "",
     ]
@@ -577,74 +604,6 @@ def _extract_ac_sections(spec_content: str) -> list[tuple[str, str, list[str]]]:
 # ---------------------------------------------------------------------------
 
 
-def update_readme(
-    project_root: Path,
-    module_number: int,
-    title: str,
-    description: str,
-) -> None:
-    """Add a new row to the modules table in ``spec/README.md``.
-
-    Also appends a version-history entry recording the addition.
-    """
-    readme_path = project_root / DEFAULT_SPEC_DIR / "README.md"
-    if not readme_path.exists():
-        return
-
-    content = readme_path.read_text(encoding="utf-8")
-    slug = slugify(title)
-    num_str = f"{module_number:02d}"
-    today = date.today().isoformat()
-    link = f"[{title}](./{num_str}-{slug}.md)"
-
-    # --- Insert module row before the separator rows (— rows). --------------
-    new_row = f"| {num_str} | {link} | DRAFT | {description} |"
-    table_lines = content.split("\n")
-    insert_idx: int | None = None
-
-    for i, line in enumerate(table_lines):
-        # Find the first separator row after the modules table header.
-        if line.strip().startswith("| —") or line.strip().startswith("| \u2014"):
-            insert_idx = i
-            break
-
-    if insert_idx is not None:
-        table_lines.insert(insert_idx, new_row)
-    else:
-        # Fallback: append after last numbered module row.
-        last_mod = -1
-        for i, line in enumerate(table_lines):
-            if re.match(r"^\|\s*\d{2}\s*\|", line):
-                last_mod = i
-        if last_mod >= 0:
-            table_lines.insert(last_mod + 1, new_row)
-
-    content = "\n".join(table_lines)
-
-    # --- Add version history entry. -----------------------------------------
-    history_anchor = "## Version History"
-    if history_anchor in content:
-        # Find the last row of the version history table.
-        history_idx = content.index(history_anchor)
-        rest = content[history_idx:]
-        rest_lines = rest.split("\n")
-        last_table_row = -1
-        for i, line in enumerate(rest_lines):
-            if (
-                line.strip().startswith("|")
-                and not line.strip().startswith("| Version")
-                and not line.strip().startswith("|---")
-            ):
-                last_table_row = i
-
-        if last_table_row >= 0:
-            note = f"Module {num_str} ({title}) added"
-            new_entry = f"| — | {today} | {note} |"
-            rest_lines.insert(last_table_row + 1, new_entry)
-            content = content[:history_idx] + "\n".join(rest_lines)
-
-    readme_path.write_text(content, encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
 # Domain templates (EXT-009)
@@ -700,6 +659,21 @@ _TEMPLATE_KEYWORDS: dict[str, list[str]] = {
         "permission",
         "access control",
     ],
+    "ml": [
+        "ml",
+        "machine-learning",
+        "machine learning",
+        "model",
+        "feature store",
+        "cortex function",
+        "ml pipeline",
+        "training",
+        "inference",
+        "embedding",
+        "classification",
+        "regression",
+        "prediction",
+    ],
 }
 
 
@@ -725,7 +699,6 @@ def suggest_template(intake: dict) -> str | None:
         intake.get("title", ""),
         intake.get("description", ""),
         intake.get("inputs", ""),
-        intake.get("output", ""),
         intake.get("outputs", ""),
     ]
     text = " ".join(text_parts).lower()
@@ -851,6 +824,25 @@ def generate_from_template(
 # ---------------------------------------------------------------------------
 
 
+def _apply_prototype_constraints(spec_content: str) -> str:
+    """Inject prototype-mode constraints into spec frontmatter.
+
+    Sets validation_tier: compile in the YAML frontmatter block.
+    """
+    # Insert validation_tier after the last frontmatter field before closing ---
+    if spec_content.startswith("---"):
+        end = spec_content.find("\n---", 3)
+        if end != -1:
+            frontmatter = spec_content[3:end]
+            if "validation_tier:" not in frontmatter:
+                spec_content = (
+                    spec_content[:end]
+                    + "\nvalidation_tier: compile"
+                    + spec_content[end:]
+                )
+    return spec_content
+
+
 def write_module(
     project_root: Path,
     intake: dict,
@@ -867,16 +859,44 @@ def write_module(
         - ``template``: Template used (None if generic)
     """
     root = project_root.resolve()
+
+    gate_file = root / ".specbuilder" / "gate-open"
+    if not gate_file.exists():
+        raise RuntimeError(
+            "Acceptance gate not open. Have the user explicitly confirm the spec before calling "
+            "write_module(). To open the gate, run:\n"
+            '  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .specbuilder/gate-open'
+        )
+    _sentinel_content = gate_file.read_text(encoding="utf-8").strip()
+    if not _sentinel_content:
+        raise RuntimeError(
+            "stale gate sentinel: zero-byte sentinel from pre-EXT-175 'touch' invocation; "
+            "recreate with 'echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > .specbuilder/gate-open'"
+        )
+    try:
+        _ts_str = _sentinel_content.replace("Z", "+00:00")
+        _sentinel_ts = datetime.datetime.fromisoformat(_ts_str)
+        if _sentinel_ts.tzinfo is None:
+            _sentinel_ts = _sentinel_ts.replace(tzinfo=datetime.timezone.utc)
+        _age = (datetime.datetime.now(datetime.timezone.utc) - _sentinel_ts).total_seconds()
+        if _age > GATE_SENTINEL_MAX_AGE_SECONDS:
+            raise RuntimeError(
+                f"stale gate sentinel: created at {_sentinel_content}; recreate sentinel"
+            )
+    except ValueError:
+        raise RuntimeError(
+            f"stale gate sentinel: unreadable timestamp '{_sentinel_content}'; "
+            "recreate with 'echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" > .specbuilder/gate-open'"
+        )
+
     modules_dir = root / DEFAULT_MODULES_DIR
     ac_dir = root / DEFAULT_AC_DIR
 
     # Ensure modules directory exists.
     modules_dir.mkdir(parents=True, exist_ok=True)
 
-    # Detect lite mode: skip AC file if no acceptance-criteria dir and no SCHEMA.md
-    from specbuilder.src.scaffold import detect_mode
-
-    is_lite = detect_mode(root) == "lite"
+    # Detect if project lacks acceptance-criteria dir: skip AC file generation
+    is_lite = not (root / "spec" / "acceptance-criteria").is_dir()
 
     if not is_lite:
         ac_dir.mkdir(parents=True, exist_ok=True)
@@ -892,39 +912,87 @@ def write_module(
         desc_oneline = desc_oneline[:117] + "..."
 
     # Generate spec module (from template or programmatic).
-    if template:
-        spec_content = generate_from_template(template, intake, module_number, project_root=root)
-    else:
-        spec_content = generate_spec_module(
-            intake,
-            recommendations=recommendations,
-            module_number=module_number,
-            project_root=root,
-        )
-    spec_path = modules_dir / f"{module_number:02d}-{slug}.md"
-    spec_path.write_text(spec_content, encoding="utf-8")
+    try:
+        if template:
+            spec_content = generate_from_template(
+                template, intake, module_number, project_root=root
+            )
+        else:
+            spec_content = generate_spec_module(
+                intake,
+                recommendations=recommendations,
+                module_number=module_number,
+                project_root=root,
+            )
+        if is_poc_mode(root):
+            spec_content = spec_content.replace("status: draft", "status: accepted", 1)
+        if is_prototype_mode(root):
+            # Prototype: compile-tier validation only; no self-correction directives
+            spec_content = _apply_prototype_constraints(spec_content)
+        # Quality gate: block below-threshold specs before writing
+        _qr = check_spec_quality(spec_content, get_active_profile(root))
+        if _qr["score"] < _qr["threshold"]:
+            return {
+                "error": "quality_below_threshold",
+                "score": _qr["score"],
+                "threshold": _qr["threshold"],
+                "findings": _qr["findings"],
+            }
+        spec_path = modules_dir / f"{module_number:02d}-{slug}.md"
+        if spec_path.exists():
+            raise FileExistsError(
+                f"Spec file already exists: {spec_path}. "
+                f"Use a different module number or remove the existing file explicitly."
+            )
+        spec_path.write_text(spec_content, encoding="utf-8")
+    except Exception:
+        gate_file.unlink(missing_ok=True)
+        raise
 
     # Generate AC file (skip in lite mode).
     ac_path = None
     if not is_lite:
-        ac_content = generate_ac_file(spec_content, module_number, title)
-        ac_path = ac_dir / f"{module_number:02d}-{slug}.md"
-        ac_path.write_text(ac_content, encoding="utf-8")
-
-    # Update README (only if it exists — may not in lite mode).
-    readme_path = root / DEFAULT_README_FILE
-    if readme_path.exists():
-        update_readme(root, module_number, title, desc_oneline)
+        try:
+            ac_content = generate_ac_file(spec_content, module_number, title)
+            ac_path = ac_dir / f"{module_number:02d}-{slug}.md"
+            if ac_path.exists():
+                raise FileExistsError(
+                    f"Spec file already exists: {ac_path}. "
+                    f"Use a different module number or remove the existing file explicitly."
+                )
+            ac_path.write_text(ac_content, encoding="utf-8")
+        except Exception:
+            # Roll back: remove the spec that was already written so the project
+            # is not left with a partially-initialised module.
+            try:
+                spec_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     # Regenerate manifest to keep it in sync (works without git pre-commit hook)
     try:
-        from specbuilder.src.generate_index import generate_manifest, regenerate_readme_table
+        from specbuilder.src.generate_index import (
+            generate_ac_files,
+            generate_manifest,
+            regenerate_readme_table,
+        )
 
         generate_manifest(root)
         regenerate_readme_table(root)
-    except Exception:
-        pass  # Non-fatal: manifest regen is best-effort
+        if not is_lite:
+            generate_ac_files(root)
+    except Exception as exc:
+        print(
+            f"Warning: post-write manifest regeneration failed: {exc}\n"
+            "The spec and AC files were written successfully.\n"
+            "To sync the manifest and README, run:\n"
+            "  python3 -m specbuilder generate-manifest && "
+            "python3 -m specbuilder sync-ac-files",
+            file=sys.stderr,
+        )
 
+    gate_file.unlink()  # sentinel consumed (one-time token); callers must recreate
     return {
         "spec_path": str(spec_path),
         "ac_path": str(ac_path) if ac_path else None,
@@ -996,6 +1064,9 @@ if __name__ == "__main__":
         source = Path(args.file).read_text(encoding="utf-8")
     else:
         source = sys.stdin.read()
+        if not source.strip():
+            print("Error: stdin is empty — no intake content to parse.", file=sys.stderr)
+            sys.exit(1)
 
     intake = parse_intake(source)
 
@@ -1016,11 +1087,21 @@ if __name__ == "__main__":
     root = args.project_root or get_project_root()
     result = write_module(root, intake, recommendations=recs, template=args.template)
 
+    if result.get("error") == "quality_below_threshold":
+        print(
+            f"Error: spec quality score {result['score']:.0f}/100 is below the "
+            f"{result['threshold']}/100 threshold for the active quality profile.\n"
+            "Improve the spec content, or use a lower-threshold profile "
+            "(e.g., export SPECBUILDER_QUALITY_PROFILE=poc).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print(f"Generated module {result['module_number']:02d}: {result['title']}")
     print(f"  Spec:   {result['spec_path']}")
     if result["ac_path"]:
         print(f"  AC:     {result['ac_path']}")
     else:
-        print("  AC:     (skipped — lite mode)")
+        print("  AC:     (skipped — no acceptance-criteria dir)")
     if result.get("template"):
         print(f"  Template: {result['template']}")

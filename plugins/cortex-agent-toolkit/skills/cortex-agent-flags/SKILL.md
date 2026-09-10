@@ -84,7 +84,7 @@ Based on the agent's tools and use case, determine which flags are relevant:
 
 | If the agent has... | Suggest these flags |
 |---------------------|---------------------|
-| `cortex_analyst_text_to_sql` tools | `EnableAgenticAnalyst`, `EnableVQRFastPath` |
+| `cortex_analyst_text_to_sql` tools | ~~`EnableAgenticAnalyst`~~ (obsolete since Apr 2026), `EnableVQRFastPath` |
 | Any tool that produces charts | `EnableUnrestrictedChartTool` |
 | Skills from stages/Git repos | `EnableSkillBasedPromptNoExtendedThinking` |
 | Chart-heavy analytics use case | Chart customization (`<chart_customization>` block) |
@@ -101,20 +101,18 @@ Show the user applicable flags with a brief description and ask which to enable:
 ```
 Your agent uses Cortex Analyst tools. The following experimental flags may improve performance:
 
-1. EnableAgenticAnalyst (recommended)
-   - Lower latency and higher accuracy for text-to-SQL tool calls
-   - Most widely used experimental flag
-
-2. EnableVQRFastPath
+1. EnableVQRFastPath
    - Fast path for verified query representations
    - Bypasses full text-to-SQL when a VQR closely matches the question
 
-3. EnableUnrestrictedChartTool
+2. EnableUnrestrictedChartTool
    - Unlocks all Vega-Lite chart types (area, boxplot, waterfall, dual-axis, etc.)
    - Default mode only allows bar, line, arc, point, rect
 
 Would you like to enable any of these? (comma-separated numbers, or 'none')
 ```
+
+> **Note**: `EnableAgenticAnalyst` is **obsolete since Apr 13, 2026** — direct SQL generation is now the default. Do not present or recommend it.
 
 If any `[UNVERIFIED]` flags were discovered in Step 0, present them separately:
 

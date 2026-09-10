@@ -5,6 +5,8 @@ Checks for vague criteria, testability, edge case sufficiency,
 input completeness, and output specificity.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from pathlib import Path
@@ -16,6 +18,12 @@ from specbuilder.src.config import (
     get_active_profile,
     get_project_root,
 )
+
+# ---------------------------------------------------------------------------
+# Scoring constants
+# ---------------------------------------------------------------------------
+
+TESTABILITY_MAX_PENALTY = 10  # Maximum points deducted for zero testability score
 
 # ---------------------------------------------------------------------------
 # Weak words that indicate vague acceptance criteria
@@ -487,13 +495,18 @@ def assess_quality(spec_path: Path, skip_checks: list[str] | None = None) -> dic
         findings.extend(check_input_output_traceability(content))
 
     # Score calculation: start at 100, subtract per finding
-    score = 100
+    score: float = 100
     for f in findings:
         if f["severity"] == "error":
             score -= 15
         else:
             score -= 5
-    score = max(0, score)
+
+    # Incorporate testability dimension (penalty-based to avoid double-counting findings)
+    if "testability" not in checks_to_skip:
+        score -= (1 - testability_score) * TESTABILITY_MAX_PENALTY
+
+    score = max(0, min(100, score))
 
     summary_parts = []
     errors = sum(1 for f in findings if f["severity"] == "error")
@@ -510,6 +523,68 @@ def assess_quality(spec_path: Path, skip_checks: list[str] | None = None) -> dic
         "findings": findings,
         "summary": summary,
     }
+
+
+def check_spec_quality(spec_content: str, profile: dict) -> dict:
+    """Run all quality checks on a spec content string and return a structured result.
+
+    Parameters
+    ----------
+    spec_content:
+        Spec markdown content as a string.
+    profile:
+        Quality profile dict with at least a ``name`` key; skip_checks respected.
+
+    Returns
+    -------
+    dict with keys: score (float), threshold (int), findings (list[dict])
+    """
+    findings: list[dict] = []
+    checks_to_skip = set(profile.get("skip_checks", []))
+
+    if "vague_criteria" not in checks_to_skip:
+        findings.extend(check_vague_criteria(spec_content))
+
+    testability_score = 1.0
+    if "testability" not in checks_to_skip:
+        testability_score, testability_findings = check_testability(spec_content)
+        findings.extend(testability_findings)
+
+    if "edge_case_sufficiency" not in checks_to_skip:
+        findings.extend(check_edge_case_sufficiency(spec_content))
+
+    if "input_completeness" not in checks_to_skip:
+        findings.extend(check_input_completeness(spec_content))
+
+    if "output_specificity" not in checks_to_skip:
+        findings.extend(check_output_specificity(spec_content))
+
+    if "ac_coverage_of_outputs" not in checks_to_skip:
+        findings.extend(check_ac_coverage_of_outputs(spec_content))
+
+    if "edge_case_traceability" not in checks_to_skip:
+        findings.extend(check_edge_case_traceability(spec_content))
+
+    if "input_output_traceability" not in checks_to_skip:
+        findings.extend(check_input_output_traceability(spec_content))
+
+    # Score calculation: same as assess_quality
+    score: float = 100
+    for f in findings:
+        if f["severity"] == "error":
+            score -= 15
+        else:
+            score -= 5
+
+    if "testability" not in checks_to_skip:
+        score -= (1 - testability_score) * TESTABILITY_MAX_PENALTY
+
+    score = max(0, min(100, score))
+
+    profile_name = profile.get("name", "full")
+    threshold: int = QUALITY_PROFILES.get(profile_name, {}).get("threshold", 75)
+
+    return {"score": score, "threshold": threshold, "findings": findings}
 
 
 def _format_report(result: dict, profile: dict | None = None) -> str:
@@ -596,6 +671,7 @@ def main() -> None:
     # Parse flags
     threshold_override: int | None = None
     profile_flag: str | None = None
+    output_format = "text"
     args = sys.argv[1:]
 
     # Parse --threshold flag
@@ -633,6 +709,23 @@ def main() -> None:
             print("Error: --profile requires a value", file=sys.stderr)
             sys.exit(2)
 
+    # Parse --format flag
+    if "--format" in args:
+        idx = args.index("--format")
+        if idx + 1 < len(args):
+            fmt = args[idx + 1]
+            if fmt not in ("text", "json"):
+                print(
+                    f"Error: invalid --format '{fmt}'. Valid: text, json",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            output_format = fmt
+            args = args[:idx] + args[idx + 2:]
+        else:
+            print("Error: --format requires a value", file=sys.stderr)
+            sys.exit(2)
+
     if not args:
         print("Error: no module number or path provided", file=sys.stderr)
         sys.exit(2)
@@ -655,6 +748,15 @@ def main() -> None:
     # Run assessment with profile's skip_checks
     skip_checks = profile.get("skip_checks", [])
     result = assess_quality(spec_path, skip_checks=skip_checks if skip_checks else None)
-    print(_format_report(result, profile=profile))
+
+    if output_format == "json":
+        import json
+
+        from specbuilder.src.diagnostic_schema import wrap_findings
+        envelope = wrap_findings("spec-quality", result["findings"])
+        output: dict = {**envelope, "score": result["score"]}
+        print(json.dumps(output, indent=2))
+    else:
+        print(_format_report(result, profile=profile))
 
     sys.exit(0 if result["score"] >= threshold else 1)

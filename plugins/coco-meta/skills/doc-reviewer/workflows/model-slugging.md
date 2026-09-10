@@ -9,6 +9,7 @@
 - If `model` matches: `^[a-z0-9]+(-[a-z0-9]+)*$`, use it as `model_slug`.
 - Else normalize to `model_slug`:
   - lowercase
+  - replace dots with `-`
   - replace spaces and underscores with `-`
   - remove all characters other than `a-z`, `0-9`, and `-`
   - collapse repeated `-`
@@ -17,7 +18,8 @@
 ## Examples
 
 - **`claude-sonnet45`** - `claude-sonnet45`
-- **`Claude Sonnet 4.5`** - `claude-sonnet-45`
+- **`Claude Sonnet 4.5`** - `claude-sonnet-4-5`
+- **`Claude Sonnet 4.6`** - `claude-sonnet-4-6`
 - **`GPT-4 Turbo`** - `gpt-4-turbo`
 - **`gpt_4_turbo`** - `gpt-4-turbo`
 - **`Claude Opus 4`** - `claude-opus-4`
@@ -35,6 +37,7 @@ def normalize_model_slug(model: str) -> str:
     
     # Normalize
     slug = model.lower()
+    slug = re.sub(r'\.', '-', slug)  # dots to hyphens
     slug = re.sub(r'[\s_]+', '-', slug)  # spaces/underscores to hyphens
     slug = re.sub(r'[^a-z0-9-]', '', slug)  # remove invalid chars
     slug = re.sub(r'-+', '-', slug)  # collapse repeated hyphens

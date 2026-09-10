@@ -55,6 +55,32 @@ Set `PII_FLAGGED = []`. Skip all PII checks. A governance follow-up note will ap
 
 ---
 
+## Step 3.0-C: Variable resolution (if VARIABLES clause exists)
+
+If the semantic view definition includes a top-level `VARIABLES` clause, resolve all variable references in fact/dimension/metric expressions before classifying.
+
+**Process**:
+1. Parse the `VARIABLES` block and collect all variable names
+2. Scan all expressions in FACTS, DIMENSIONS, and METRICS for `$var_name` references
+3. For each `$var_name` found, verify it exists in the VARIABLES block
+4. If any undefined variable is found, produce an error: "Variable `$undefined_var` is referenced in expression but not defined in VARIABLES block. Add it to VARIABLES or remove the reference."
+5. Store validated variables in `RESOLVED_VARIABLES` for Phase 5 reference
+
+**Example**:
+```sql
+VARIABLES (
+  region_filter AS VARCHAR = 'US_EAST'
+)
+FACTS (
+  orders.revenue AS SUM(amount) WHERE region = $region_filter
+)
+```
+When classifying, confirm `$region_filter` is defined in VARIABLES block.
+
+**Best-practice**: Variables can only be used in WHERE filters and aggregations. Referencing variables in relationship join conditions will produce an error at CREATE time.
+
+---
+
 ## Step 3.1: Auto-classify using heuristics
 
 Apply these rules to every column in `TABLE_PROFILES`. Start with the heuristic classification, then refine with business context.
@@ -84,6 +110,30 @@ Metrics are NOT raw columns — they are aggregate expressions you define:
 - `COUNT(DISTINCT id_col)` → unique count
 
 Propose sensible metrics based on `BUSINESS_CONTEXT` and the available FACT columns.
+
+---
+
+## Step 3.1.4: Snippet Pattern Suggestion
+
+After heuristic classification is complete (Step 3.1), and before temporal detection,
+run the snippet pattern scorer from `../../../skills/sv-snippet-suggester/SKILL.md`
+against the collected signals (column names, table comments, BUSINESS_CONTEXT).
+
+Read `../../../references/sv-snippet-patterns.md` and check each pattern's detection signals.
+
+**Action:** Surface any MATCH or POSSIBLE patterns in the classification table output:
+
+```
+⚡ Detected Patterns (based on schema signals):
+  [HIGH] semi_additive_metric — BALANCE_USD + BALANCE_DATE suggest snapshot data
+         → will add NON ADDITIVE BY review in Phase 5
+  [HIGH] range_join — VALID_FROM + VALID_TO on CUSTOMER_SEGMENTS
+         → will add CONSTRAINT DISTINCT RANGE in Phase 5
+  [POSSIBLE] role_playing_dimensions — two *_DATE FKs in ORDERS
+```
+
+Store matches as `SNIPPET_PATTERN_CANDIDATES` for Phase 4 (relationships) and Phase 5 (DDL).
+Do not block on this step — continue to Step 3.1.5.
 
 ---
 
@@ -270,12 +320,12 @@ Which tenant isolation pattern fits your architecture?
 
   Pattern C — Session attribute (most flexible, requires trusted middleware)
     Tenant identity is injected via session variable at connection time.
-    RAP filters on: GETVARIABLE('tenant_id') or SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
+    RAP filters on: SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
     Best for: connection-pooled apps, API gateways, multi-tenant SaaS.
     ⚠️  SECURITY: Pattern C is ONLY secure when the session attribute is set by
         trusted middleware (Snowflake's auth flow, a controlled API gateway).
         If arbitrary SQL callers can SET the variable, tenant isolation is broken.
-    Example predicate: tenant_id = GETVARIABLE('tenant_id')
+    Example predicate: tenant_id = SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')
 ```
 
 After the user selects a pattern, note "load data-governance skill → data-policy workflow (row

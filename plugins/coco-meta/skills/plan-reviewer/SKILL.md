@@ -32,7 +32,7 @@ Plans are scored on whether autonomous agents can execute them without judgment 
 **Required:**
 - **review_date**: `YYYY-MM-DD`
 - **review_mode**: `FULL` | `COMPARISON` | `META-REVIEW`
-- **model**: Model slug (e.g., `claude-sonnet-45`)
+- **model**: Model slug (e.g., `claude-sonnet-4-6`)
 
 **Mode-specific (REQUIRED for each mode):**
 - **FULL mode**: `target_file` - Single plan file path. If missing: STOP, report error `Missing required input: target_file for FULL mode`

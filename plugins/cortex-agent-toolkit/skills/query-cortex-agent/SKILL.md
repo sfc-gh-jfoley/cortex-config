@@ -30,6 +30,8 @@ DESCRIBE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>;
 
 **STOP**: Ask the user which agent to query and what question to ask.
 
+> **Version targeting**: If the user wants to query a specific version, append `!<version>` to the agent FQN: `DB.SCHEMA.AGENT_NAME!production`, `DB.SCHEMA.AGENT_NAME!VERSION$2`, or `DB.SCHEMA.AGENT_NAME!LIVE`. See `reference/agent-versioning.md` for the full shortcuts table.
+
 ### Step 2: Determine the Right SQL Function
 
 There are two SQL functions for invoking agents:
@@ -40,6 +42,8 @@ There are two SQL functions for invoking agents:
 | `SNOWFLAKE.CORTEX.AGENT_RUN` | Run an agent **ad-hoc** without a pre-created agent object (provide tools/config inline) |
 
 **Default to `DATA_AGENT_RUN`** when the user wants to query an existing agent.
+
+> **Long-running tasks**: If the task may take more than 15 minutes (e.g., large data reconciliation, batch document processing), use the REST API with `background: true` (Option C below) instead of `DATA_AGENT_RUN`.
 
 ### Step 3: Execute the Query
 
@@ -74,7 +78,7 @@ SELECT TRY_PARSE_JSON(
           "content": [{"type": "text", "text": "<USER_QUESTION>"}]
         }
       ],
-      "models": {"orchestration": "claude-sonnet-4-6"},  // default_agent alias — see LLMs.md
+      "models": {"orchestration": "claude-sonnet-4-6"},  // Read reference/agent_spec_syntax.md for current value
       "stream": false
     }$$
   )
@@ -82,6 +86,46 @@ SELECT TRY_PARSE_JSON(
 ```
 
 For `AGENT_RUN`, you can also provide `tools`, `tool_resources`, `instructions`, and `orchestration` fields inline. See the Cortex Agents Run API docs for the full schema.
+
+#### Option C: Async background run (REST API)
+
+Use when the task may exceed 15 minutes. Returns immediately; reconnect to stream the result when ready.
+Requires a `thread_id` — create one first if you don't have one.
+
+**Start the background run:**
+
+```bash
+# Create a thread (if needed):
+curl -X POST "$SNOWFLAKE_ACCOUNT_BASE_URL/api/v2/databases/{database}/schemas/{schema}/agents/{name}/threads" \
+  --header "Authorization: Bearer $PAT"
+# Returns: {"thread_id": "<THREAD_ID>"}
+
+# Start the run in the background:
+curl -X POST "$SNOWFLAKE_ACCOUNT_BASE_URL/api/v2/databases/{database}/schemas/{schema}/agents/{name}:run" \
+  --header "Authorization: Bearer $PAT" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "messages": [{"role": "user", "content": [{"type": "text", "text": "<USER_QUESTION>"}]}],
+    "background": true,
+    "thread_id": "<THREAD_ID>"
+  }'
+# Returns immediately with a run_id. The agent continues running in the background.
+```
+
+**Reconnect to stream the result:**
+
+```bash
+curl -X POST "$SNOWFLAKE_ACCOUNT_BASE_URL/api/v2/databases/{database}/schemas/{schema}/agents/{name}:stream-run" \
+  --header "Authorization: Bearer $PAT" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "run_id": "<RUN_ID>",
+    "thread_id": "<THREAD_ID>"
+  }'
+# Streams the response as server-sent events (SSE) from where the run left off.
+```
+
+**Timeouts**: Sync runs → 15 min max. Background runs → 6 hour max.
 
 ### Step 4: Parse and Present the Response
 
@@ -100,7 +144,21 @@ The response JSON has this structure:
 }
 ```
 
-Extract the `text` entries from the `content` array to present the agent's answer to the user.
+Extract `text` entries using FLATTEN with a type filter — `content[N]` indexing is model-specific and will silently return NULL when the response structure changes:
+
+```sql
+WITH resp AS (
+  SELECT TRY_PARSE_JSON(
+    SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+      '<DATABASE>.<SCHEMA>.<AGENT_NAME>',
+      $${"messages":[{"role":"user","content":[{"type":"text","text":"<USER_QUESTION>"}]}]}$$
+    )
+  ) AS r
+)
+SELECT f.value:text::STRING AS answer_text
+FROM resp, LATERAL FLATTEN(input => r:content) f
+WHERE f.value:type::STRING = 'text';
+```
 
 ### Step 5 (Optional): Multi-Turn Conversation
 
@@ -132,10 +190,19 @@ SELECT TRY_PARSE_JSON(
 
 ## Notes
 
+- `DATA_AGENT_RUN` and `AGENT_RUN` (SQL) are always **synchronous** — there is no async option via SQL. For background execution of long-running tasks, use the REST API with `background: true` (Option C above).
 - `DATA_AGENT_RUN` and `AGENT_RUN` always return non-streaming responses (the `stream` field is ignored in SQL; include `"stream": false` for clarity)
 - Use `TRY_PARSE_JSON` to convert the JSON string response to a VARIANT for easier reading
 - The user's role must have access to the agent object and the `SNOWFLAKE.CORTEX` functions
 - Set `timeout_seconds` to 120 when executing, as agent responses can take time
+
+## Interrupt and Resume (GA soon)
+
+Allows stopping an in-progress agent run, sending a correction, and continuing from where it left off — without restarting from scratch.
+
+**Current workaround**: Use `thread_id` continuity. Send a follow-up message in the same thread with the correction. The agent does not resume mid-execution but uses prior context for the next turn.
+
+Check Snowflake release notes for the Interrupt/Resume API when it becomes generally available.
 
 ## Output
 

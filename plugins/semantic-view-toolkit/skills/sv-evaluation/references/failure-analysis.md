@@ -15,22 +15,78 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 | SQL syntax error | Invalid SV DDL (bad expression, wrong alias) | Manual DDL fix |
 | Empty result set | Filter too restrictive or wrong table | `change_relationship`, `add_filter` |
 | Analyst refuses | Question out of SV scope | `add_vqr` (teach by example) |
+| Reference contaminated | Model applies metric filter; reference SQL does not | **Read-only analysis** (do not modify VQR) |
+
+| FAN_TRAP | Generated SQL applies additive aggregate above many-to-one join; reference pre-aggregates | Move metric to bridge-table grain; see Section 9 |
+| CHASM_TRAP | Generated SQL joins two fact tables on shared dim without per-fact CTEs | Pre-aggregate each fact to shared dimension grain; see Section 10 |
+| JOIN_HALLUCINATION | Generated SQL joins on fewer or different columns than reference | `change_relationship`, add missing RELATIONSHIP to SV |
+| GRANULARITY_MISMATCH | Generated SQL GROUP BY is at coarser level than reference | Add dimension at correct grain, or add guiding VQR |
 
 ---
 
-## 1. Wrong Table Joined
+## Automated Structural Analysis
+
+Before manually reviewing individual VQRs, run EXPLAIN-based structural comparison for all failures. This auto-classifies most failure patterns faster than visual SQL comparison.
+
+### Step A: Get failed VQRs with generated and reference SQL
+
+```sql
+WITH failures AS (
+    SELECT
+        INPUT           AS question,
+        OUTPUT          AS generated_sql,
+        GROUND_TRUTH    AS reference_sql,
+        EVAL_AGG_SCORE  AS sql_correctness,
+        ERROR           AS error_message
+    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+        '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<eval_name>'
+    ))
+    WHERE METRIC_NAME = 'sql_correctness'
+      AND EVAL_AGG_SCORE < 1.0
+)
+SELECT * FROM failures;
+```
+
+### Step B: Run EXPLAIN on each pair
+
+For each failed VQR, run in separate worksheets:
+```sql
+EXPLAIN USING TABULAR <generated_sql>;   -- paste as literal SQL
+EXPLAIN USING TABULAR <reference_sql>;
+```
+
+### Step C: Classify by structural diff
+
+| EXPLAIN signal | Category |
+|---|---|
+| Different `objects` in TableScan rows | **WRONG_TABLE** |
+| Fewer or different join keys (joinkey column) | **JOIN_HALLUCINATION** |
+| SUM/COUNT aggregate above a Join node not in reference plan | **FAN_TRAP** |
+| Two separate Aggregate→TableScan paths converge at a Join; reference uses CTEs | **CHASM_TRAP** |
+| Same tables/joins but GROUP BY columns differ | **GRANULARITY_MISMATCH** |
+| Structurally identical plans but results differ | **DATA_FILTER_ERROR** or **REFERENCE_CONTAMINATED** |
+| EXPLAIN fails on generated SQL | **SQL_SYNTAX_ERROR** |
+
+---
 
 ### How to Identify
 
 Compare `generated_sql` and `reference_sql` columns from eval results:
 
 ```sql
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    question,
-    generated_sql,
-    reference_sql
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<eval_name>'))
-WHERE sql_correctness < 1.0;
+    INPUT AS question,
+    OUTPUT AS generated_sql,
+    GROUND_TRUTH AS reference_sql
+FROM raw
+WHERE EVAL_AGG_SCORE < 1.0;
 ```
 
 **Signals:**
@@ -406,6 +462,57 @@ Teach Analyst by adding a verified query with the correct SQL:
 
 ---
 
+## 8. Reference-Contaminated Baseline
+
+### How to Identify
+
+**Signals:**
+- `generated_sql` contains `CASE WHEN refunded_ind = 0` or `WHERE refunded_ind = 0`, but `reference_sql` does not
+- The SV metric definition for the aggregated column includes a `CASE WHEN refunded_ind = 0` filter
+- Numeric gap between generated and reference results is small (~0.1%–0.8%), consistent with known refund rates
+- `sql_correctness < 1.0` despite the model generating business-correct SQL
+
+**Example:**
+```
+Question: "What is total net revenue last month?"
+Generated: SUM(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END)
+           ← matches TOTAL_NET_REVENUE_USD metric definition ✓
+Reference: SUM(sales_exc_tax_usd)
+           ← missing refund filter (contaminated baseline) ✗
+sql_correctness: 0.0  ← model penalized for being correct
+```
+
+### Root Cause
+1. VQR was authored before the metric filter was added
+2. Inconsistent VQR authoring — some VQRs for the same metric include the filter; others do not
+3. Cross-table semantic drift — metric correctly defined on one table; looser on another
+
+### Investigation Steps
+
+```sql
+-- Confirm spot-check: run both SQL paths for 1 month
+SELECT
+  SUM(sales_exc_tax_usd)                                             AS reference_result,
+  SUM(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END) AS metric_result,
+  reference_result - metric_result                                   AS gap,
+  ROUND((gap / reference_result) * 100, 2)                          AS gap_pct
+FROM <fact_table>
+JOIN <date_dim> ON ...
+WHERE relative_month_num = -1;
+-- If gap_pct is 0.1%–0.8%: contaminated baseline confirmed
+```
+
+### Fix: Read-Only Analysis (Do Not Modify VQR)
+
+VQR contamination is a **read-only finding**: do NOT apply mutations to the VQR. The model SQL is correct; the issue is with the VQR baseline.
+
+**Options:**
+1. **Exclude the contaminated VQR** from future optimization loops (see Step 3b in sv-evaluation/SKILL.md)
+2. **Flag as REFERENCE_CONTAMINATED** and continue optimization focusing on non-contaminated VQRs
+3. **Analyze separately:** Run a targeted eval excluding contaminated VQRs to get a clean SV quality score
+
+---
+
 ## Decision Tree
 
 Use this flowchart to quickly categorize a failure:
@@ -429,8 +536,11 @@ VQR scored < 1.0
   ├── Correct columns, wrong AGG or GROUP BY?
   │     └── YES → Category 3 (Wrong aggregation) → add_metric / refine_metric_expr
   │
-  └── Time/date related issue?
-        └── YES → Category 4 (Wrong time filter) → add_time_dimension
+  ├── Time/date related issue?
+  │     └── YES → Category 4 (Wrong time filter) → add_time_dimension
+  │
+  └── generated_sql has refund filter, reference does NOT, metric requires it?
+        └── YES → Category 8 (Contaminated reference) → **read-only analysis** (exclude/flag; do not modify)
 ```
 
 ---
@@ -448,6 +558,7 @@ Assign severity to prioritize which failures to fix first:
 | **MEDIUM** | Wrong time filter (Category 4) — temporal queries fail | Fix after HIGH |
 | **LOW** | Wrong column (Category 2) — subtle difference | Fix last (or via GEPA) |
 | **LOW** | Empty result (Category 6) — data/filter issue | Investigate data first |
+| **INFO** | Reference contaminated (Category 8) — eval marks correct model behavior as wrong | Exclude/flag contaminated VQR; do not modify |
 
 ---
 
@@ -457,20 +568,27 @@ When analyzing multiple failures, group by category to identify systemic issues:
 
 ```sql
 -- Categorize all failures (manual classification after review)
-WITH failures AS (
+WITH raw AS (
+  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+),
+failures AS (
     SELECT
-        question,
-        generated_sql,
-        reference_sql,
-        sql_correctness,
-        error_message,
+        INPUT AS question,
+        OUTPUT AS generated_sql,
+        GROUND_TRUTH AS reference_sql,
+        EVAL_AGG_SCORE AS sql_correctness,
+        ERROR AS error_message,
         CASE
             WHEN error_message LIKE '%cannot answer%' THEN 'analyst_refused'
             WHEN error_message IS NOT NULL THEN 'sql_error'
             WHEN generated_sql IS NULL THEN 'analyst_refused'
             ELSE 'logic_error'
         END AS failure_type
-    FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<eval_name>'))
+    FROM raw
     WHERE sql_correctness < 1.0
 )
 SELECT

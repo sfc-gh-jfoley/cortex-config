@@ -19,7 +19,7 @@ _PRECOMMIT_HOOK_CONTENT = """\
 _SB_FOUND=0
 for _dir in .cortex/skills . vendor; do
     if [ -d "$_dir/specbuilder" ]; then
-        PYTHONPATH="$_dir:${PYTHONPATH:-}" python3 -m specbuilder generate-index 2>/dev/null
+        PYTHONPATH="$_dir:${PYTHONPATH:-}" python3 -m specbuilder generate-manifest 2>/dev/null
         _SB_FOUND=$?
         break
     fi
@@ -31,7 +31,8 @@ if [ "$_SB_FOUND" -eq 0 ]; then
 fi
 """
 
-_PRECOMMIT_MARKER = "specbuilder.generate_index"
+_PRECOMMIT_MARKER = "specbuilder.generate_manifest"
+_PRECOMMIT_MARKER_LEGACY = "specbuilder.generate_index"
 
 
 def _make_executable(path: Path) -> None:
@@ -47,7 +48,7 @@ def _install_git_precommit(
     created: list[str],
     skipped: list[str],
 ) -> None:
-    """Install a git pre-commit hook that runs generate_index.
+    """Install a git pre-commit hook that runs generate-manifest.
 
     Skips if:
     - No .git/ directory exists (not a git repo)
@@ -67,12 +68,12 @@ def _install_git_precommit(
 
     if hook_path.exists():
         existing = hook_path.read_text(encoding="utf-8")
-        if _PRECOMMIT_MARKER in existing:
+        if _PRECOMMIT_MARKER in existing or _PRECOMMIT_MARKER_LEGACY in existing:
             skipped.append(rel)
             return
         # Check if the existing hook uses exec (e.g., pre-commit framework)
         # If so, insert before the first exec line; appending won't work.
-        if "\nexec " in existing or "\n    exec " in existing:
+        if any(line.strip().startswith("exec ") for line in existing.split("\n")):
             if dry_run:
                 print(f"[dry-run] insert into {rel} (before exec)")
             else:
@@ -87,6 +88,9 @@ def _install_git_precommit(
                 # Walk back to find a good insertion point (before the if block)
                 while insert_idx > 0 and lines[insert_idx - 1].strip() not in ("", "fi"):
                     insert_idx -= 1
+                # Never insert before the shebang line
+                if lines and lines[0].startswith("#!"):
+                    insert_idx = max(insert_idx, 1)
                 # Build the insertion block (strip shebang from the content)
                 hook_body = _PRECOMMIT_HOOK_CONTENT
                 # Remove shebang line

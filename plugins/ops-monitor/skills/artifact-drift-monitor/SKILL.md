@@ -68,6 +68,8 @@ This skill queries `ACCOUNT_USAGE` and `INFORMATION_SCHEMA` to surface those gap
 | 5 | phases/05_search_drift.md | Cortex Search index gap analysis |
 | 6 | phases/06_manifest_remediate.md | Approval gate → DDL only for approved items |
 
+**Note on SQL logical tables in Phase 2**: Semantic views can reference SQL queries as logical tables using the `SQL(...)` syntax. These SQL-sourced logical tables are not visible in `INFORMATION_SCHEMA.TABLES`, so the standard Phase 2 query scan will skip them. When scanning for SV drift, use the fallback method: query `SHOW SEMANTIC VIEWS` and parse the `logicalTable` definitions from the result directly. This slower method handles both FQN and SQL sources. See `sv-ddl/reference/ddl_syntax.md` for SQL logical table syntax.
+
 ---
 
 ## Execution flow

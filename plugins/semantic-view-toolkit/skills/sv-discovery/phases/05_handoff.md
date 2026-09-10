@@ -153,6 +153,11 @@ Benefits:
 
 **AUTOPILOT mode:** Auto-persist without asking.
 
+> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
+> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
+> If yes, create the clone before proceeding.
+
 **Persistence SQL:**
 
 ```sql

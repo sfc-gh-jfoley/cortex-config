@@ -30,14 +30,25 @@ _COLUMN_COUNT_PATTERN = re.compile(
 )
 
 _OBJECT_EXISTS_PATTERN = re.compile(
-    r"(?:creates?|produces?|generates?)\s+(?:a\s+)?(?:table|view|procedure|function|task|stream)"
-    r"\s+(?:named?\s+)?[`\"]?(\w+)[`\"]?",
+    r"(?:creates?|produces?|generates?)\s+(?:a\s+)?"
+    r"(table|view|procedure|function|task|stream)"  # group 1: type
+    r"\s+(?:named?\s+)?[`\"']?(\w+)[`\"']?",      # group 2: name
     re.IGNORECASE,
 )
 
+# Maps object type to (view, schema_col, name_col) for INFORMATION_SCHEMA queries
+_TYPE_TO_VIEW: dict[str, tuple[str, str, str]] = {
+    "procedure": ("INFORMATION_SCHEMA.PROCEDURES", "PROCEDURE_SCHEMA", "PROCEDURE_NAME"),
+    "function":  ("INFORMATION_SCHEMA.FUNCTIONS",  "FUNCTION_SCHEMA",  "FUNCTION_NAME"),
+    "table":     ("INFORMATION_SCHEMA.TABLES",     "TABLE_SCHEMA",     "TABLE_NAME"),
+    "view":      ("INFORMATION_SCHEMA.VIEWS",      "TABLE_SCHEMA",     "TABLE_NAME"),
+}
+_SHOW_TYPES = {"task", "stream"}
+
 _NOT_NULL_PATTERN = re.compile(
-    r"column\s+[`\"]?(\w+)[`\"]?\s+(?:is|must be|should be)\s+NOT\s*NULL",
-    re.IGNORECASE,
+    r"(?:table|view)\s+[`\"']?(\w+)[`\"']?\s+.*?"  # group 1: table name
+    r"column\s+[`\"']?(\w+)[`\"']?\s+(?:is|must be|should be)\s+NOT\s*NULL",
+    re.IGNORECASE | re.DOTALL,
 )
 
 _ROW_COUNT_PATTERN = re.compile(
@@ -49,12 +60,6 @@ _ROW_COUNT_PATTERN = re.compile(
 _HAS_COLUMN_PATTERN = re.compile(
     r"(?:table|view)\s+[`\"]?(\w+)[`\"]?\s+(?:has|includes|contains)\s+"
     r"(?:a\s+)?column\s+(?:named?\s+)?[`\"]?(\w+)[`\"]?",
-    re.IGNORECASE,
-)
-
-_FOREIGN_KEY_PATTERN = re.compile(
-    r"(?:foreign\s+key|references?)\s+(?:from\s+)?[`\"]?(\w+)[`\"]?"
-    r"\s+(?:to|references?)\s+[`\"]?(\w+)[`\"]?",
     re.IGNORECASE,
 )
 
@@ -87,15 +92,29 @@ def _try_column_count(ac_id: str, text: str, schema: str) -> ACAssertion | None:
 
 
 def _try_object_exists(ac_id: str, text: str, schema: str) -> ACAssertion | None:
-    """Match: 'Creates table/view/procedure X'."""
+    """Match: 'Creates table/view/procedure/function/task/stream X'."""
     m = _OBJECT_EXISTS_PATTERN.search(text)
     if not m:
         return None
-    obj_name = m.group(1).upper()
+    obj_type = m.group(1).lower()
+    obj_name = m.group(2).upper()
+    if obj_type in _SHOW_TYPES:
+        sql = f"SHOW {obj_type.upper()}S LIKE '{obj_name}'"
+        return ACAssertion(
+            ac_id=ac_id,
+            ac_text=text,
+            assertion_sql=sql,
+            translatable=True,
+            assertion_type="show_exists",
+            expected_value=None,
+        )
+    view, schema_col, name_col = _TYPE_TO_VIEW.get(
+        obj_type, ("INFORMATION_SCHEMA.TABLES", "TABLE_SCHEMA", "TABLE_NAME")
+    )
     sql = (
-        f"SELECT COUNT(*) AS obj_count FROM {schema}.INFORMATION_SCHEMA.TABLES "
-        f"WHERE TABLE_SCHEMA = '{schema.split('.')[-1]}' "
-        f"AND TABLE_NAME = '{obj_name}'"
+        f"SELECT COUNT(*) AS obj_count FROM {schema}.{view} "
+        f"WHERE {schema_col} = '{schema.split('.')[-1]}' "
+        f"AND {name_col} = '{obj_name}'"
     )
     return ACAssertion(
         ac_id=ac_id,
@@ -108,15 +127,17 @@ def _try_object_exists(ac_id: str, text: str, schema: str) -> ACAssertion | None
 
 
 def _try_not_null(ac_id: str, text: str, schema: str) -> ACAssertion | None:
-    """Match: 'Column X is NOT NULL'."""
+    """Match: 'Table X column Y is NOT NULL'."""
     m = _NOT_NULL_PATTERN.search(text)
     if not m:
         return None
-    col_name = m.group(1).upper()
+    table_name = m.group(1).upper()
+    col_name = m.group(2).upper()
     # Check via INFORMATION_SCHEMA — IS_NULLABLE = 'NO' means NOT NULL
     sql = (
         f"SELECT IS_NULLABLE FROM {schema}.INFORMATION_SCHEMA.COLUMNS "
         f"WHERE TABLE_SCHEMA = '{schema.split('.')[-1]}' "
+        f"AND TABLE_NAME = '{table_name}' "
         f"AND COLUMN_NAME = '{col_name}' LIMIT 1"
     )
     return ACAssertion(
@@ -235,38 +256,77 @@ def translate_ac_to_assertion(
 
 
 def extract_ac_items(content: str) -> list[dict[str, str]]:
-    """Extract AC checklist items from spec markdown content.
+    """Extract AC checklist items from spec/AC file markdown content.
 
-    Parses lines matching:
-        - [ ] Some criterion text
-        - [x] Some completed criterion
+    Supports two formats:
+    1. 4-column table (canonical standalone AC file format):
+       | # | Criterion | Pass | Notes |
+       |---|-----------|:----:|-------|
+       | 1 | Some criterion | ☐ | |
 
-    Returns list of {id, text, checked} dicts.
+    2. Checkbox bullets (inline spec module format — fallback):
+       - [ ] Some criterion text
+       - [x] Some completed criterion
     """
     items: list[dict[str, str]] = []
     current_ac_section = ""
-    bullet_counter = 0
+    section_bullet_counter = 0  # resets per AC section
 
-    for line in content.split("\n"):
-        # Track AC section headings
-        heading_match = re.match(r"^###\s+(AC-\d+.*)", line)
+    lines = content.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Track AC section headings (## AC-N: Title  or  ### AC-N: Title)
+        heading_match = re.match(r"^#{2,3}\s+(AC-\d+.*)", line)
         if heading_match:
             current_ac_section = heading_match.group(1).split(":")[0].strip()
-            bullet_counter = 0
+            section_bullet_counter = 0  # reset per section
+            i += 1
             continue
 
-        # Match checkbox items
+        # 4-column table: detect header row  | # | Criterion | Pass | ...
+        if re.match(r"^\|\s*#\s*\|", line, re.IGNORECASE):
+            i += 2  # skip header row and separator row
+            row_counter = 0
+            while i < len(lines):
+                row = lines[i]
+                if not row.strip().startswith("|"):
+                    break
+                cols = [c.strip() for c in row.strip().strip("|").split("|")]
+                if len(cols) >= 2 and cols[1]:  # column index 1 = Criterion
+                    row_counter += 1
+                    row_num = cols[0] if cols[0] else str(row_counter)
+                    criterion_text = cols[1]
+                    pass_mark = cols[2].strip() if len(cols) > 2 else "☐"
+                    ac_id = (
+                        f"{current_ac_section}/{row_num}"
+                        if current_ac_section
+                        else f"row-{row_counter}"
+                    )
+                    items.append({
+                        "id": ac_id,
+                        "text": criterion_text,
+                        "checked": str(pass_mark in ("☑", "✓", "x", "X", "[x]")),
+                    })
+                i += 1
+            continue
+
+        # Fallback: checkbox bullets
         checkbox_match = re.match(r"^\s*-\s+\[([ xX])\]\s+(.+)", line)
         if checkbox_match:
-            bullet_counter += 1
-            checked = checkbox_match.group(1).lower() == "x"
-            text = checkbox_match.group(2).strip()
-            ac_id = (
-                f"{current_ac_section}/bullet-{bullet_counter}"
-                if current_ac_section
-                else f"bullet-{bullet_counter}"
-            )
-            items.append({"id": ac_id, "text": text, "checked": str(checked)})
+            section_bullet_counter += 1
+            if current_ac_section:
+                ac_id = f"{current_ac_section}/bullet-{section_bullet_counter}"
+            else:
+                ac_id = f"bullet-{section_bullet_counter}"
+            items.append({
+                "id": ac_id,
+                "text": checkbox_match.group(2).strip(),
+                "checked": str(checkbox_match.group(1).lower() == "x"),
+            })
+
+        i += 1
 
     return items
 

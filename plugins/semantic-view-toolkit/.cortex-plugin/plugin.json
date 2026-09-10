@@ -1,0 +1,7 @@
+{
+  "name": "semantic-view-toolkit",
+  "description": "Full SV lifecycle: discover, create, audit, evaluate, optimize (GEPA), compose, and monitor. Prerequisites: Snowflake role with CREATE SEMANTIC VIEW + CORTEX_USER; uv on PATH for optimization scripts.",
+  "version": "1.0.0",
+  "author": { "name": "Snowflake" },
+  "skills": ["./skills"]
+}

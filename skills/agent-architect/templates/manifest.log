@@ -9,14 +9,50 @@
 #   INTAKE_COMPLETE — Phase 0 done, moving to research
 #   RESEARCH_COMPLETE — Phase 1 done, all researchers returned
 #   PLAN_APPROVED — Phase 2 done, user confirmed plan
+#   TASK_REGISTERED — a task was created in Phase 2 (one entry per task)
 #   STARTED — worker began a task
-#   COMMITTED — worker pushed code to branch
 #   DONE — task fully complete (worker shipped, or gate passed)
 #   BLOCKED — worker cannot proceed (dependency or build loop)
 #   REJECTED — SecArch rejected the task
+#   CONDITION_OPEN — SecArch returned APPROVED_WITH_CONDITIONS (one entry per condition)
+#   CONDITION_CLOSED — that condition has been remediated (one entry per condition)
 #   FAIL — Tester found failures
 #   ESCALATED — exceeded retry budget, user notified
 #   SHIPPED — Phase 6 complete, project delivered
+#   STUCK — worker inactive >120s with no git activity (stuck retry loop or crash)
+#   TEAM_SHIPPED — all charter tasks complete, team workflow finished
+#
+# ── STATUS DISCIPLINE (do not violate) ────────────────────────────────────────
+# STATUS must be EXACTLY one of the values above. Never write free text, and never
+# write a future-tense action, as a STATUS or as a standalone entry.
+#
+# This log records ONLY state transitions that have ALREADY HAPPENED. It is not a
+# plan and not a scratchpad. Planning notes, intended next steps, and in-progress
+# reasoning go in `.agent-project/notes.md`.
+#
+# Why this rule exists: a run once ended with the final manifest line reading
+# "applying conditions as cleanup commit, then push, then copy to toolkit". That was
+# an intention, never executed — but it is structurally indistinguishable from a
+# completion record, so the abandoned run looked mid-flight for six days and four
+# security conditions went unremediated. A future-tense note in this file is a defect.
+#
+# ── MACHINE-CHECKABLE INVARIANTS ──────────────────────────────────────────────
+# These are greppable from git history with no in-context knowledge. Check them
+# before SHIPPED or TEAM_SHIPPED:
+#
+#   1. Every registered task is done:
+#      [ "$(grep -c '| TASK_REGISTERED |' manifest.log)" -eq "$(grep -c '| DONE |' manifest.log)" ]
+#
+#   2. Every raised condition is closed:
+#      [ "$(grep -c '| CONDITION_OPEN |' manifest.log)" -eq "$(grep -c '| CONDITION_CLOSED |' manifest.log)" ]
+#
+#   3. A run with DONE entries and no SHIPPED entry is ABANDONED, not in progress.
+#      Startup checks this before creating a new project (see SKILL.md Startup).
+#
+# Entry shapes for the paired statuses:
+#   <timestamp> | architect        | TASK_REGISTERED  | <task_id>
+#   <timestamp> | secarch-<task>   | CONDITION_OPEN   | <condition_id> | <description>
+#   <timestamp> | worker-<task>    | CONDITION_CLOSED | <condition_id>
 #
 # Recovery: If a session dies, read this log + git log to reconstruct state.
 # Rule: Never merge a branch whose worker has no DONE entry here.

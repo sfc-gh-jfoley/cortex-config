@@ -1,21 +1,8 @@
 # SpecBuilder
 
+> **Note:** This skill was developed to teach and help with spec-driven development workflows and is not part of Cortex Code's bundled skills.
+
 SpecBuilder helps you adopt spec-driven development. Every feature starts as a written specification — reviewed and accepted — before any code is written. This ensures requirements are clear, acceptance criteria are testable, and implementation matches intent.
-
-## Installation
-
-From your project root:
-
-```bash
-git clone --depth 1 https://github.com/sfc-gh-skaramarti/specbuilder.git /tmp/specbuilder-install
-mkdir -p .cortex/skills
-cp -r /tmp/specbuilder-install/specbuilder .cortex/skills/specbuilder
-rm -rf /tmp/specbuilder-install
-```
-
-This installs the skill into `.cortex/skills/specbuilder`. CoCo will detect it automatically on next invocation.
-
-To update to the latest version, re-run the same commands — it overwrites the existing installation.
 
 ## How to Use
 
@@ -29,6 +16,8 @@ Talk to CoCo naturally. SpecBuilder activates when you say things like:
 | "run acceptance" or "test module 3" | Runs acceptance criteria checks and reports results |
 | "audit my project" or "is my spec setup current?" | Detects stale config, missing hooks, and outdated profiles; can auto-fix |
 | "validate artifacts for module 2" | Runs tiered validation (compile → dry-run → smoke → verify) against a module's artifacts |
+| "batch implement" or "implement all proposals" | Initializes a checkpoint batch; tracks wave execution across sessions |
+| "handover consumer" or "scaffold from handover" | Scaffolds a new POC project from a demo handover artifact |
 
 You don't need to run any commands directly — CoCo handles execution. Just describe what you need.
 

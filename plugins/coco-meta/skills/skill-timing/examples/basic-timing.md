@@ -8,7 +8,7 @@ Time a rule-reviewer skill execution on a single file with minimal configuration
 
 - skill_name: `rule-reviewer`
 - target_file: `rules/100-snowflake-core.md`
-- model: `claude-sonnet-45`
+- model: `claude-sonnet-4-6`
 
 ## Workflow
 
@@ -18,7 +18,7 @@ Time a rule-reviewer skill execution on a single file with minimal configuration
 bash skills/skill-timing/scripts/run_timing.sh start \
     --skill rule-reviewer \
     --target rules/100-snowflake-core.md \
-    --model claude-sonnet-45
+    --model claude-sonnet-4-6
 ```
 
 **Output:**
@@ -55,7 +55,7 @@ TIMING: skill-timing v1.2.0
 Run ID:      a1b2c3d4e5f67890
 Skill:       rule-reviewer
 Target:      rules/100-snowflake-core.md
-Model:       claude-sonnet-45
+Model:       claude-sonnet-4-6
 Agent:       cortex-code
 ----------------------------------------
 Start:       2026-01-06T10:30:00+00:00
@@ -81,7 +81,7 @@ Parse the STDOUT and append the timing metadata to the output file:
 |-------|-------|
 | Run ID | `a1b2c3d4e5f67890` |
 | Skill | rule-reviewer |
-| Model | claude-sonnet-45 |
+| Model | claude-sonnet-4-6 |
 | Agent | cortex-code |
 | Start (UTC) | 2026-01-06T10:30:00+00:00 |
 | End (UTC) | 2026-01-06T10:33:45+00:00 |

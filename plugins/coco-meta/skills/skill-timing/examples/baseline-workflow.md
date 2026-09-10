@@ -16,7 +16,7 @@ Before setting a baseline, analyze your timing data:
 ```bash
 bash skills/skill-timing/scripts/run_timing.sh analyze \
     --skill rule-reviewer \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --days 30
 ```
 
@@ -25,7 +25,7 @@ bash skills/skill-timing/scripts/run_timing.sh analyze \
 TIMING: Analysis v1.2.0
 ----------------------------------------
 Count:       12 runs
-Filters:     skill=rule-reviewer, model=claude-sonnet-45, days=30
+Filters:     skill=rule-reviewer, model=claude-sonnet-4-6, days=30
 ----------------------------------------
 Average:     3m 45s (225.50s)
 Median:      3m 30s (210.00s)
@@ -46,13 +46,13 @@ Once you have enough data points, set a baseline:
 bash skills/skill-timing/scripts/run_timing.sh baseline set \
     --skill rule-reviewer \
     --mode FULL \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --days 30
 ```
 
 **Output:**
 ```
-Baseline set for rule-reviewer/FULL/claude-sonnet-45:
+Baseline set for rule-reviewer/FULL/claude-sonnet-4-6:
   Sample size: 12
   Average: 3m 45s (225.5s)
   Median: 3m 30s (210.0s)
@@ -71,7 +71,7 @@ Future timing runs automatically compare against the baseline:
 bash skills/skill-timing/scripts/run_timing.sh start \
     --skill rule-reviewer \
     --target rules/100-snowflake-core.md \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --mode FULL
 
 # [Execute skill...]
@@ -131,7 +131,7 @@ The baseline file (`reviews/.timing-baselines.json`) contains:
 {
   "rule-reviewer": {
     "FULL": {
-      "claude-sonnet-45": {
+      "claude-sonnet-4-6": {
         "baseline_date": "2026-01-06",
         "sample_size": 12,
         "avg_seconds": 225.5,
@@ -153,7 +153,7 @@ Re-run baseline set periodically to account for model changes or skill updates:
 bash skills/skill-timing/scripts/run_timing.sh baseline set \
     --skill rule-reviewer \
     --mode FULL \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --days 7
 ```
 
@@ -165,6 +165,6 @@ For testing, use `--min-samples` to lower the threshold:
 bash skills/skill-timing/scripts/run_timing.sh baseline set \
     --skill rule-reviewer \
     --mode FULL \
-    --model claude-sonnet-45 \
+    --model claude-sonnet-4-6 \
     --min-samples 2
 ```

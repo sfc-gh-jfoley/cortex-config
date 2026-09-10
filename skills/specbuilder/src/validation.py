@@ -14,6 +14,7 @@ from specbuilder.src.config import (
     ARCH_FILE_PATTERN,
     DEFAULT_DECISIONS_DIR,
     DEFAULT_PROPOSALS_DIR,
+    REQUIRED_AC_FIELDS,
     REQUIRED_DECISION_FIELDS,
     REQUIRED_DECISION_SECTIONS,
     REQUIRED_PROPOSAL_FIELDS,
@@ -21,9 +22,13 @@ from specbuilder.src.config import (
     REQUIRED_SPEC_FIELDS,
     REQUIRED_SPEC_SECTIONS,
     SPEC_FILE_PATTERN,
+    VALID_AC_STATUSES,
     VALID_DECISION_STATUSES,
     VALID_PROPOSAL_STATUSES,
     VALID_SPEC_STATUSES,
+)
+from specbuilder.src.config import (
+    PROMOTED_TO_PATTERN as _PROMOTED_TO_PATTERN,
 )
 
 # ---------------------------------------------------------------------------
@@ -160,7 +165,7 @@ def validate_decision(filepath: Path) -> list[str]:
     return errors
 
 
-def validate_proposal(filepath: Path) -> list[str]:
+def validate_proposal(filepath: Path, is_new_file: bool = False) -> list[str]:
     """Validate a proposal file. Returns list of errors."""
     errors = []
     filename = filepath.name
@@ -168,20 +173,54 @@ def validate_proposal(filepath: Path) -> list[str]:
     if not ARCH_FILE_PATTERN.match(filename):
         errors.append(f"{filename}: doesn't match NNN-slug.md pattern")
 
+    if filepath.parent.name == "planned":
+        errors.append(
+            f"{filename}: proposal is in a 'planned/' subdirectory, which does not "
+            "exist in the lifecycle model. Move to the proposals root "
+            "(spec/architecture/proposals/) or an appropriate subdirectory "
+            "(implemented/, parked/)."
+        )
+
     fm = parse_frontmatter(filepath)
     if not fm:
         errors.append(f"{filename}: missing or invalid YAML frontmatter")
         return errors
 
+    if is_new_file and fm.get("status") != "planned":
+        errors.append(
+            f"New proposals must have status 'planned', got '{fm.get('status')}'"
+        )
+
     for field in REQUIRED_PROPOSAL_FIELDS:
         if field not in fm:
             errors.append(f"{filename}: missing required field '{field}'")
+
+    if "id" in fm and not re.fullmatch(r"EXT-\d{3,}", str(fm["id"])):
+        errors.append(
+            f"{filename}: 'id' value '{fm['id']}' does not match required format EXT-NNN "
+            "(e.g. EXT-001, EXT-209)"
+        )
 
     if "status" in fm and fm["status"] not in VALID_PROPOSAL_STATUSES:
         errors.append(
             f"{filename}: invalid status '{fm['status']}'. "
             f"Must be one of: {', '.join(sorted(VALID_PROPOSAL_STATUSES))}"
         )
+
+    if "promoted_to" in fm:
+        val = str(fm["promoted_to"])
+        if not _PROMOTED_TO_PATTERN.match(val):
+            errors.append(
+                f"'promoted_to' must match 'MOD-NN' format (e.g. MOD-01, MOD-12), got: {val!r}"
+            )
+
+    if "phase" in fm:
+        phase_val = fm["phase"]
+        if not (isinstance(phase_val, int) and phase_val > 0):
+            errors.append(
+                f"Invalid phase '{phase_val}'; must be a positive integer "
+                "(represents the audit/implementation cycle number, e.g. 1, 2, 9)"
+            )
 
     content = filepath.read_text(encoding="utf-8")
     for section in REQUIRED_PROPOSAL_SECTIONS:
@@ -217,6 +256,12 @@ def validate_spec_module(filepath: Path, ac_dir: Path | None = None) -> list[str
         if field not in fm:
             errors.append(f"spec/{filename}: missing required field '{field}'")
 
+    mod_id = fm.get("id", "")
+    if not re.match(r'^MOD-\d{2,}$', str(mod_id)):
+        errors.append(
+            f"Invalid module id '{mod_id}'; must match MOD-NN format (e.g. MOD-01, MOD-12, MOD-100)"
+        )
+
     if "status" in fm and fm["status"] not in VALID_SPEC_STATUSES:
         errors.append(
             f"spec/{filename}: invalid status '{fm['status']}'. "
@@ -246,6 +291,21 @@ def validate_ac_file(filepath: Path) -> list[str]:
 
     if filename == "README.md":
         return errors
+
+    fm = parse_frontmatter(filepath)
+    if not fm:
+        errors.append(f"acceptance-criteria/{filename}: missing or invalid YAML frontmatter")
+        return errors
+
+    for field in REQUIRED_AC_FIELDS:
+        if field not in fm:
+            errors.append(f"acceptance-criteria/{filename}: missing required field '{field}'")
+
+    if "status" in fm and fm["status"] not in VALID_AC_STATUSES:
+        errors.append(
+            f"acceptance-criteria/{filename}: invalid status '{fm['status']}'. "
+            f"Must be one of: {', '.join(sorted(VALID_AC_STATUSES))}"
+        )
 
     content = filepath.read_text(encoding="utf-8")
 
@@ -349,13 +409,13 @@ def validate_project(project_root: Path) -> list[str]:
     # Spec modules
     modules_dir = project_root / "spec" / "modules"
     if modules_dir.exists():
-        for f in sorted(modules_dir.glob("[0-9][0-9]-*.md")):
+        for f in sorted(modules_dir.glob("[0-9]*-*.md")):
             if not f.name.startswith("00-"):
                 all_errors.extend(validate_spec_module(f, ac_dir))
 
     # Acceptance criteria files
     if ac_dir.exists():
-        for f in sorted(ac_dir.glob("[0-9][0-9]-*.md")):
+        for f in sorted(ac_dir.glob("[0-9]*-*.md")):
             all_errors.extend(validate_ac_file(f))
 
     # Changelog entries

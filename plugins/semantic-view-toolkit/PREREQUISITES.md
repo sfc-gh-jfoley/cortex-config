@@ -35,12 +35,16 @@
 
 | Requirement | Why | Fallback if Missing |
 |---|---|---|
+| `CORTEX_USER` database role | Required to call EXECUTE_AI_EVALUATION | Cannot run eval |
+| `USE AI FUNCTIONS` on account | EXECUTE_AI_EVALUATION entitlement | Cannot run eval |
 | `EXECUTE TASK ON ACCOUNT` | Eval runs use Snowflake tasks | Cannot run eval |
 | `CREATE TASK` on SV schema | Task creation for eval | Cannot run eval |
 | `CREATE DATASET ON SCHEMA` on SV schema | Dataset registration | Cannot run eval |
 | `SELECT` on SV and underlying tables | Execute eval queries | Cannot run eval |
 | `MONITOR` on semantic view | Eval API requirement | Cannot run eval |
 | At least 1 VQR on the SV | Ground truth for eval | Route to vqr-generator first |
+
+**⚠️ Primary Role Only:** `EXECUTE_AI_EVALUATION` can only be called from a **primary role**. If your current role is not primary (e.g., a secondary role or role in a hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
 
 ### sv-optimization / sv-gepa-optimizer
 

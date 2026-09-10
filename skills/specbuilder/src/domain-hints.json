@@ -1,6 +1,7 @@
 {
   "_description": "Domain inference rules for skill discovery. Maps keywords found in skill names/descriptions to domain tags. No skill names or descriptions are stored here.",
   "_version": "1.0.0",
+  "_purpose": "Skill discovery taxonomy (discover_skills.py). NOT the same as AGENT_REGISTRY domains in agents/registry.py — these classify user-facing CoCo skills, not spec artifact types.",
   "domain_rules": {
     "data": [
       "snowflake", "dbt", "pipeline", "etl", "table", "warehouse", "sql",

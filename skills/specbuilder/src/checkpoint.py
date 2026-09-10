@@ -3,7 +3,9 @@
 Provides local resumption state for multi-proposal batches. The execution log
 is stored in .specbuilder/execution-log.md (gitignored) and serves as a
 single-session recovery artifact. Cross-session handoff relies on committed
-proposal frontmatter statuses (source of truth) and cortex memory.
+proposal frontmatter statuses (source of truth, programmatic). Cortex memory
+is a separate manual workflow step — paste a prior session's checkpoint summary
+into the new session context.
 
 Usage:
     python3 -m specbuilder checkpoint --init EXT-055,EXT-056,EXT-057
@@ -13,9 +15,15 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import shutil
+import subprocess
 import sys
+
+if sys.platform != "win32":
+    import fcntl
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +43,33 @@ EXECUTION_LOG_FILE = "execution-log.md"
 
 def _log_path(project_root: Path) -> Path:
     return project_root / DEFAULT_SPECBUILDER_META_DIR / EXECUTION_LOG_FILE
+
+
+def _locked_append(log_file: Path, addition: str) -> None:
+    """Append *addition* to *log_file* under an exclusive file lock (POSIX only)."""
+    with open(log_file, "r+") as f:
+        if sys.platform != "win32":
+            fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            content = f.read()
+            f.seek(0)
+            f.write(content + addition)
+            f.truncate()
+        finally:
+            if sys.platform != "win32":
+                fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _ensure_gitignored(project_root: Path, entry: str) -> None:
+    """Append *entry* to .gitignore if it is not already present."""
+    gitignore = project_root / ".gitignore"
+    if gitignore.exists():
+        text = gitignore.read_text()
+        if entry in text.splitlines():
+            return
+        gitignore.write_text(text.rstrip() + f"\n{entry}\n")
+    else:
+        gitignore.write_text(f"{entry}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +95,16 @@ def build_dependency_graph(
     for pid in proposal_ids:
         # Find the proposal file
         fm = _find_proposal_frontmatter(pid, proposals_dir)
+        if not fm:
+            print(
+                f"Warning: Could not read frontmatter for {pid} — "
+                "treating as wave 1 (no dependencies). "
+                "Wave ordering may be incorrect.",
+                file=sys.stderr,
+            )
         raw_deps = fm.get("depends_on", []) if fm else []
+        if isinstance(raw_deps, str):
+            raw_deps = [raw_deps]
         # Only keep intra-batch dependencies
         deps[pid] = [d for d in raw_deps if d in proposal_ids]
 
@@ -102,7 +146,7 @@ def _find_proposal_frontmatter(
 ) -> dict:
     """Find and parse frontmatter for a proposal by ID."""
     # Extract numeric part: EXT-055 -> 055
-    match = re.match(r"EXT-(\d+)", proposal_id)
+    match = re.match(r"[A-Z]+-(\d+)", proposal_id)
     if not match:
         return {}
 
@@ -119,7 +163,7 @@ def _find_proposal_frontmatter(
 
 def _find_proposal_file(proposal_id: str, proposals_dir: Path) -> Path | None:
     """Find the file path for a proposal by ID."""
-    match = re.match(r"EXT-(\d+)", proposal_id)
+    match = re.match(r"[A-Z]+-(\d+)", proposal_id)
     if not match:
         return None
 
@@ -138,10 +182,15 @@ def _find_proposal_file(proposal_id: str, proposals_dir: Path) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def init_execution_log(proposal_ids: list[str], project_root: Path) -> Path:
+def init_execution_log(
+    proposal_ids: list[str],
+    project_root: Path,
+    force: bool = False,
+) -> tuple[Path, list[list[str]]]:
     """Create a new execution log for a batch of proposals.
 
-    Returns the path to the created log file.
+    Returns a tuple of (log_path, waves) where waves is the dependency graph.
+    Raises SystemExit(1) if an execution log already exists and *force* is False.
     """
     waves = build_dependency_graph(proposal_ids, project_root)
 
@@ -169,9 +218,23 @@ Total waves: {len(waves)}
 
     log_file = _log_path(project_root)
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_file.write_text(content, encoding="utf-8")
 
-    return log_file
+    if log_file.exists() and not force:
+        print(
+            f"ERROR: An execution log already exists at {log_file}.\n"
+            "Re-running --init will destroy the current wave plan and all recorded progress.\n"
+            "If you intend to start a new batch, run:\n"
+            "    python3 -m specbuilder checkpoint --init <IDs> --force\n"
+            "If you meant to check current progress, run:\n"
+            "    python3 -m specbuilder checkpoint --status",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    log_file.write_text(content, encoding="utf-8")
+    _ensure_gitignored(project_root, ".specbuilder/execution-log.md")
+
+    return log_file, waves
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +375,16 @@ def record_wave(
                 )
                 return False
 
+        # NEW: also verify wave N-1 is recorded in the execution log
+        if status["completed_waves"] < wave_num - 1:
+            print(
+                f"Error: Wave {wave_num - 1} has not been recorded in the execution log "
+                f"(completed_waves={status['completed_waves']}). "
+                f"Run --wave {wave_num - 1} before --wave {wave_num}.",
+                file=sys.stderr,
+            )
+            return False
+
     # Check not already recorded
     if wave_num <= status["completed_waves"]:
         print(f"Wave {wave_num} already recorded.", file=sys.stderr)
@@ -330,9 +403,7 @@ def record_wave(
     if results:
         lines.append(f"Integration check: {results}")
 
-    content = log_file.read_text(encoding="utf-8")
-    content += "\n".join(lines) + "\n"
-    log_file.write_text(content, encoding="utf-8")
+    _locked_append(log_file, "\n".join(lines) + "\n")
 
     print(f"Wave {wave_num} recorded ({len(wave_proposals)} proposals).")
     if wave_num < len(status["waves"]):
@@ -360,53 +431,102 @@ def complete_batch(project_root: Path) -> bool:
         print("Error: No execution log found.", file=sys.stderr)
         return False
 
+    total_waves = len(status["waves"])
+    completed_waves = status["completed_waves"]
+    if completed_waves < total_waves:
+        incomplete = [
+            f"Wave {n}" for n in range(completed_waves + 1, total_waves + 1)
+        ]
+        print(
+            f"Error: Cannot finalize — {len(incomplete)} wave(s) not yet recorded: "
+            f"{', '.join(incomplete)}. "
+            "Record all waves with --wave N before running --complete.",
+            file=sys.stderr,
+        )
+        return False
+
     proposals_dir = project_root / DEFAULT_PROPOSALS_DIR
     implemented_dir = proposals_dir / "implemented"
     implemented_dir.mkdir(parents=True, exist_ok=True)
 
-    updated = 0
-    moved = 0
-
+    # Phase 1: pre-scan — collect all pid→filepath mappings before mutating anything
+    pid_files: dict[str, Path] = {}
+    missing = 0
     for pid in status["batch"]:
         filepath = _find_proposal_file(pid, proposals_dir)
         if not filepath:
             print(f"  Warning: Could not find file for {pid}", file=sys.stderr)
-            continue
+            missing += 1
+        else:
+            pid_files[pid] = filepath
 
-        # Update frontmatter status to implemented
-        content = filepath.read_text(encoding="utf-8")
-        current_status = parse_frontmatter(filepath).get("status", "")
+    if missing > 0:
+        print(
+            f"Error: {missing} proposal file(s) not found — "
+            "batch not marked complete. Locate missing files and retry.",
+            file=sys.stderr,
+        )
+        return False
 
-        if current_status != "implemented":
-            updated_content = re.sub(
-                r"^(status:\s*).*$",
-                r"\1implemented",
-                content,
-                count=1,
-                flags=re.MULTILINE,
+    # Phase 2: mutate (only runs if all pids resolved)
+    updated = 0
+    moved = 0
+    mutated_paths: list[Path] = []
+
+    try:
+        for pid, filepath in pid_files.items():
+
+            # Update frontmatter status to implemented
+            content = filepath.read_text(encoding="utf-8")
+            current_status = parse_frontmatter(filepath).get("status", "")
+
+            # Idempotency guard: skip proposals already finalized in a prior partial run
+            if "implemented" in filepath.parent.parts and current_status == "implemented":
+                continue
+
+            if current_status != "implemented":
+                updated_content = re.sub(
+                    r"^(status:\s*).*$",
+                    r"\1implemented",
+                    content,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+                filepath.write_text(updated_content, encoding="utf-8")
+                mutated_paths.append(filepath)
+                updated += 1
+
+            # Move to implemented/ (if not already there)
+            if "implemented" not in filepath.parent.parts:
+                dest = implemented_dir / filepath.name
+                shutil.move(str(filepath), str(dest))
+                moved += 1
+
+        # Regenerate manifest (pass project_root so tests use the correct temp directory)
+        try:
+            from specbuilder.src.generate_index import generate
+
+            generate(project_root)
+        except Exception as exc:
+            print(f"Error: Manifest regeneration failed: {exc}", file=sys.stderr)
+            print(
+                "To regenerate manually, run: python3 -m specbuilder generate-manifest",
+                file=sys.stderr,
             )
-            filepath.write_text(updated_content, encoding="utf-8")
-            updated += 1
+            return False
 
-        # Move to implemented/ (if not already there)
-        if "implemented" not in str(filepath.parent):
-            dest = implemented_dir / filepath.name
-            shutil.move(str(filepath), str(dest))
-            moved += 1
-
-    # Regenerate manifest
-    from specbuilder.src.generate_index import generate
-
-    generate(project_root=project_root)
+    except Exception as exc:
+        print(f"Error: Phase 2 mutation failed mid-loop: {exc}", file=sys.stderr)
+        for p in reversed(mutated_paths):
+            subprocess.run(["git", "restore", str(p)], check=False)
+        return False
 
     # Clean up execution log
     log_file = _log_path(project_root)
     if log_file.exists():
         # Append completion marker
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
-        content = log_file.read_text(encoding="utf-8")
-        content += f"\n## Batch Complete ({now})\n"
-        log_file.write_text(content, encoding="utf-8")
+        _locked_append(log_file, f"\n## Batch Complete ({now})\n")
 
     print(f"Batch complete: {updated} status updates, {moved} files moved.")
     print("Manifest regenerated.")
@@ -445,9 +565,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Finalize batch: update statuses, move to implemented/, regenerate manifest",
     )
     parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help=(
+            "Required with --complete: confirms irreversible"
+            " frontmatter and file-move operations."
+        ),
+    )
+    parser.add_argument(
         "--results",
         metavar="TEXT",
         help="Verification results string (used with --wave)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow --init to overwrite an existing execution log. "
+             "Use only when deliberately starting a new batch or recreating a lost log.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="With --status: emit structured JSON instead of human-readable text.",
     )
     return parser
 
@@ -455,6 +594,13 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+
+    if getattr(args, "json", False) and not getattr(args, "status", False):
+        print(
+            "Warning: --json has no effect without --status and will be ignored.",
+            file=sys.stderr,
+        )
+
     project_root = get_project_root()
 
     if args.init:
@@ -463,19 +609,22 @@ def main() -> None:
             print("Error: Batch requires at least 2 proposals.", file=sys.stderr)
             sys.exit(2)
         try:
-            log_path = init_execution_log(ids, project_root)
+            log_path, waves = init_execution_log(ids, project_root, force=args.force)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
         print(f"Execution log created: {log_path.relative_to(project_root)}")
         print(f"Batch: {len(ids)} proposals")
-        waves = build_dependency_graph(ids, project_root)
         print(f"Waves: {len(waves)}")
         for i, wave in enumerate(waves, 1):
             print(f"  Wave {i}: {', '.join(wave)}")
 
     elif args.status:
-        print_status(project_root)
+        if args.json:
+            status_dict = get_status(project_root)
+            print(json.dumps(status_dict, indent=2))
+        else:
+            print_status(project_root)
 
     elif args.wave is not None:
         success = record_wave(args.wave, project_root, results=args.results)
@@ -483,6 +632,14 @@ def main() -> None:
             sys.exit(1)
 
     elif args.complete:
+        if not args.confirm:
+            print(
+                "WARNING: --complete will update proposal frontmatter and move files "
+                "to proposals/implemented/. These mutations are not automatically reversible.\n"
+                "Re-run with --confirm to proceed.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         success = complete_batch(project_root)
         if not success:
             sys.exit(1)

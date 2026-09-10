@@ -54,12 +54,12 @@ See `test-fixture-example/` for a complete working validation setup including:
 cortex-agent-optimization/
 ├── SKILL.md                   — entry point + intent router
 ├── README.md                  — this file
-├── setup/SKILL.md             — scaffold workspace + baseline eval
-├── optimize/SKILL.md          — run an optimization iteration
-├── review/SKILL.md            — accept/reject decision logic
-├── eval-data/SKILL.md         — dataset management + split validation
-├── flag-sweep/SKILL.md        — 3-variant flag comparison
-├── feedback-pipeline/SKILL.md — feedback ingestion to eval dataset
+├── references/setup.md             — scaffold workspace + baseline eval
+├── references/optimize.md          — run an optimization iteration
+├── references/review.md            — accept/reject decision logic
+├── references/eval-data.md         — dataset management + split validation
+├── references/flag-sweep.md        — 3-variant flag comparison
+├── references/feedback-pipeline.md — feedback ingestion to eval dataset
 ├── references/                — eval config templates, polling patterns, project structure
 ├── scripts/
 │   └── build_agent_spec.py    — assembles agent/*.md → deploy.sql

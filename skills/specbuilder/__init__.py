@@ -14,6 +14,10 @@ def _resolve_version() -> str:
 
     Scans spec/changelog/*.md for the highest version string.
     Falls back to "0.0.0" if no changelog exists (e.g., in consumer projects).
+
+    Note: SKILL.md frontmatter (``version: "x.y.z"``) is the authoritative version
+    source. This function must return the same value. Use ``bump-version`` to update
+    both sources atomically.
     """
     changelog_dir = _Path(__file__).resolve().parent.parent / "spec" / "changelog"
     if not changelog_dir.exists():

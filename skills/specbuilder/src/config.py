@@ -4,8 +4,11 @@ This is the single source of truth for paths, valid statuses,
 required fields, file patterns, and defaults used across all modules.
 """
 
+from __future__ import annotations
+
 import os
 import re
+import sys
 from pathlib import Path
 
 try:
@@ -42,7 +45,7 @@ def get_project_root(start: Path | None = None) -> Path:
 ARCH_FILE_PATTERN = re.compile(r"^\d{3}-[a-z0-9-]+\.md$")
 
 # Spec modules: 01-slug.md, 02-slug.md, ... (00 is reserved for auto-gen)
-SPEC_FILE_PATTERN = re.compile(r"^\d{2}-[a-z0-9-]+\.md$")
+SPEC_FILE_PATTERN = re.compile(r"^\d{2,}-[a-z0-9-]+\.md$")
 
 
 # ---------------------------------------------------------------------------
@@ -50,9 +53,16 @@ SPEC_FILE_PATTERN = re.compile(r"^\d{2}-[a-z0-9-]+\.md$")
 # ---------------------------------------------------------------------------
 
 REQUIRED_DECISION_FIELDS = {"id", "title", "date", "status"}
-REQUIRED_PROPOSAL_FIELDS = {"id", "title", "phase", "status", "depends_on", "impacts_modules"}
+REQUIRED_PROPOSAL_FIELDS = {
+    "id", "title", "phase", "status", "depends_on", "impacts_modules", "created"
+}
+
+# Pattern for validated promoted_to field values (e.g. MOD-01, MOD-12)
+PROMOTED_TO_PATTERN = re.compile(r"^MOD-\d{2,}$")
+
 REQUIRED_SPEC_FIELDS = {"id", "title", "status", "version", "last_updated"}
-REQUIRED_AC_FIELDS = {"id", "title", "status", "version", "last_updated"}
+HANDOVER_SPEC_FIELDS: frozenset = frozenset({"from_handover"})
+REQUIRED_AC_FIELDS = {"id", "title", "status", "version", "last_updated", "spec_reference"}
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +121,16 @@ PROPOSALS_TABLE_END = "<!-- END_AUTO_PROPOSALS -->"
 # Scaffold defaults
 # ---------------------------------------------------------------------------
 
-DEFAULT_PROTECTED_DIRS = ["specbuilder/", "src/", "lib/"]
+# spec/ is intentionally excluded from the default. Adding it retroactively
+# breaks existing installs. Users who want spec/ protected should pass
+# --protected-dirs spec/ at scaffold time.
+DEFAULT_PROTECTED_DIRS = ["specbuilder/", "src/", "lib/", "impl/"]
+
+# Supported artifact file extensions for Output section parsing
+ARTIFACT_EXTENSIONS = (
+    "sql", "py", "yaml", "yml", "json", "toml", "md", "sh",
+    "ts", "js", "csv", "tf", "xml",
+)
 DEFAULT_TEMPLATE_STYLE = "standard"
 
 
@@ -141,6 +160,9 @@ DRIFT_STALENESS_DAYS = 30
 
 MAX_CONCURRENT_AGENTS = 0  # Max agents per batch; 0 = unlimited (use CoCo's native limits)
 
+# Team name format for implementation batches (zero-padded module number)
+IMPL_TEAM_NAME_FMT = "specbuilder-impl-{:02d}"
+
 
 # ---------------------------------------------------------------------------
 # CI integration defaults
@@ -155,13 +177,12 @@ CI_PROMOTE_ON_MERGE = True  # Whether --promote-merged auto-commits the status c
 # ---------------------------------------------------------------------------
 
 QUALITY_GATE_THRESHOLD = 75  # Minimum quality score for spec acceptance/sign-off
+GATE_SENTINEL_MAX_AGE_SECONDS: int = 1800  # 30 minutes; sentinels older than this are rejected
 
 
 # ---------------------------------------------------------------------------
 # Environment validation defaults
 # ---------------------------------------------------------------------------
-
-ENVIRONMENT_CACHE_PATH = ".specbuilder/environment.json"
 
 SPECBUILDER_TOML_FILE = ".specbuilder.toml"
 POC_SENTINEL = "spec/.poc"
@@ -174,19 +195,11 @@ QUALITY_PROFILES: dict[str, dict] = {
         "validation_tier": "compile",
         "self_correct": False,
         "max_retries": 0,
-        "sub_modes": {
-            "demo": {
-                "validation_tier": "verify",
-                "self_correct": True,
-                "max_retries": 2,
-                "generate_handover": True,
-            },
-        },
     },
-    "production": {
+    "full": {
         "threshold": 75,
         "skip_checks": [],
-        "description": "Standard gate for production implementations (default)",
+        "description": "Standard gate for full SDD mode deliveries (default)",
         "validation_tier": "dry-run",
         "self_correct": False,
         "max_retries": 0,
@@ -198,6 +211,15 @@ QUALITY_PROFILES: dict[str, dict] = {
         "validation_tier": "verify",
         "self_correct": True,
         "max_retries": 2,
+    },
+    "prototype": {
+        "threshold": 50,
+        "skip_checks": ["testability", "edge_case_traceability"],
+        "description": "Relaxed profile for time-boxed prototype work."
+        " Enforces minimal structure only.",
+        "validation_tier": "compile",
+        "self_correct": False,
+        "max_retries": 0,
     },
 }
 
@@ -215,7 +237,7 @@ def get_active_profile(project_root: Path) -> dict:
     1. SPECBUILDER_QUALITY_PROFILE env var
     2. .specbuilder.toml [quality].profile field
     3. Auto-detection from project mode (spec/.poc exists -> poc profile)
-    4. Default: "production"
+    4. Default: "full"
 
     Returns a copy of the profile dict with the profile name added as 'name'.
     """
@@ -232,15 +254,30 @@ def get_active_profile(project_root: Path) -> dict:
             profile_name = config.get("quality", {}).get("profile")
             if profile_name and profile_name in QUALITY_PROFILES:
                 return {"name": profile_name, **QUALITY_PROFILES[profile_name]}
-        except Exception:
-            pass  # Malformed TOML falls through to defaults
+            elif profile_name:
+                sys.stderr.write(
+                    f"Warning: unknown quality profile '{profile_name}' in .specbuilder.toml; "
+                    f"falling back to 'full'.\n"
+                )
+        except Exception as e:
+            print(f"Warning: failed to read .specbuilder.toml: {e}. Using default profile.",
+                  flush=True)
 
     # 3. Check project mode (spec/.poc sentinel)
     if (project_root / "spec" / ".poc").exists():
         return {"name": "poc", **QUALITY_PROFILES["poc"]}
 
+    # 3a. Check .specbuilder.toml [project].mode (mirrors is_poc_mode() second check)
+    if config_path.exists():
+        try:
+            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            if config.get("project", {}).get("mode") == "poc":
+                return {"name": "poc", **QUALITY_PROFILES["poc"]}
+        except Exception:
+            pass  # already warned above in step 2
+
     # 4. Default
-    return {"name": "production", **QUALITY_PROFILES["production"]}
+    return {"name": "full", **QUALITY_PROFILES["full"]}
 
 
 def is_poc_mode(project_root: Path) -> bool:
@@ -250,6 +287,9 @@ def is_poc_mode(project_root: Path) -> bool:
     - The sentinel file spec/.poc exists, OR
     - .specbuilder.toml has mode = "poc" under [project]
     """
+    if os.environ.get("SPECBUILDER_QUALITY_PROFILE") == "poc":
+        return True
+
     # Check sentinel file
     if (project_root / POC_SENTINEL).exists():
         return True
@@ -261,43 +301,73 @@ def is_poc_mode(project_root: Path) -> bool:
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
             result: bool = config.get("project", {}).get("mode") == "poc"
             return result
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: failed to read .specbuilder.toml: {e}. Assuming non-POC mode.",
+                  flush=True)
 
     return False
 
 
-def is_demo_mode(project_root: Path) -> bool:
-    """Check if the project is in demo sub-mode.
+def is_prototype_mode(project_root: Path) -> bool:
+    """Check if the project is in prototype mode.
 
-    Returns True if .specbuilder.toml has sub_mode = "demo" under [project].
-    Demo mode implies POC mode.
+    Returns True if either:
+    - .specbuilder.toml has mode = "prototype" under [project], OR
+    - SPECBUILDER_QUALITY_PROFILE env var equals "prototype"
     """
+    if os.environ.get("SPECBUILDER_QUALITY_PROFILE") == "prototype":
+        return True
+
     config_path = project_root / SPECBUILDER_TOML_FILE
     if config_path.exists():
         try:
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-            result: bool = config.get("project", {}).get("sub_mode") == "demo"
+            if config.get("quality", {}).get("profile") == "prototype":
+                return True
+            result: bool = config.get("project", {}).get("mode") == "prototype"
             return result
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: failed to read .specbuilder.toml: {e}. Assuming non-prototype mode.",
+                  flush=True)
+
     return False
 
 
 def get_effective_profile(project_root: Path) -> dict:
-    """Resolve the effective profile, merging sub-mode overrides if applicable.
+    """Resolve the effective quality profile for the project.
 
-    If the project is in demo sub-mode and the base profile is 'poc',
-    the demo overrides are merged onto the poc profile.
+    Delegates to get_active_profile — single-level resolution, no sub-mode merging.
     """
-    profile = get_active_profile(project_root)
+    return get_active_profile(project_root)
 
-    if is_demo_mode(project_root) and profile["name"] == "poc":
-        sub_modes = QUALITY_PROFILES["poc"].get("sub_modes", {})
-        demo_overrides = sub_modes.get("demo", {})
-        profile.update(demo_overrides)
 
-    return profile
+def get_handover_flag(project_root: Path) -> bool:
+    """Return True if this project should produce a customer handover artifact.
+
+    Reads [project].handover from .specbuilder.toml.
+    Also accepts legacy sub_mode = "demo" with a DeprecationWarning.
+    """
+    toml_path = project_root / SPECBUILDER_TOML_FILE
+    if not toml_path.exists():
+        return False
+    try:
+        with open(toml_path, "rb") as f:
+            config = tomllib.load(f)
+        project = config.get("project", {})
+        if project.get("handover"):
+            return True
+        if project.get("sub_mode") == "demo":
+            import warnings
+            warnings.warn(
+                "[project].sub_mode = 'demo' is deprecated. "
+                "Use [project].handover = true instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            return True
+    except Exception:
+        pass
+    return False
 
 
 # ---------------------------------------------------------------------------

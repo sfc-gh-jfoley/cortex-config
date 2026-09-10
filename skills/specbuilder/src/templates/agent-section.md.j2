@@ -14,8 +14,8 @@ follow the workflow below.
    companion acceptance-criteria file (`{{ spec_dir }}/acceptance-criteria/NN-slug.md`).
    Set both to `draft` status.
 3. **Review** — Move spec and AC to `in-review`. Validate completeness:
-   every AC has a Given/When/Then table, edge cases are documented, and
-   the schema (`SCHEMA.md`) is satisfied.
+   every AC section has a `| # | Criterion | Pass | Notes |` table,
+   edge cases are documented, and the schema (`SCHEMA.md`) is satisfied.
 4. **Accept** — After review approval, set status to `accepted`. The spec
    is now the contract for implementation.
 5. **Implement** — Write code against the accepted spec. When all AC criteria

@@ -4,9 +4,17 @@ A Cortex Code plugin for the full Snowflake Semantic View lifecycle — from dis
 
 ## Install
 
+Install from wherever you obtained the toolkit — a registry entry, a git clone, or
+an archive. The toolkit is self-contained: it has no dependencies outside its own
+directory, and no assumptions about where that directory lives.
+
 ```bash
-cortex plugin install sfc-gh-jfoley/semantic-view-toolkit
+# From a local copy:
+cortex plugin install /path/to/semantic-view-toolkit
 ```
+
+All script paths in the skills are relative to the toolkit root, so any install
+location works.
 
 ## Skills
 
@@ -19,7 +27,7 @@ cortex plugin install sfc-gh-jfoley/semantic-view-toolkit
 | `sv-optimization` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
 | `sv-gepa-optimizer` | Population-based evolutionary optimization via tournament selection | Sequential optimizer hit a plateau — explore broadly |
 | `sv-watch` | Drift detection, schema change monitoring, coverage decay alerts | Ongoing production maintenance |
-| `sv-composer` | Multi-SV agent composition patterns (note: nested SVs referencing other SVs are not yet GA — use multi-tool Agent composition instead) | Multiple domains that need to work together in a single agent |
+| `sv-composer` | Multi-SV composition patterns: IMPORTS clause (GA, not Analyst-compatible) or multi-tool Agent composition (GA, Analyst-compatible) | Multiple domains that need to work together |
 | `vqr-generator` | Auto-generate verified query candidates from query history | Need more VQRs for eval coverage |
 
 ## Entry Point

@@ -5,7 +5,7 @@ description: "Population-based evolutionary optimization of agent instructions u
 
 ## When to Use
 
-Use when the sequential optimizer (the `cortex-agent-optimization` skill) has hit a local optimum (2-3 consecutive rejections) or when you want to explore the instruction space more broadly before committing to a direction.
+Use when the sequential optimizer (the `cortex-agent-optimization` skill) has hit a local optimum (3 consecutive rejections) or when you want to explore the instruction space more broadly before committing to a direction.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ Read `metadata.yaml` for all parameters. Read `optimization_log.md` — understa
 
 ### Step 2: Resume or Initialize
 
-Check if `gepa_state.yaml` exists in `<WORKSPACE_ROOT>/<AGENT_DIR>/`:
+Check if `gepa_state.json` exists in `<WORKSPACE_ROOT>/<AGENT_DIR>/`:
 - **If exists:** Load state. Follow the Resume Protocol (end of this doc).
 - **If not exists:** Initialize:
   ```bash
@@ -63,13 +63,13 @@ For each candidate (1 to pop_size):
 2. **Register candidate in state:**
    ```bash
    python scripts/population_state.py add-candidate \
-     <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.yaml \
+     <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.json \
      --id cand_<N> --generation 1 --mutations ""
    ```
 
 3. **Select mutation operator:**
    ```bash
-   python scripts/mutate.py select-operator --weights-file gepa_state.yaml
+   python scripts/mutate.py select-operator --weights-file gepa_state.json
    ```
    Returns operator name + target file.
 
@@ -115,7 +115,7 @@ Load `references/mini-batch-strategy.md` for stratification rules and rotation c
 ```bash
 python scripts/sample_batch.py <DATABASE> <SCHEMA> <EVAL_TABLE> \
   <DEV_SPLIT_VALUE> --batch-pct 0.30 --generation <G> \
-  --history-file <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.yaml
+  --history-file <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.json
 ```
 
 Execute the returned SQL to create view `<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>`.
@@ -123,6 +123,8 @@ Execute the returned SQL to create view `<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>`
 ### Step 6: Deploy Candidate Agents
 
 For each candidate:
+
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
 
 1. Build spec:
    ```bash
@@ -172,14 +174,14 @@ Load `references/tournament-rules.md` for selection mechanics, elitism, and dive
 
 ```bash
 python scripts/tournament.py <scores_json> \
-  <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.yaml
+  <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.json
 ```
 
 Returns: winners (top half), losers (bottom half), updated operator weights.
 
 ### Step 10: Update State
 
-- Record generation results in `gepa_state.yaml` via `population_state.py`
+- Record generation results in `gepa_state.json` via `population_state.py`
 - Update operator weights: winners' operators get +0.02, losers' get -0.01 (floor: 0.02)
 - Increment `convergence_counter` if `best_fitness` unchanged, else reset to 0
 - Remove eliminated candidates from state:
@@ -214,6 +216,8 @@ Load `references/convergence-criteria.md`. Evaluate stop conditions:
 ## Phase 4: Validate Winner
 
 ### Step 12: Deploy Winner as Primary
+
+> **Rollback gate (emphasize):** Ask the user: "Want me to create a rollback clone first? This step overwrites the production agent — a clone is strongly recommended." Execute on confirmation.
 
 Copy winner's `agent/*.md` files to `<WORKSPACE_ROOT>/<AGENT_DIR>/agent/` (replacing current).
 Build and deploy via standard pipeline:
@@ -250,14 +254,14 @@ Hand off to `cortex-agent-optimization` review/SKILL.md for the standard paired 
 - `DROP AGENT IF EXISTS <AGENT_NAME>_GEPA_CAND_<N>;` for all candidates
 - `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;` for all generations
 - Remove `gepa_population/` directory
-- Remove `gepa_state.yaml`
+- Remove `gepa_state.json`
 - Remove GEPA eval configs from stage
 
 ---
 
 ## Resume Protocol
 
-On Phase 1 Step 2, if `gepa_state.yaml` exists:
+On Phase 1 Step 2, if `gepa_state.json` exists:
 
 1. Read `current_generation` from state
 2. Check if eval results exist for that generation:
@@ -270,7 +274,7 @@ On Phase 1 Step 2, if `gepa_state.yaml` exists:
 3. **Results found for all candidates** → Skip to Phase 3 Step 9 (tournament)
 4. **No results but agents exist** (check `SHOW AGENTS LIKE '<AGENT_NAME>_GEPA_CAND_%'`) → Skip to Phase 2 Step 7 (re-fire evals)
 5. **No agents but `gepa_population/` exists** → Skip to Phase 2 Step 6 (deploy from local)
-6. **Nothing exists** → State is stale; delete `gepa_state.yaml` and start fresh
+6. **Nothing exists** → State is stale; delete `gepa_state.json` and start fresh
 
 ---
 
@@ -278,9 +282,9 @@ On Phase 1 Step 2, if `gepa_state.yaml` exists:
 
 If user says "gepa cleanup" or "clean gepa agents":
 
-1. Load `gepa_state.yaml` (if exists) → get candidate agent names and generation count
+1. Load `gepa_state.json` (if exists) → get candidate agent names and generation count
 2. If no state file, probe: `SHOW AGENTS LIKE '<AGENT_NAME>_GEPA_CAND_%' IN SCHEMA <DATABASE>.<SCHEMA>;`
 3. For each found agent: `DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<agent_name>;`
 4. For each generation view: `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;`
-5. Remove local artifacts: `gepa_population/`, `gepa_state.yaml`
+5. Remove local artifacts: `gepa_population/`, `gepa_state.json`
 6. Report what was cleaned

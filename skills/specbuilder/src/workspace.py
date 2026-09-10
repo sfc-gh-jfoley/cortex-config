@@ -4,6 +4,8 @@ Manages the impl/ directory for file stubs and .specbuilder/ for metadata:
 artifact implementation status tracking and validation prep.
 """
 
+from __future__ import annotations
+
 import json
 from datetime import date
 from pathlib import Path
@@ -69,6 +71,16 @@ def generate_stubs(
         "artifacts": [],
     }
 
+    # Read existing statuses from disk to guard against overwriting completed work
+    manifest_path = metadata_dir / "impl-status.json"
+    existing_statuses: dict[str, str] = {}
+    existing_entries: dict[str, dict] = {}
+    if manifest_path.exists():
+        prior = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for a in prior.get("artifacts", []):
+            existing_statuses[a["path"]] = a.get("status", "")
+            existing_entries[a["path"]] = a
+
     _impl_prefix = DEFAULT_IMPL_DIR.rstrip("/") + "/"
 
     for artifact in artifacts:
@@ -81,6 +93,44 @@ def generate_stubs(
             rel_path = rel_path[len(_impl_prefix):]
         file_path = impl_dir / rel_path
         file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if existing_statuses.get(artifact["path"]) == "implemented":
+            # Preserve completed work — add prior entry to manifest but do not overwrite file
+            manifest["artifacts"].append(
+                existing_entries.get(
+                    artifact["path"],
+                    {
+                        "path": artifact["path"],
+                        "type": artifact["type"],
+                        "domain": artifact["domain"],
+                        "status": "implemented",
+                        "produced_by": "specbuilder.implement",
+                    },
+                )
+            )
+            continue
+
+        if file_path.exists():
+            existing_content = file_path.read_text(encoding="utf-8")
+            is_stub = "STUB" in existing_content or "TODO: implement" in existing_content.lower()
+            if not is_stub:
+                write_artifact_status(
+                    metadata_dir,
+                    artifact["path"],
+                    "failed",
+                    error="Conflict: target file exists and is not a stub",
+                )
+                manifest["artifacts"].append(
+                    {
+                        "path": artifact["path"],
+                        "type": artifact["type"],
+                        "domain": artifact["domain"],
+                        "status": "failed",
+                        "error": "Conflict: target file exists and is not a stub",
+                        "produced_by": "specbuilder.implement",
+                    }
+                )
+                continue
 
         ext = Path(artifact["path"]).suffix.lower()
         template = _STUB_HEADERS.get(ext, "# {description}\n# TODO: implement\n")
@@ -136,25 +186,11 @@ def update_artifact_status(
     Returns:
         Updated manifest dict.
     """
-    manifest_path = metadata_dir / "impl-status.json"
-    if not manifest_path.exists():
-        return {"error": "No implementation status manifest found"}
-
-    manifest: dict[Any, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
-
-    for artifact in manifest.get("artifacts", []):
-        if artifact["path"] == artifact_path:
-            artifact["status"] = status
-            if error:
-                artifact["error"] = error
-            elif "error" in artifact:
-                del artifact["error"]
-            break
-
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    raise RuntimeError(
+        "update_artifact_status() has been removed. "
+        "Use write_artifact_status() to write isolated .status/<slug>.json files instead. "
+        "See specbuilder/skills/implement-spec/SKILL.md § CRITICAL for the required pattern."
     )
-    return manifest
 
 
 def _artifact_slug(path: str) -> str:
@@ -176,6 +212,7 @@ def write_artifact_status(
     artifact_path: str,
     status: str,
     error: str | None = None,
+    retry_count: int = 0,
 ) -> None:
     """Write artifact status to an isolated per-artifact file.
 
@@ -188,6 +225,7 @@ def write_artifact_status(
         artifact_path: The artifact's path (key in manifest).
         status: New status value (stub, in_progress, implemented, failed, skipped).
         error: Optional error context (for failed status).
+        retry_count: Number of retry attempts so far (default 0).
     """
     from datetime import datetime
 
@@ -200,6 +238,7 @@ def write_artifact_status(
         "status": status,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "error": error,
+        "retry_count": retry_count,
     }
 
     status_file = status_dir / f"{slug}.json"
@@ -284,7 +323,13 @@ def check_dispatch_status(metadata_dir: Path) -> dict:
     # Identify blocked batches from dispatch.json
     blocked_batches = []
     if dispatch_path.exists():
-        dispatch = json.loads(dispatch_path.read_text(encoding="utf-8"))
+        try:
+            dispatch = json.loads(dispatch_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {
+                **summary,
+                "error": "dispatch.json is corrupt or unreadable; re-run implement to regenerate",
+            }
         failed_names = {
             a["path"] for a in artifacts if a.get("status") == "failed"
         }
@@ -310,7 +355,10 @@ def check_dispatch_status(metadata_dir: Path) -> dict:
 def skip_dependents(
     metadata_dir: Path, failed_artifact_path: str
 ) -> list[str]:
-    """Mark artifacts that depend on a failed artifact as 'skipped'.
+    """Transitively skip all dependents of failed_artifact_path.
+
+    Uses BFS to cascade skips through the full dependency graph, not just
+    direct dependents.
 
     Returns list of skipped artifact paths.
     """
@@ -318,19 +366,39 @@ def skip_dependents(
     if not dispatch_path.exists():
         return []
 
-    dispatch = json.loads(dispatch_path.read_text(encoding="utf-8"))
-    skipped = []
+    try:
+        dispatch = json.loads(dispatch_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
 
-    for batch in dispatch.get("execution_order", []):
-        for art in batch.get("artifacts", []):
-            if failed_artifact_path in art.get("depends_on", []):
-                update_artifact_status(
-                    metadata_dir,
-                    art["path"],
-                    "skipped",
-                    error=f"Dependency failed: {failed_artifact_path}",
-                )
-                skipped.append(art["path"])
+    # Flatten all artifacts from all batches
+    all_artifacts = [
+        art
+        for batch in dispatch.get("execution_order", [])
+        for art in batch.get("artifacts", [])
+    ]
+
+    to_skip = {failed_artifact_path}
+    changed = True
+    while changed:
+        changed = False
+        for art in all_artifacts:
+            if art["path"] in to_skip:
+                continue
+            if any(dep in to_skip for dep in art.get("depends_on", [])):
+                to_skip.add(art["path"])
+                changed = True
+
+    skipped = []
+    for art in all_artifacts:
+        if art["path"] in to_skip and art["path"] != failed_artifact_path:
+            write_artifact_status(
+                metadata_dir,
+                art["path"],
+                "skipped",
+                error=f"Dependency failed: {failed_artifact_path}",
+            )
+            skipped.append(art["path"])
 
     return skipped
 
@@ -340,7 +408,7 @@ def skip_dependents(
 # ---------------------------------------------------------------------------
 
 
-def prepare_validation(impl_dir: Path, metadata_dir: Path) -> dict:
+def prepare_validation(impl_dir: Path, metadata_dir: Path, tier: str | None = None) -> dict:
     """Prepare validation context for the validation agent.
 
     Reads the implementation status manifest and collects artifact paths
@@ -359,9 +427,13 @@ def prepare_validation(impl_dir: Path, metadata_dir: Path) -> dict:
 
     manifest: dict[Any, Any] = json.loads(manifest_path.read_text(encoding="utf-8"))
 
+    _impl_prefix = DEFAULT_IMPL_DIR.rstrip("/") + "/"
     # Collect actual file contents status
     for artifact in manifest.get("artifacts", []):
-        file_path = impl_dir / artifact["path"]
+        rel_path = artifact["path"]
+        if rel_path.startswith(_impl_prefix):
+            rel_path = rel_path[len(_impl_prefix):]
+        file_path = impl_dir / rel_path
         artifact["exists"] = file_path.exists()
         if file_path.exists():
             content = file_path.read_text(encoding="utf-8")
@@ -369,5 +441,8 @@ def prepare_validation(impl_dir: Path, metadata_dir: Path) -> dict:
                 "STUB" in content
                 or "TODO: implement" in content.lower()
             )
+
+    if tier is not None:
+        manifest["validation_tier"] = tier
 
     return manifest

@@ -1,3 +1,22 @@
+---
+name: sv-gepa-optimizer
+description: >
+  Population-based evolutionary optimization for Snowflake Semantic Views using
+  Genetic Evaluation and Parameter Adaptation (GEPA). Explores the SV structure
+  space broadly when sequential optimization has stalled.
+triggers:
+  - GEPA
+  - gepa optimizer
+  - evolutionary optimization
+  - population-based sv optimization
+  - sv gepa
+  - hit a wall
+  - plateau
+  - local optimum
+  - broad search
+  - evolutionary search
+---
+
 # sv-gepa-optimizer
 
 Population-based evolutionary optimization for Snowflake Semantic Views using Genetic Evaluation and Parameter Adaptation (GEPA).
@@ -23,7 +42,7 @@ Do NOT use when:
   - `EXECUTE TASK` privilege on the account
   - `CREATE TASK` and `CREATE DATASET` privilege in the schema
   - `MONITOR` privilege on the warehouse
-- `CREATE OR REPLACE SEMANTIC VIEW` privilege (for deploying candidate SVs)
+- `CREATE OR REPLACE SEMANTIC VIEW` privilege (for deploying candidate SVs). Note: if the target SV has materializations, prefer `CREATE OR ALTER SEMANTIC VIEW` (Preview, May 2026) to preserve them — `CREATE OR REPLACE` drops all materializations on every candidate deploy. See `skills/sv-ddl/reference/ddl_syntax.md`. The candidate DDL templates below use `CREATE OR REPLACE`; substitute `CREATE OR ALTER` when materializations exist.
 - Cortex Analyst enabled in the account
 
 ## Configuration
@@ -51,12 +70,11 @@ DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
 Save the output to a local file for the scripts to reference (e.g., `/tmp/gepa_workspace/current_sv.sql`).
 
 ```sql
--- Check baseline score
-SELECT eval_name, mean_score, eval_timestamp
-FROM <DB>.<SCHEMA>._SV_TOOLKIT_META
-WHERE sv_name = '<SV_NAME>'
-  AND entry_type = 'EVAL_HISTORY'
-ORDER BY eval_timestamp DESC
+-- Check baseline score (reads from structured EVAL_HISTORY table written by sv-evaluation)
+SELECT run_name, mean_score, run_timestamp
+FROM <DB>._SV_TOOLKIT_META.EVAL_HISTORY
+WHERE sv_fqn LIKE '%<SV_NAME>%'
+ORDER BY run_timestamp DESC
 LIMIT 5;
 ```
 
@@ -64,23 +82,29 @@ Record the most recent `mean_score` as `baseline_fitness`.
 
 Check if a previous GEPA run was interrupted:
 ```bash
-ls /tmp/gepa_workspace/gepa_state.yaml 2>/dev/null
+ls /tmp/gepa_workspace/gepa_state.json 2>/dev/null
 ```
 
 ### Step 2: Resume or Initialize
 
-**If `gepa_state.yaml` exists → Resume Protocol** (see end of document)
+> **Script path note:** All `scripts/` commands below assume CWD is the toolkit
+> root — the directory containing `SKILL.md` and `scripts/`, wherever you installed
+> it. For example: `cd /path/to/semantic-view-toolkit`.
+> If running from another directory, prefix each script path with the toolkit root,
+> e.g. `python3 <toolkit-root>/scripts/population_state.py`.
+
+**If `gepa_state.json` exists → Resume Protocol** (see end of document)
 
 **If not → Initialize fresh population:**
 
 ```bash
-uvx --with pyyaml python scripts/population_state.py init /tmp/gepa_workspace \
+python3 scripts/population_state.py init /tmp/gepa_workspace \
   --pop-size 6 \
   --agent-name "<DB>.<SCHEMA>.<SV_NAME>" \
   --baseline-fitness <BASELINE_SCORE>
 ```
 
-This creates `gepa_state.yaml` with:
+This creates `gepa_state.json` with:
 - Uniform operator weights (10 operators)
 - Generation counter at 1
 - Convergence counter at 0
@@ -92,15 +116,15 @@ For each candidate slot (1 to `population_size`):
 
 **3a. Select mutation operator:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py select-operator \
-  --weights-file /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/mutate.py select-operator \
+  --weights-file /tmp/gepa_workspace/gepa_state.json
 ```
 
 Returns: `{"operator": "add_synonym", "target_hint": "...", "weight": 0.12}`
 
 **3b. Generate mutation prompt:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py get-prompt <OPERATOR> /tmp/gepa_workspace/current_sv.sql
+python3 scripts/mutate.py get-prompt <OPERATOR> /tmp/gepa_workspace/current_sv.sql
 ```
 
 Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
@@ -110,9 +134,12 @@ Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
 Use the returned prompt with CORTEX.COMPLETE to generate the mutated DDL:
 
 ```sql
--- Use default_agent alias from ~/.snowflake/cortex/vault/LLMs.md (currently claude-sonnet-4-6)
+-- COMPLETE needs a literal model name. Resolve one at runtime: probe candidates
+-- in the quality tier (a larger reasoning model — mutation benefits from it) and
+-- keep the first that returns without a "model unavailable" error. Ask the
+-- operator which models their account has enabled. Do not hardcode a version.
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    'claude-sonnet-4-6',
+    '<COMPLETE_MODEL>',
     '<mutation_prompt_escaped>'
 ) AS mutated_ddl;
 ```
@@ -121,7 +148,7 @@ Save the result to `/tmp/gepa_workspace/candidates/cand_<N>.sql`.
 
 **3d. Validate mutation:**
 ```bash
-uvx --with pyyaml python scripts/mutate.py validate \
+python3 scripts/mutate.py validate \
   /tmp/gepa_workspace/current_sv.sql \
   /tmp/gepa_workspace/candidates/cand_<N>.sql
 ```
@@ -130,8 +157,8 @@ If validation fails (`status: FAIL`), regenerate with the error feedback. Retry 
 
 **3e. Register candidate:**
 ```bash
-uvx --with pyyaml python scripts/population_state.py add-candidate \
-  /tmp/gepa_workspace/gepa_state.yaml \
+python3 scripts/population_state.py add-candidate \
+  /tmp/gepa_workspace/gepa_state.json \
   --id "cand_<N>" \
   --generation 1 \
   --mutations "<OPERATOR>: <brief description of change>"
@@ -184,11 +211,11 @@ Select a stratified subset of VQRs for this generation's evaluation:
 
 ```bash
 # First, extract VQR questions from current SV (pipe as JSON)
-echo '<vqr_json_array>' | uvx --with pyyaml python scripts/sample_batch.py \
+echo '<vqr_json_array>' | python3 scripts/sample_batch.py \
   --from-stdin \
   --batch-pct 0.30 \
   --generation <G> \
-  --history-file /tmp/gepa_workspace/gepa_state.yaml
+  --history-file /tmp/gepa_workspace/gepa_state.json
 ```
 
 Input VQR JSON format:
@@ -203,41 +230,79 @@ The script returns a JSON array of selected question strings and records the bat
 
 ### Step 7: Fire Evaluations
 
-For each candidate, start an AI evaluation using the mini-batch VQRs:
+For each candidate, write the mini-batch eval config to a file, upload to stage, and launch:
+
+```bash
+# Write mini-batch eval config for this candidate
+cat > /tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml << 'EOF'
+evaluation:
+  analyst_params:
+    analyst_name: "<SV_NAME>_GEPA_CAND_<N>"
+    analyst_type: "SEMANTIC VIEW"
+  source_metadata:
+    type: "verified_queries"
+    verified_queries:
+      - "<question_1>"
+      - "<question_2>"
+      # ... (selected mini-batch questions from Step 6)
+
+metrics:
+  - "sql_correctness"
+EOF
+```
 
 ```sql
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<SV_NAME>__gen<G>__cand_<N>',
-    '<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>',
-    $$
-    metrics:
-      - sql_correctness
-    questions:
-      - "What is total revenue?"
-      - "Show top customers by region"
-      ... (selected mini-batch questions)
-    $$
-);
+-- Upload config to eval stage
+PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
+  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
+  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+
+-- Launch evaluation using ANALYST_PREVIEW (the working SV eval path).
+-- EXECUTE_AI_EVALUATION is broken for analyst_type='SEMANTIC VIEW' (error 392700,
+-- as of Jul 2026) — it passes the SV FQN as a string where the internal call needs
+-- a JSON object. Use ANALYST_PREVIEW directly. See references/eval-polling.md
+-- § "ANALYST_PREVIEW Eval Path". The payload MUST be a constant string literal,
+-- not OBJECT_CONSTRUCT (error 001015 otherwise).
+SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
+  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question_from_yaml>"}]}],
+  "semantic_model_file": "@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gen<G>_cand<N>.yaml"
+}');
+-- Repeat per question in the eval config; parse the JSON response to extract
+-- generated SQL and verified_query_used, then score sql_correctness.
 ```
 
 **Naming convention:** `<SV_NAME>__gen<G>__cand_<N>` (double underscore separators)
 
 ### Step 8: Collect Scores
 
-Poll each evaluation for completion (see references/eval-polling.md for pattern):
+There is no async STATUS call with `ANALYST_PREVIEW` (it is synchronous — each call returns the result inline). To evaluate a candidate across N questions, loop: call `ANALYST_PREVIEW` per question, parse the JSON response, accumulate `sql_correctness` scores. See `references/eval-polling.md § Parsing the ANALYST_PREVIEW Response` for the Python extraction pattern.
 
-```sql
--- Check status
-SELECT SNOWFLAKE.CORTEX.GET_AI_EVALUATION_STATUS('<SV_NAME>__gen<G>__cand_<N>') AS status;
+```python
+# Per candidate: run each question through ANALYST_PREVIEW, parse, score
+for question in eval_questions:
+    payload = json.dumps({
+        "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
+        "semantic_model_file": f"@{db}.{schema}.SV_EVAL_CONFIGS/eval_gen{G}_cand{N}.yaml"
+    })
+    # call ANALYST_PREVIEW(payload) via snow sql -q or Python connector, parse JSON, score
 ```
 
-Poll every 30 seconds, max 15 minutes per candidate.
+If `EXECUTE_AI_EVALUATION` is fixed for SV type in the future, the async START/STATUS pattern (documented in `eval-polling.md § Evaluation Lifecycle`) can replace the synchronous loop. Until then, use ANALYST_PREVIEW.
 
-Once COMPLETED, retrieve the fitness score:
+Poll every 30 seconds (if batching via a wrapper), max 15 minutes per candidate.
+
+Once COMPLETED, retrieve the fitness score (use normalized CTE pattern):
 
 ```sql
-SELECT AVG(sql_correctness) AS mean_score
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<SV_NAME>__gen<G>__cand_<N>'));
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>_GEPA_CAND_<N>', 'SEMANTIC VIEW', '<SV_NAME>__gen<G>__cand_<N>'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
+SELECT AVG(EVAL_AGG_SCORE) AS mean_score
+FROM raw;
 ```
 
 Collect all scores into a JSON object:
@@ -257,9 +322,9 @@ Collect all scores into a JSON object:
 ### Step 9: Run Tournament
 
 ```bash
-uvx --with pyyaml python scripts/tournament.py \
+python3 scripts/tournament.py \
   '{"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55, "cand_5": 0.70, "cand_6": 0.68}' \
-  /tmp/gepa_workspace/gepa_state.yaml
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Returns:
@@ -287,8 +352,8 @@ The script automatically:
 
 Remove eliminated candidates from state:
 ```bash
-uvx --with pyyaml python scripts/population_state.py remove-candidates \
-  /tmp/gepa_workspace/gepa_state.yaml \
+python3 scripts/population_state.py remove-candidates \
+  /tmp/gepa_workspace/gepa_state.json \
   --ids "cand_2,cand_4,cand_6"
 ```
 
@@ -307,8 +372,8 @@ Read the `converged` flag from the tournament output.
 
 1. Increment generation:
 ```bash
-uvx --with pyyaml python scripts/population_state.py increment-generation \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py increment-generation \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 2. Fill empty slots by mutating winners:
@@ -322,8 +387,8 @@ uvx --with pyyaml python scripts/population_state.py increment-generation \
 
 Check convergence reason via:
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Proceed to Phase 4.
@@ -337,8 +402,8 @@ Proceed to Phase 4.
 Identify the best candidate (highest fitness across all generations):
 
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 Read the winner's DDL and deploy as the production semantic view:
@@ -353,26 +418,51 @@ CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
 
 Run a complete evaluation using ALL VQRs (not mini-batch):
 
-```sql
-CALL SNOWFLAKE.CORTEX.EXECUTE_AI_EVALUATION(
-    '<SV_NAME>__gepa_final',
-    '<DB>.<SCHEMA>.<SV_NAME>',
-    $$
-    metrics:
-      - sql_correctness
-    $$
-);
+```bash
+# Write final eval config (all VQRs — omit verified_queries list to evaluate all embedded VQRs)
+cat > /tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml << 'EOF'
+evaluation:
+  analyst_params:
+    analyst_name: "<SV_NAME>"
+    analyst_type: "SEMANTIC VIEW"
+  source_metadata:
+    type: "verified_queries"
+
+metrics:
+  - "sql_correctness"
+EOF
 ```
 
-Poll until COMPLETED and retrieve full results:
+```sql
+PUT file:///tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml
+  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
+  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+
+-- Final eval: use ANALYST_PREVIEW (synchronous, per question) — see Step 7/8 and eval-polling.md.
+-- (EXECUTE_AI_EVALUATION is broken for SV type, error 392700.)
+SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
+  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question>"}]}],
+  "semantic_model_file": "@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gepa_final.yaml"
+}');
+-- Loop over all questions, parse responses, accumulate sql_correctness.
+```
+
+Retrieve full results (use normalized CTE pattern — note: GET_ANALYST_AI_EVALUATION_DATA requires an eval run recorded under a run_name; with ANALYST_PREVIEW you aggregate scores in your driver script instead):
 
 ```sql
+WITH raw AS (
+  SELECT EVAL_AGG_SCORE
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<SV_NAME>__gepa_final'
+  ))
+  WHERE METRIC_NAME = 'sql_correctness'
+)
 SELECT
-    AVG(sql_correctness) AS mean_score,
+    AVG(EVAL_AGG_SCORE) AS mean_score,
     COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN sql_correctness = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN sql_correctness = 0.0 THEN 1 ELSE 0 END) AS failed_count
-FROM TABLE(SNOWFLAKE.CORTEX.GET_ANALYST_AI_EVALUATION_DATA('<SV_NAME>__gepa_final'));
+    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
+    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count
+FROM raw;
 ```
 
 ### Step 14: Accept/Reject
@@ -399,21 +489,20 @@ CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
 Record the GEPA run results:
 
 ```sql
-INSERT INTO <DB>.<SCHEMA>._SV_TOOLKIT_META (sv_name, entry_type, entry_data, entry_timestamp)
-SELECT
-    '<SV_NAME>',
-    'GEPA_RUN',
-    PARSE_JSON('{
-        "status": "<ACCEPTED|REJECTED|CONVERGED|FAILED>",
-        "generations": <G>,
-        "baseline_fitness": <BASELINE>,
-        "final_fitness": <FINAL_SCORE>,
-        "best_candidate": "<cand_id>",
-        "best_operator": "<winning_operator>",
-        "convergence_reason": "<reason>",
-        "operator_weights_final": <weights_json>
-    }'),
-    CURRENT_TIMESTAMP();
+-- Record final GEPA result in structured EVAL_HISTORY (matches sv-evaluation write schema)
+-- config_yaml carries GEPA-specific metadata as a serialized string
+INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_HISTORY
+    (run_name, sv_fqn, total_vqrs, mean_score, perfect_count, failed_count, regressions, config_yaml)
+VALUES (
+    CONCAT('<SV_NAME>', '_gepa_', TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD_HH24MISS')),
+    '<DB>.<SCHEMA>.<SV_NAME>',
+    <TOTAL_VQRS>,
+    <FINAL_SCORE>,
+    <PERFECT_COUNT>,
+    <FAILED_COUNT>,
+    <REGRESSIONS>,
+    '{"source":"gepa","status":"<ACCEPTED|REJECTED|CONVERGED|FAILED>","generations":<G>,"baseline_fitness":<BASELINE>,"best_candidate":"<cand_id>","best_operator":"<winning_operator>","convergence_reason":"<reason>","operator_weights_final":<weights_json>}'
+);
 ```
 
 Drop all remaining candidate SVs:
@@ -451,12 +540,12 @@ Report final summary:
 
 ## Resume Protocol
 
-If `gepa_state.yaml` exists when starting the skill:
+If `gepa_state.json` exists when starting the skill:
 
 ### Step 1: Read State
 ```bash
-uvx --with pyyaml python scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.yaml
+python3 scripts/population_state.py get-status \
+  /tmp/gepa_workspace/gepa_state.json
 ```
 
 ### Step 2: Check Environment
@@ -509,7 +598,7 @@ Report:
 ```
 Cleaned up:
 - Dropped N candidate semantic views
-- Removed gepa_state.yaml and workspace
+- Removed gepa_state.json and workspace
 ```
 
 ---
@@ -519,8 +608,8 @@ Cleaned up:
 | Aspect | Agent GEPA | SV GEPA (this skill) |
 |--------|-----------|----------------------|
 | Target | Agent instructions (YAML) | Semantic View DDL |
-| Deploy | `CREATE OR REPLACE CORTEX AGENT` | `CREATE OR REPLACE SEMANTIC VIEW ..._GEPA_CAND_<N>` |
-| Eval Function | `EXECUTE_AI_EVALUATION` (agent type) | `EXECUTE_AI_EVALUATION` (analyst type) |
+| Deploy | `CREATE OR REPLACE CORTEX AGENT` | `CREATE OR ALTER SEMANTIC VIEW ..._GEPA_CAND_<N>` (CREATE OR ALTER preserves materializations) |
+| Eval Function | `EXECUTE_AI_EVALUATION` (agent type) | `SNOWFLAKE.CORTEX.ANALYST_PREVIEW` (SV type — `EXECUTE_AI_EVALUATION` is broken for SV, error 392700) |
 | Results Function | `GET_AI_EVALUATION_DATA` | `GET_ANALYST_AI_EVALUATION_DATA` |
 | Metrics | 4 agent metrics | `sql_correctness` only |
 | Mutations | Agent instruction rewrites | SV DDL operators (synonym, description, metric, etc.) |

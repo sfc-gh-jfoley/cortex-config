@@ -151,7 +151,7 @@ WITH query_tables AS (
     FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY ah,
         LATERAL FLATTEN(input => ah.BASE_OBJECTS_ACCESSED) obj
     WHERE ah.QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-        AND obj.value:objectDomain::STRING = 'Table'
+        AND obj.value:objectDomain::STRING IN ('Table', 'View', 'DynamicTable')
         AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
 )
 SELECT
@@ -197,7 +197,7 @@ FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY,
     LATERAL FLATTEN(input => BASE_OBJECTS_ACCESSED) obj,
     LATERAL FLATTEN(input => obj.value:columns) col
 WHERE QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-    AND obj.value:objectDomain::STRING = 'Table'
+    AND obj.value:objectDomain::STRING IN ('Table', 'View', 'DynamicTable')
     AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
 GROUP BY 1, 2
 ORDER BY access_count DESC

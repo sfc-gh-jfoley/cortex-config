@@ -27,6 +27,8 @@ Use this skill when:
 
 **VQRs are the foundation of SV evaluation and optimization.** Without them, sv-evaluation and sv-optimization cannot run.
 
+**Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
+
 ---
 
 ## Workflow
@@ -40,7 +42,7 @@ Phase 3: Synthesize Candidates      → generate question + SQL pairs
     ↓
 Phase 4: Validate                   → execute each candidate SQL, verify it works
     ↓ [STOP: user approves candidates]
-Phase 5: Apply                      → ALTER SEMANTIC VIEW to add VQRs
+Phase 5: Apply                      → CREATE OR ALTER SEMANTIC VIEW with new VQRs
 ```
 
 ---
@@ -126,21 +128,26 @@ For each pattern type, generate 2-3 VQR candidates:
 ### VQR Format
 
 ```sql
--- VQR must use LOGICAL column names from the SV, not physical names
--- Use table aliases as defined in the SV TABLES clause (e.g., orders, not __orders)
-SELECT SUM(revenue) AS total_revenue
-FROM orders
-WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01';
+-- VQR SQL must use LOGICAL column names (the SV's AS aliases), not physical column names.
+-- VQR SQL table references MUST use the __ prefix on the logical table alias
+-- (e.g., FROM __orders, not FROM orders). The Snowsight UI adds the prefix
+-- automatically; raw DDL and CREATE OR ALTER do NOT. Columns stay plain (no __).
+SELECT SUM(O_TOTALPRICE) AS total_revenue
+FROM __orders
+WHERE O_ORDERDATE >= '2024-01-01' AND O_ORDERDATE < '2025-01-01';
 ```
 
 ### Generation rules
 
-1. **Use logical names**: Column names as defined in the SV (the `AS` alias), not physical column names
-2. **Use SV table aliases**: Use the logical table alias directly as defined in the SV TABLES clause (e.g., `FROM orders`, not `FROM __orders`). Do not add any prefix to table names.
+1. **Use logical column names**: Column names as defined in the SV (the `AS` alias), not physical column names. Columns stay plain — no `__` prefix on columns.
+2. **Use `__`-prefixed logical table names**: Table references in VQR SQL should use the `__` prefix (e.g., `FROM __orders`). This is the spec-compliant form. Bare logical names (e.g., `FROM orders`) also bind and trigger correctly — tested empirically Aug 2026 — but FQN references (`FROM PROD_DB.PUBLIC.ORDERS`) will NOT bind. Prefer `__` for clarity and forward-compatibility. The Snowsight UI adds `__` automatically; raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`) stores VQR SQL verbatim, so explicitly include it.
 3. **Use absolute dates**: Never `CURRENT_DATE` or relative dates — always fixed dates for reproducibility
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
 5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
-6. **Match SV metrics**: If the SV defines `total_revenue = SUM(amount)`, use `total_revenue` in the VQR, not `SUM(amount)`
+6. **Alias output to metric name, aggregate the physical column**: If the SV defines `total_revenue = SUM(amount)`, write `SUM(amount) AS total_revenue` in the VQR — NOT `SUM(total_revenue)`. Metric names are not columns; referencing them inside an aggregate creates SQL that the engine expands into a broken CTE (`TOTAL_REVENUE` invalid identifier). The pattern is always `SUM(<physical_col>) AS <metric_name>`. See the code example above.
+7. **Validate filter alignment**: If VQR SQL aggregates a raw column (e.g., `SUM(sales_exc_tax_usd)`) rather than a logical metric name, verify the SQL applies the same `CASE WHEN` or `WHERE` filter used in the metric definition. If `TOTAL_NET_REVENUE_USD` is defined as `SUM(CASE WHEN REFUNDED_IND = 0 THEN SALES_EXC_TAX_USD ELSE 0 END)`, the VQR SQL must include the same filter.
+8. **Cross-VQR filter consistency**: If any existing VQR for the same metric already applies a filter (e.g., `refunded_ind = 0`), all new VQRs targeting that metric must apply the same filter. Inconsistent filter coverage creates contradictory ground truth.
+9. **No subquery SQL**: Cortex Analyst cannot generate subquery-based semantic queries (`WHERE col IN (SELECT ...)`, `WHERE EXISTS (SELECT ...)`, DIMENSIONS ad-hoc subquery expressions). VQR SQL containing subqueries creates a benchmark Analyst can structurally never match, permanently poisoning the eval baseline. If cross-filtering against another table is needed, add that table as an SV relationship and express the filter as a JOIN-based dimension condition instead.
 
 ### Present candidates
 
@@ -170,6 +177,8 @@ Check:
 - ✓ Returns non-empty results
 - ✓ Results are reasonable (not NULL, not obviously wrong)
 - ✓ Uses correct logical column names from SV definition
+- ✓ If VQR SQL uses raw column aggregation (not a logical metric name), the aggregate applies the same filter as the corresponding metric definition
+- ✓ Filter logic is consistent with all other VQRs that test the same metric (no VQR applies the filter while a new one omits it)
 
 Mark each candidate: VALID / INVALID / NEEDS_FIX
 

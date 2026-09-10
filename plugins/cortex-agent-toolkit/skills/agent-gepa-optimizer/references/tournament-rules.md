@@ -79,7 +79,7 @@ if count(candidates sharing same original_parent) > ceil(pop_size * 0.5):
 2. Replace them with **random-restart candidates**: fresh mutations applied directly to the BASELINE instructions (not to any evolved candidate)
 3. Random-restart candidates use 2 mutations (instead of the usual 1-2) to differentiate them further from the baseline
 
-**Lineage tracking:** Each candidate records `original_parent` (the generation-0 candidate it descends from) in gepa_state.yaml. Random-restart candidates get a new unique `original_parent` ID.
+**Lineage tracking:** Each candidate records `original_parent` (the generation-0 candidate it descends from) in gepa_state.json. Random-restart candidates get a new unique `original_parent` ID.
 
 ## Generation Lifecycle
 
@@ -104,7 +104,7 @@ Every candidate's fitness is also compared against the **baseline fitness** (the
 
 - Candidates scoring BELOW baseline are flagged but NOT automatically eliminated (they may recover via mutation in the next generation)
 - If ALL candidates score below baseline for 2 consecutive generations → trigger failure mode (see gepa-convergence-criteria.md)
-- The baseline score is stored in gepa_state.yaml as `baseline_fitness` and never updated during GEPA execution
+- The baseline score is stored in gepa_state.json as `baseline_fitness` and never updated during GEPA execution
 
 ## Summary
 

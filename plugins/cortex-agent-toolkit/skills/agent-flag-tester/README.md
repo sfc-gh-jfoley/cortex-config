@@ -32,7 +32,8 @@ Creates model comparison variants (_MODEL_A/B/C) and optional conditional flag v
 ## Install
 
 ```bash
-cortex plugin install sfc-gh-jfoley/cortex-agent-toolkit
+# Install from your local copy of the toolkit:
+cortex plugin install /path/to/cortex-agent-toolkit
 ```
 
 Then open Cortex Code and say:

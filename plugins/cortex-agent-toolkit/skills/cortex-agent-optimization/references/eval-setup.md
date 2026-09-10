@@ -117,6 +117,7 @@ metrics:
 - `answer_correctness` — factual accuracy of the agent's response vs ground truth. Graded 0/0.33/0.67/1.0. Can penalize formatting differences.
 - `logical_consistency` — whether the agent's reasoning and tool usage is logically sound. Reference-free.
 - `factual_correctness_verdict` — binary (0 or 1) factual correctness that ignores formatting. Provides an explanation of WHY in `METRIC_CALLS[0]:explanation`. Use this as the authoritative correctness signal; use `answer_correctness` for trend tracking only.
+- `tool_selection_accuracy` — **custom metric** (replaces the deprecated built-in). Evaluates whether the agent selected the correct tool(s) in the correct sequence. Scored 0-10. See `eval-config-template.yaml` in agent-flag-tester references for the prompt definition. Include in YAML as a named custom metric block, not as a bare string.
 
 ## Correctness Comparison View
 

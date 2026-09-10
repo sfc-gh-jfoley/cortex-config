@@ -132,6 +132,6 @@ These rules are embedded in Phase 5's self-check. Reference [reference/agent_spe
 | Multi-agent routing — master agent dispatches to sub-agents | **This skill** (router path — Phase 1 Step 1.0.5 → Phase 2 Step 2.0) |
 | Formal evaluation with ground-truth dataset | Bundled `cortex-agent` → evaluate/dataset sub-skills |
 | Debug specific query or SI request ID | Bundled `cortex-agent` → debug sub-skill |
-| 3-variant flag comparison (BASE/AGENTIC/FASTPATH_OFF) | `agent-flag-tester` |
+| Model/flag variant comparison | `agent-flag-tester` |
 | Iterative improvement loop with DEV/TEST split | `cortex-agent-optimization` |
 | Experimental flags reference (EnableAgenticAnalyst etc.) | `cortex-agent-flags` |

@@ -6,6 +6,7 @@ actionable report identifying divergence, staleness, and coverage gaps.
 
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,19 +60,23 @@ def _get_spec_modules(project_root: Path) -> list[dict]:
     return modules
 
 
+_IMPL_EXTENSIONS = {".py", ".sql", ".yaml", ".yml", ".js", ".ts"}
+
+
 def _get_implementation_files(project_root: Path) -> list[Path]:
     """Scan protected directories for implementation files.
 
-    Returns all .py files found under the configured protected directories.
+    Recognised extensions: .py, .sql, .yaml, .yml, .js, .ts (per EXT-126 ratified scope).
+    Returns all matching files found under the configured protected directories.
     """
     impl_files: list[Path] = []
     for dirname in DEFAULT_PROTECTED_DIRS:
         search_dir = project_root / dirname
         if search_dir.is_dir():
-            for filepath in sorted(search_dir.rglob("*.py")):
-                if filepath.name.startswith("__"):
-                    continue
-                impl_files.append(filepath)
+            for filepath in sorted(search_dir.rglob("*")):
+                if filepath.is_file() and filepath.suffix in _IMPL_EXTENSIONS:
+                    if not filepath.name.startswith("__"):
+                        impl_files.append(filepath)
     return impl_files
 
 
@@ -144,9 +149,21 @@ def _check_post_signoff_changes(
                 )
                 last_mod = date_result.stdout.strip() if date_result.returncode == 0 else "unknown"
                 changed.append({"file": str(rel_path), "last_modified": last_mod})
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            # git not available or timed out -- skip silently
-            return []
+        except FileNotFoundError:
+            return []  # git not installed; no point continuing
+        except subprocess.TimeoutExpired:
+            print(
+                f"Warning: git log timed out for {rel_path}; "
+                "post-signoff drift check skipped for this file.",
+                file=sys.stderr,
+            )
+            continue
+        except OSError as exc:
+            print(
+                f"Warning: OS error checking {rel_path} for post-signoff drift ({exc}); skipping.",
+                file=sys.stderr,
+            )
+            continue
 
     return changed
 
@@ -224,25 +241,31 @@ def _format_report_markdown(
     return "\n".join(lines)
 
 
+def _flatten_drift_findings(
+    divergences: list[dict],
+    staleness: list[dict],
+    gaps: list[dict],
+) -> list[dict]:
+    """Flatten the three drift category lists into a single findings list."""
+    findings: list[dict] = []
+    for item in divergences:
+        findings.append({"category": "divergence", **item})
+    for item in staleness:
+        findings.append({"category": "staleness", **item})
+    for item in gaps:
+        findings.append({"category": "coverage_gap", **item})
+    return findings
+
+
 def _format_report_json(
     divergences: list[dict],
     staleness: list[dict],
     gaps: list[dict],
 ) -> str:
-    """Format drift findings as a JSON string."""
-    report = {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "divergences": divergences,
-        "staleness": staleness,
-        "coverage_gaps": gaps,
-        "summary": {
-            "divergence_count": len(divergences),
-            "staleness_count": len(staleness),
-            "gap_count": len(gaps),
-            "total_issues": len(divergences) + len(staleness) + len(gaps),
-        },
-    }
-    return json.dumps(report, indent=2, default=str)
+    """Format drift findings as a DiagnosticEnvelope JSON string."""
+    from specbuilder.src.diagnostic_schema import wrap_findings
+    flat = _flatten_drift_findings(divergences, staleness, gaps)
+    return json.dumps(wrap_findings("detect-drift", flat), indent=2, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +341,11 @@ def detect_drift(
 
         # Post-sign-off modification check (only for accepted/implemented with files)
         if check_git_history and status in ("accepted", "implemented") and matched_files:
-            # Use last_updated as a proxy for sign-off date
+            # NOTE: last_updated is set by sign_off() to date.today() during frontmatter update.
+            # It is NOT a reliable sign-off timestamp: if last_updated was modified during a spec
+            # edit (not sign-off), post-edit implementation changes will be incorrectly flagged.
+            # If last_updated is absent, this check is silently skipped
+            # (see signoff_date guard below).
             signoff_date = str(mod["last_updated"]) if mod["last_updated"] else ""
             if signoff_date:
                 post_changes = _check_post_signoff_changes(root, matched_files, signoff_date)
@@ -417,7 +444,9 @@ def detect_drift(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point for detect-drift command."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Detect drift between specs and implementation.")
@@ -442,8 +471,15 @@ if __name__ == "__main__":
         dest="output_format",
         help="Output format (default: markdown)",
     )
+    parser.add_argument(
+        "--fail-on",
+        choices=["high", "medium", "low"],
+        default=None,
+        dest="fail_on",
+        help="Exit 1 if any finding is at or above this severity level.",
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     report = detect_drift(
         staleness_days=args.staleness_days,
@@ -451,3 +487,25 @@ if __name__ == "__main__":
         output_format=args.output_format,
     )
     print(report)
+
+    if args.fail_on:
+        _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+        threshold_rank = _SEVERITY_RANK[args.fail_on]
+        json_report = (
+            report
+            if args.output_format == "json"
+            else detect_drift(
+                staleness_days=args.staleness_days,
+                check_git_history=not args.no_git,
+                output_format="json",
+            )
+        )
+        data = json.loads(json_report)
+        for finding in data.get("findings", []):
+            sev = finding.get("severity", "").lower()
+            if sev in _SEVERITY_RANK and _SEVERITY_RANK[sev] <= threshold_rank:
+                sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

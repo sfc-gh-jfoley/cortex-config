@@ -62,7 +62,7 @@ Phase 3: Classify Columns           → FACT / DIMENSION / TIME_DIMENSION / METR
     ↓
 Phase 4: Relationship Detection     → FK pattern matching + cardinality validation
     ↓
-Phase 5: Generate DDL               → BUILD + self-check (23 checks verified)
+Phase 5: Generate DDL               → BUILD + self-check (27 checks verified)
     ↓ [STOP: user approves DDL]
 Phase 6: Execute & Validate         → run DDL → DESCRIBE → self-test question loop
     ↓
@@ -74,6 +74,8 @@ Phase 8: Drift Monitor (optional)   → scheduled weekly/monthly health check
 ```
 
 **Stopping points**: Phases 1, 2, 5, 6, 7 each have a mandatory user approval gate.
+
+**Size guardrail (~100K tokens):** In Phase 5, after generating the DDL, estimate the serialized SV size (~1 token per ~4 chars of DDL including all descriptions, metrics, and VQR SQL). If the SV exceeds ~100,000 tokens, warn the author: Cortex Agents may prune the SV to fit the context window, adding latency and reducing answer quality. Recommend splitting along sub-domain boundaries into multiple SVs (Cortex Agents selects the relevant one per question) or trimming non-business-relevant columns. See `sv-discovery` for the split guidance. This is a guideline, not a hard limit.
 
 ---
 
@@ -99,13 +101,12 @@ To begin, load Phase 1:
 | 8 | [phases/08_drift_monitor.md](phases/08_drift_monitor.md) | Periodic drift detection + scheduled maintenance |
 
 **Reference**: [reference/ddl_syntax.md](reference/ddl_syntax.md) — complete DDL syntax, all grammar rules, error cheat sheet.
-> ⚠️ The plugin-level `references/ddl-syntax.md` is deprecated (wrong grammar). Use only `reference/ddl_syntax.md` within this skill directory.
 
 ---
 
 ## Key Design Principles
 
-1. **Self-checking at every phase**: Phase 5 runs 23 checks (18 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
+1. **Self-checking at every phase**: Phase 5 runs 27 checks (22 syntax + 5 semantic correctness) before showing DDL to the user. Phase 6 validates against DESCRIBE output and runs sample questions.
 
 2. **Iterative loop**: Phases 5-6 loop until passing. The agent fixes its own DDL based on structured error output — no copy-paste debugging.
 
@@ -119,15 +120,17 @@ To begin, load Phase 1:
 
 ## Critical DDL Rules (always active)
 
-These rules are embedded in Phase 5's self-check. Reference `references/ddl-syntax.md` for the full list.
+These rules are embedded in Phase 5's self-check. Reference `reference/ddl_syntax.md` for the full list.
 
 | Rule | |
 |------|-|
-| Clause order is mandatory | TABLES → RELATIONSHIPS → FACTS → DIMENSIONS → METRICS |
-| Direct column alias must match physical name | `AS col_name` must equal the physical column name exactly |
-| Duplicate column names across tables | Define from one table only |
+| Clause order is mandatory | TABLES → VARIABLES → RELATIONSHIPS → FACTS → DIMENSIONS → METRICS (VARIABLES after TABLES, not before) |
+| Direct column alias must match physical name when column exists in multiple entities | For columns whose name appears in more than one table in the SV (local or imported), alias must equal the physical column name exactly. Custom aliases work when the column name is unique across all entities. Exception: `DAYPART_IDX` from `CONTENT.CONTENT_TAXONOMY` requires alias = physical in all SVs — root cause unknown. |
+| Duplicate column names across tables | Define from one table only. If a column name is already an imported dimension, the local table's same-named column cannot be exposed under any alias — omit it entirely. |
+| IS_ENUM must be the last dimension modifier | Nothing can follow IS_ENUM — `IS_ENUM COMMENT = '...'` is a hard syntax error. Put COMMENT before IS_ENUM or omit it on that dimension. |
 | REFERENCES table needs PRIMARY KEY or UNIQUE | Right-hand side of all relationships |
 | Multiple relationship paths → use USING | Disambiguate on affected metrics |
+| VARIABLES syntax: no `AS` keyword | `var_name TYPE DEFAULT value` — not `var_name AS TYPE = value` |
 
 ---
 

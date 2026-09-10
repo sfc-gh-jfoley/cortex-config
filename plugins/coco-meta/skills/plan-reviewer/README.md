@@ -32,7 +32,7 @@ Use the plan-reviewer skill.
 target_file: plans/IMPROVE_RULE_LOADING.md
 review_date: 2025-12-16
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **COMPARISON mode (multiple plans):**
@@ -44,7 +44,7 @@ target_files: [plans/plan-a.md, plans/plan-b.md]
 task_description: Implement user authentication
 review_date: 2025-12-16
 review_mode: COMPARISON
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **META-REVIEW mode (review consistency):**
@@ -56,7 +56,7 @@ review_files: [reviews/plan-X-sonnet-2025-12-16.md, reviews/plan-X-gpt-2025-12-1
 original_document: plans/X.md
 review_date: 2025-12-16
 review_mode: META-REVIEW
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 **DELTA mode (track issue resolution):**
@@ -65,10 +65,10 @@ model: claude-sonnet-45
 Use the plan-reviewer skill.
 
 target_file: plans/IMPROVE_RULE_LOADING.md
-baseline_review: reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-45-2025-12-01.md
+baseline_review: reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-4-6-2025-12-01.md
 review_date: 2025-12-16
 review_mode: DELTA
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 ```
 
 ### Step 3: Verify Output
@@ -77,16 +77,16 @@ Check the generated review file:
 
 ```bash
 # FULL mode
-ls reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-45-2025-12-16.md
+ls reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-4-6-2025-12-16.md
 
 # COMPARISON mode
-ls reviews/summaries/_comparison-<plan-set-id>-claude-sonnet-45-2025-12-16.md
+ls reviews/summaries/_comparison-<plan-set-id>-claude-sonnet-4-6-2025-12-16.md
 
 # META-REVIEW mode
 ls reviews/summaries/_meta-IMPROVE_RULE_LOADING-2025-12-16.md
 
 # DELTA mode
-ls reviews/plan-reviews/IMPROVE_RULE_LOADING-delta-2025-12-01-to-2025-12-16-claude-sonnet-45.md
+ls reviews/plan-reviews/IMPROVE_RULE_LOADING-delta-2025-12-01-to-2025-12-16-claude-sonnet-4-6.md
 ```
 
 ## Execution Timing
@@ -99,7 +99,7 @@ Use the plan-reviewer skill.
 target_file: plans/IMPROVE_RULE_LOADING.md
 review_date: 2025-12-16
 review_mode: FULL
-model: claude-sonnet-45
+model: claude-sonnet-4-6
 timing_enabled: true
 ```
 
@@ -117,7 +117,7 @@ When enabled, the output includes:
 |--------|-------|
 | Run ID | `a1b2c3d4e5f67890` |
 | Duration | 4m 15s (255.5s) |
-| Model | claude-sonnet-45 |
+| Model | claude-sonnet-4-6 |
 | Tokens | 18,200 (13,500 in / 4,700 out) |
 | Cost | ~$0.05 |
 ```
@@ -236,10 +236,10 @@ On success:
 ```text
 ✓ Review complete
 
-OUTPUT_FILE: reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-45-2025-12-16.md
+OUTPUT_FILE: reviews/plan-reviews/IMPROVE_RULE_LOADING-claude-sonnet-4-6-2025-12-16.md
 Target: plans/IMPROVE_RULE_LOADING.md
 Mode: FULL
-Model: claude-sonnet-45
+Model: claude-sonnet-4-6
 
 Summary:
 - Executability: 16/20
@@ -281,7 +281,7 @@ Use META-REVIEW mode after multiple LLMs review the same document:
 
 ```text
 review_files: [
-  reviews/plan-reviews/X-claude-sonnet-45-2025-12-16.md,
+  reviews/plan-reviews/X-claude-sonnet-4-6-2025-12-16.md,
   reviews/plan-reviews/X-gpt-52-2025-12-16.md,
   reviews/plan-reviews/X-claude-opus45-2025-12-16.md
 ]
@@ -294,7 +294,7 @@ Use DELTA mode after applying fixes from a prior review:
 
 ```text
 target_file: plans/X.md
-baseline_review: reviews/plan-reviews/X-claude-sonnet-45-2025-12-01.md
+baseline_review: reviews/plan-reviews/X-claude-sonnet-4-6-2025-12-01.md
 review_date: 2025-12-16
 review_mode: DELTA
 ```

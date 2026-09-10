@@ -2,7 +2,7 @@
 
 Parses the "Existing Environment" section from INTAKE.md, generates
 validation queries for declared Snowflake objects, and caches results
-for template enrichment and sign-off drift detection.
+for template enrichment in the generate-spec template path.
 """
 
 from __future__ import annotations
@@ -18,8 +18,6 @@ from specbuilder.src.config import DEFAULT_SPECBUILDER_META_DIR
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-ENVIRONMENT_CACHE_FILE = "environment.json"
 
 EXISTENCE_QUERIES: dict[str, str] = {
     "database": "SHOW DATABASES LIKE '{name}'",
@@ -197,7 +195,7 @@ def cache_results(project_root: Path, results: dict) -> Path:
     """
     cache_dir = project_root / DEFAULT_SPECBUILDER_META_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = cache_dir / ENVIRONMENT_CACHE_FILE
+    cache_path = cache_dir / "environment.json"
 
     payload = {
         "validated_at": datetime.now(timezone.utc).isoformat(),
@@ -216,7 +214,7 @@ def load_cached_results(project_root: Path) -> dict | None:
 
     Returns the parsed JSON dict or None if cache doesn't exist.
     """
-    cache_path = project_root / DEFAULT_SPECBUILDER_META_DIR / ENVIRONMENT_CACHE_FILE
+    cache_path = project_root / DEFAULT_SPECBUILDER_META_DIR / "environment.json"
     if not cache_path.exists():
         return None
 

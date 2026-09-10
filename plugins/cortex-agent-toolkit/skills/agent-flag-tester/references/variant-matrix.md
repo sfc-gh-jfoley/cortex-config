@@ -4,11 +4,13 @@
 
 Always applicable — run for any agent regardless of features configured.
 
+> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md` before building variant specs.
+
 | Variant Suffix | Spec change | Description |
 |---|---|---|
-| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — current recommended default |
-| `_MODEL_B` | `models.orchestration: openai-gpt-5` | Cross-family comparison (OpenAI vs Claude) |
-| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized option |
+| `_MODEL_A` | `models.orchestration: claude-sonnet-4-6` | Baseline — balanced tier |
+| `_MODEL_B` | `models.orchestration: openai-gpt-5.2` | Cross-family comparison — OpenAI heavy tier |
+| `_MODEL_C` | `models.orchestration: claude-haiku-4-5` | Latency-optimized — fast tier |
 
 ## Conditional Sweep: Flags
 
@@ -37,33 +39,36 @@ All variants **must** be in the same schema as the eval dataset (co-location con
 
 ## Variant Creation SQL
 
-For model comparison variants, clone the original agent spec and change `models.orchestration`:
+For model comparison variants, clone the original agent spec and change `models.orchestration`.
+
+> **Resolve aliases first:** Read `reference/agent_spec_syntax.md` (Valid Model Names) to get the current value for
+> the model table before writing the literal model name into the SQL.
 
 ```sql
--- MODEL_A: current recommended default
+-- MODEL_A: balanced tier (see reference/agent_spec_syntax.md for current options)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_A
 FROM SPECIFICATION $$
 {
   ... original spec ...,
-  "models": {"orchestration": "claude-sonnet-4-6"}
+  "models": {"orchestration": "<resolved current_sonnet>"}
 }
 $$;
 
--- MODEL_B: cross-family comparison
+-- MODEL_B: OpenAI heavy tier (see reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_B
 FROM SPECIFICATION $$
 {
   ... original spec ...,
-  "models": {"orchestration": "openai-gpt-5"}
+  "models": {"orchestration": "<resolved openai_heavy>"}
 }
 $$;
 
--- MODEL_C: latency-optimized
+-- MODEL_C: fast tier (see reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_C
 FROM SPECIFICATION $$
 {
   ... original spec ...,
-  "models": {"orchestration": "claude-haiku-4-5"}
+  "models": {"orchestration": "<resolved fast_agent>"}
 }
 $$;
 ```

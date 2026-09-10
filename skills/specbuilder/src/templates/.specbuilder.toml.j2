@@ -2,6 +2,9 @@
 
 [project]
 name = "{{ project_name }}"
+mode = "{{ mode }}"
+spec_dir = "{{ spec_dir }}"
+protected_dirs = {{ protected_dirs | tojson }}
 
 [quality]
-profile = "production"
+profile = "{{ mode }}"
