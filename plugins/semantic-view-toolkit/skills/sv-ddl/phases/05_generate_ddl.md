@@ -22,6 +22,45 @@ If no `filter_candidate: true` columns exist, skip this step entirely.
 
 ---
 
+## Step 5.0.7: Apply Snippet Pattern Candidates
+
+If `SNIPPET_PATTERN_CANDIDATES` (from Phase 3, Step 3.1.4) is non-empty, apply
+the corresponding DDL constructs before building each clause. Read the full DDL
+key for each matched pattern in `../reference/../../../references/sv-snippet-patterns.md`.
+
+| Pattern in SNIPPET_PATTERN_CANDIDATES | Where it affects DDL |
+|----------------------------------------|---------------------|
+| `range_join` | TABLES (CONSTRAINT DISTINCT RANGE), RELATIONSHIPS (BETWEEN...EXCLUSIVE) |
+| `asof_join` | TABLES (UNIQUE on entity+date), RELATIONSHIPS (ASOF) |
+| `accumulating_snapshot` | RELATIONSHIPS (multiple paths to date_dim), METRICS (USING per stage) |
+| `role_playing_dimensions` | TABLES (double alias), DIMENSIONS (unique logical names per role) |
+| `multi_path_metrics` | RELATIONSHIPS (two paths to same table), METRICS (USING per metric) |
+| `semi_additive_metric` | METRICS (NON ADDITIVE BY + separate AVG metric) |
+| `time_intelligence` | TABLES (role aliases), FACTS (shifted join key), RELATIONSHIPS, METRICS |
+| `window_metrics` | METRICS (window function syntax) — also check FACTS gotcha |
+| `entity_facts` | FACTS (PRIVATE entity-level aggregate), DIMENSIONS (derived from PRIVATE) |
+| `fact_as_relationship_key` | FACTS (computed scalar expression), RELATIONSHIPS (REFERENCES using fact) |
+| `shared_degenerate_dimension` | TABLES (UNION view alias with UNIQUE), RELATIONSHIPS (from each fact) |
+| `derived_metrics` | METRICS (no-prefix derived metric, right-hand entity refs) |
+| `variables` | VARIABLES clause before TABLES |
+| `ai_metadata` | AI_SQL_GENERATION + AI_QUESTION_CATEGORIZATION + AI_VERIFIED_QUERIES |
+| `tags` | WITH TAG on relevant metrics |
+| `row_access_policies` | Warning: apply RAP to fact table, not dim — add note to user |
+| `caller_rights` | Warning: note the owner-with-no-table-access RBAC pattern needed |
+| `scoped_dataset` | TABLES AS (SELECT ... WHERE ...) — add Private Preview guard |
+| `materialization` | Note: MAX_STALENESS + GRANT + ADD MATERIALIZATION — add Private Preview guard |
+
+For each MATCH, add a brief annotation in the DDL comment:
+```sql
+-- Pattern: range_join — DISTINCT RANGE handles SCD2 history
+customer_segments AS DB.SCHEMA.CUSTOMER_SEGMENTS
+  PRIMARY KEY (SEGMENT_ID)
+  UNIQUE (CUSTOMER_ID, VALID_FROM, VALID_TO)
+  CONSTRAINT segment_period DISTINCT RANGE BETWEEN VALID_FROM AND VALID_TO EXCLUSIVE
+```
+
+---
+
 ## Step 5.1: Build the TABLES clause
 
 For each table in `SOURCE_OBJECTS`, generate the table entry.

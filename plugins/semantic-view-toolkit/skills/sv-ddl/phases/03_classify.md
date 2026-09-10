@@ -113,6 +113,30 @@ Propose sensible metrics based on `BUSINESS_CONTEXT` and the available FACT colu
 
 ---
 
+## Step 3.1.4: Snippet Pattern Suggestion
+
+After heuristic classification is complete (Step 3.1), and before temporal detection,
+run the snippet pattern scorer from `../../../skills/sv-snippet-suggester/SKILL.md`
+against the collected signals (column names, table comments, BUSINESS_CONTEXT).
+
+Read `../../../references/sv-snippet-patterns.md` and check each pattern's detection signals.
+
+**Action:** Surface any MATCH or POSSIBLE patterns in the classification table output:
+
+```
+⚡ Detected Patterns (based on schema signals):
+  [HIGH] semi_additive_metric — BALANCE_USD + BALANCE_DATE suggest snapshot data
+         → will add NON ADDITIVE BY review in Phase 5
+  [HIGH] range_join — VALID_FROM + VALID_TO on CUSTOMER_SEGMENTS
+         → will add CONSTRAINT DISTINCT RANGE in Phase 5
+  [POSSIBLE] role_playing_dimensions — two *_DATE FKs in ORDERS
+```
+
+Store matches as `SNIPPET_PATTERN_CANDIDATES` for Phase 4 (relationships) and Phase 5 (DDL).
+Do not block on this step — continue to Step 3.1.5.
+
+---
+
 ## Step 3.1.5: Temporal Pattern Detection
 
 Scan `TABLE_PROFILES` for temporal column patterns that enable ASOF and range joins in Phase 4.

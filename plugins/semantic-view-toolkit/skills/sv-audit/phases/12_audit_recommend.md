@@ -94,6 +94,29 @@ Replace every `DB.SCHEMA.table_name` or bare `table_name` table reference in VQR
 
 ---
 
+## 4b. Snippet Pattern Gaps
+
+Run the snippet pattern scorer against the current SV DDL (from `DESCRIBE SEMANTIC VIEW`)
+and the source table schemas. Read `../../../references/sv-snippet-patterns.md`.
+
+For each pattern that is MATCH or POSSIBLE but NOT already implemented in the SV, surface it here.
+
+**Only include this section if at least one gap is detected.**
+
+| # | Pattern | Signal | Impact | Recommendation |
+|---|---------|--------|--------|----------------|
+| 1 | `semi_additive_metric` | BALANCE_USD + BALANCE_DATE; SUM metric on snapshot table | Queries without date filter return inflated grand totals | Add `NON ADDITIVE BY (balance_date)` + separate `avg_daily_balance AS AVG(...)` |
+| 2 | `range_join` | VALID_FROM + VALID_TO on CUSTOMER_SEGMENTS; current join is on latest record only | Revenue attributed to current tier, not historical tier at time of purchase | Add `CONSTRAINT DISTINCT RANGE BETWEEN VALID_FROM AND VALID_TO EXCLUSIVE` |
+| … | … | … | … | … |
+
+**Only report patterns the SV clearly should implement.** Do not flag `variables` or
+`inline_sv` without strong evidence the user needs them — prefer specific to exhaustive.
+
+For each gap: offer to implement it (if sv-ddl is authorized) or add it to the
+recommendation list for the user to act on manually.
+
+---
+
 ## 5. Missing Tables
 
 Tables frequently joined with SV tables in user queries but not included in the SV.
@@ -268,21 +291,26 @@ off to `sv-materialize` for eligibility classification, design, and creation.
 | Coverage | <X>% | <Y>% |
 
 **Column-count guidance:**
+
+Column count is a signal for domain coherence investigation, not a split trigger on its own. A single clear domain can have many columns; a muddled domain should be split even at 30 columns.
+
 - **Compact** (< 30 columns): Good for focused use cases
 - **Standard** (30-80 columns): Typical for department-level SVs
-- **Large** (80-150 columns): Consider splitting by domain
-- **Oversized** (> 150 columns): Recommend splitting into domain-specific SVs
+- **Large** (80-150 columns): Investigate domain coherence — apply the subject-consistency test below
+- **Oversized** (> 150 columns): Strong signal for mixed domains — run subject-consistency test and check for multiple fact tables over shared dimensions
 
 **VQR-count guidance:**
 - **≤ 10 VQRs**: Healthy — focused SV, single domain
 - **10–20 VQRs**: Acceptable — multi-dimensional SV with distinct question categories
 - **> 20 VQRs**: Strong split signal — SV likely covers 2+ semantic domains
 
-When VQR count > 20, apply the subject-consistency test: write the subject of every VQR
+When column count > 80 OR VQR count > 20, apply the subject-consistency test: write the subject of every VQR
 question (e.g., "which agent", "which user", "what revenue"). If more than two distinct
 subjects appear, the SV is doing too much and should be split along subject lines.
 
-If **either** column count ≥ 80 **or** VQR count > 20, add a split recommendation note:
+Also check for the primary split signal: **multiple fact tables covering the same dimensional tables** from different analytical angles (e.g., ORDERS and SESSIONS both joining CUSTOMERS and PRODUCTS). That is two domains, not one, regardless of column or table count.
+
+If the subject-consistency test or multi-fact check triggers, add a split recommendation note:
 
 ```
 Size Warning: The recommended changes would bring the SV to <N> columns
