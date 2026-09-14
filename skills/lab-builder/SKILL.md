@@ -1,3 +1,10 @@
+---
+name: lab-builder
+description: Build a complete Snowflake hands-on lab package from scratch. Produces all files needed to deliver a customer or SE workshop.
+summary: Scaffold HOL labs for customer and SE workshops — setup SQL, prompts, facilitator guide, and validate.sql — from a feature name and time budget.
+version: 1.0.0
+---
+
 # Skill: lab-builder
 
 Build a complete Snowflake hands-on lab package from scratch.
@@ -315,6 +322,21 @@ labs/<lab-slug>/
 
 Write `AGENTS.md` first — CoCo reads this on session open and uses it for all prompts.
 Include: lab name, hero question, data model table, join paths, Cortex AI features used.
+
+**First-run initialization:**
+
+If `labs/_modules/` does not exist, create it with a stub index:
+
+`labs/_modules/INDEX.md`:
+```markdown
+# Module Index
+
+| ID | Title | Tags | Duration | Audience | Prerequisites | Feeds Into |
+|----|-------|------|----------|----------|---------------|------------|
+| — | *(no modules yet — add entries here as you build reusable modules)* | | | | | |
+```
+
+This lets the module-check in subsequent lab builds work without errors, and signals to the SE that the library is ready to grow.
 
 ---
 

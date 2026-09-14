@@ -1,6 +1,6 @@
 ---
 name: skill-tester
-description: Test CoCo skills end-to-end by running them with pre-defined fixture inputs and evaluating outputs against assertions. Modeled after agent-flag-tester — spawns 3 parallel runs, compares consistency, reports pass/fail per assertion.
+description: Test CoCo skills end-to-end by running them with pre-defined fixture inputs and evaluating outputs against assertions. Modeled after agent-model-tester — spawns 3 parallel runs, compares consistency, reports pass/fail per assertion.
 triggers:
   - test skill
   - run skill test
@@ -18,7 +18,7 @@ Use after building or modifying a CoCo skill to verify it:
 - Produces valid, consistent outputs across multiple runs
 - Handles edge cases and error conditions
 
-Modeled on the `agent-flag-tester` pattern: 3 parallel runs → compare consistency → assertion scoring → pass/fail report.
+Modeled on the `agent-model-tester` pattern: 3 parallel runs → compare consistency → assertion scoring → pass/fail report.
 
 ---
 
