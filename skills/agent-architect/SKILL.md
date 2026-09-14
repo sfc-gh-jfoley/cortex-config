@@ -351,6 +351,15 @@ for each batch of ready tasks:
                     → stuck worker (no CODE_WRITTEN after 30 min despite commits)
                 break
 
+            # Guard against a worker that commits but does not progress: the
+            # timer above resets on ANY commit, so trivial checkpoint commits
+            # every <120s would keep it alive forever. Also cap total runtime.
+            total_elapsed += 30
+            if total_elapsed >= 1800:          # 30 min hard ceiling per worker
+                → check for a [DONE] commit on the worker branch.
+                  If absent → STUCK (no real progress in 30 min despite activity)
+                break
+
             sleep(30)
 
     check: did completions unblock new tasks? → next batch

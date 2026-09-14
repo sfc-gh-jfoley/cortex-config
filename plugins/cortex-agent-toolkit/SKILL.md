@@ -259,6 +259,21 @@ Chain: `$cortex-agent-toolkit` → create/optimize agent → `$cowork` → run i
 
 ---
 
+## Relationship to CoWork Plugin
+
+| Plugin | Scope | Handoff |
+|---|---|---|
+| cortex-agent-toolkit (this) | Agent creation, evaluation, optimization | Creates and refines agents |
+| cowork | Investigation workflows, result sharing, source tracing | Consumes agents for multi-step investigations |
+
+**For end-user investigation workflows** with multi-step data gathering, source tracing, or team sharing, see **`$cowork`** plugin:
+- **Artifacts**: Create persistent, shareable references to agent responses
+- **Deep Research**: Multi-step investigations across structured and unstructured data with full source attribution
+
+Chain: `$cortex-agent-toolkit` → create/optimize agent → `$cowork` → run investigations / share results.
+
+---
+
 ## Quick Start
 
 ```

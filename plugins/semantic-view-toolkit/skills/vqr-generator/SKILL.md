@@ -38,6 +38,8 @@ Inherits the session mode declared at the toolkit router (see root `SKILL.md`). 
 - **INTERACTIVE**: Phase 4 STOP Gate blocks for operator approval of candidates before any SV mutation.
 - **AUTONOMOUS**: Phase 4 auto-selects only `VALID` candidates (discards `INVALID`, holds `NEEDS_FIX` for review), logs selections, and proceeds. **Phase 5 (applying VQRs to an existing customer SV) requires separate explicit mutation authorization in BOTH modes** — this is an OPERATOR_REQUIRED gate. Auto-generation of candidates is allowed; auto-insertion into a customer SV is not.
 
+**Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
+
 ---
 
 ## Workflow

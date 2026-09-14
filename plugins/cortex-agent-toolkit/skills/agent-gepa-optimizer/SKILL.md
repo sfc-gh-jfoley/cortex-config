@@ -179,6 +179,8 @@ Execute the returned SQL to create view `<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>`
 For each candidate, deploy without asking — these are disposable `_GEPA_CAND_<N>` agents,
 not production, so no rollback clone applies (both modes):
 
+> **Rollback gate:** Ask the user: "Want me to create a rollback clone first so we can undo this?" then execute on confirmation.
+
 1. Build spec:
    ```bash
    python scripts/build_agent_spec.py --json \
