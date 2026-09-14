@@ -1,6 +1,6 @@
 # Eval Completion Polling
 
-Use this query to check if an eval run has completed (including scoring phase):
+Load `../../agent-evaluation/references/completion-contract.md`. Use this query for progress visibility only:
 
 ```sql
 SELECT 
@@ -14,12 +14,12 @@ WHERE METRIC_NAME IS NOT NULL;
 
 **Interpretation:**
 - `COMPLETED_METRICS = 0`: Eval not started or scoring not complete yet
-- `COMPLETED_METRICS > 0`: Scoring is done, next run can start
+- `COMPLETED_METRICS > 0`: Some metric rows exist; completion is not established
 - `METRICS_FOUND` should match configured metrics (e.g., `['answer_correctness', 'logical_consistency', 'factual_correctness_verdict']`)
 
 **Polling Pattern:**
 
-After starting a run, poll every 30-60 seconds until `COMPLETED_METRICS > 0`.
+After starting a run, poll STATUS every 30-60 seconds until terminal status or timeout, then validate normalized coverage with the completion checker.
 
 **Expected timing:**
 - Small eval (<20 questions): 2-3 min per run
@@ -52,7 +52,7 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 -- ... add one block per run through r<RUNS_PER_SPLIT>
 ```
 
-**Interpretation:** All runs are complete when every row in the result has `COMPLETED_METRICS > 0`. Any row with `COMPLETED_METRICS = 0` means that slot is still scoring — keep polling. Poll every 30-60 seconds.
+**Interpretation:** These counts show progress only. Each slot must independently reach COMPLETED and pass the canonical coverage checker before aggregation. Failures and timeouts remain incomplete; do not rank their partial means.
 
 **Troubleshooting:**
 

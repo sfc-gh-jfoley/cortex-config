@@ -95,7 +95,7 @@ CALL EXECUTE_AI_EVALUATION(
 -- Repeat immediately for r2 through r<RUNS_PER_SPLIT>, using eval_config_dev_r2.yaml etc.
 ```
 
-Then poll all runs in parallel using the parallel polling pattern from `references/eval-polling.md` until every slot reports `COMPLETED_METRICS > 0`.
+Then poll all runs in parallel using `references/eval-polling.md` until every slot reaches terminal COMPLETED and passes the canonical question/metric coverage check. Do not aggregate partial scores.
 
 If "Dataset version already exists" error occurs on a slot:
 - Wait 2-3 minutes and retry that slot.

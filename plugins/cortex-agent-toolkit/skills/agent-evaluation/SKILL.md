@@ -298,17 +298,20 @@ Simplified flow — just questions, no ground truth.
 
 ```sql
 CREATE OR REPLACE TABLE <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_LC (
+    TEST_ID NUMBER(38,0) AUTOINCREMENT,
+    TEST_CATEGORY VARCHAR DEFAULT 'REFERENCE_FREE',
     INPUT_QUERY VARCHAR(16777216),
-    EXPECTED_TOOLS VARCHAR(16777216)
+    GROUND_TRUTH VARIANT,
+    SPLIT VARCHAR DEFAULT 'VALIDATION'
 );
 
-INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_LC (INPUT_QUERY, EXPECTED_TOOLS)
+INSERT INTO <DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_LC (INPUT_QUERY, GROUND_TRUTH)
 VALUES 
-    ('What is the most popular item?', '{}'),
-    ('Show me options under $10', '{}');
+    ('What is the most popular item?', PARSE_JSON('{}')),
+    ('Show me options under $10', PARSE_JSON('{}'));
 ```
 
-Then skip to Phase 4 with only `logical_consistency` metric.
+Set `EVAL_TABLE` to `<AGENT_NAME>_EVAL_LC`, then skip to Phase 4 with only `logical_consistency`. For imported data, carry the converter's target table as `EVAL_TABLE`; do not recreate it in Step 3.5. For newly authored reference-based data, use `<AGENT_NAME>_EVAL`. All paths use the canonical columns below.
 
 ---
 
@@ -558,7 +561,7 @@ Fill in `<DATABASE>`, `<SCHEMA>`, `<AGENT_NAME>`, `<EVAL_TABLE>`, and the select
 > ```sql
 > CALL SYSTEM$CREATE_EVALUATION_DATASET(
 >     'Cortex Agent',
->     '<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL',
+>     '<DATABASE>.<SCHEMA>.<EVAL_TABLE>',
 >     '<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>',
 >     OBJECT_CONSTRUCT('query_text', 'INPUT_QUERY', 'expected_tools', 'GROUND_TRUTH')
 > );
@@ -686,7 +689,7 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 WHERE METRIC_NAME IS NOT NULL;
 ```
 
-`COMPLETED_METRICS > 0` = done.
+Metric rows indicate progress only. Require terminal `COMPLETED` status and complete successful question/metric coverage before using scores. Follow `references/completion-contract.md`; partial or failed scoring is not valid fitness.
 
 ### 4.4 Open Results in Snowsight
 

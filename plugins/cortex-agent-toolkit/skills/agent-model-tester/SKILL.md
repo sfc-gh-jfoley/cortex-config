@@ -464,7 +464,7 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 WHERE METRIC_NAME IS NOT NULL;
 ```
 
-`COMPLETED_METRICS > 0` = done.
+Metric rows indicate progress only. Follow `../agent-evaluation/references/completion-contract.md`: require terminal COMPLETED and validated question/metric coverage for each variant before comparison.
 
 ### Step 6.3: Handle Failures
 
@@ -544,13 +544,14 @@ Present the top 10 most-divergent questions with per-variant scores.
 
 ### Step 7.4: Recommend Winner
 
-Scoring logic:
-1. **Primary:** Highest `answer_correctness` on TEST (mean across runs)
-2. **Tiebreaker 1:** Highest `logical_consistency` on TEST
-3. **Tiebreaker 2:** For model comparison — factor in latency (lower `DURATION_MS` is better if accuracy is equivalent)
-4. **Tiebreaker 3:** Lowest stddev (most consistent)
+Recommendation order: **accuracy, then speed, then cost**. Do not combine these into a weighted score that lets cheap, fast failures win.
 
-For model comparison sweeps, present the accuracy-latency tradeoff explicitly (e.g., "MODEL_C is 5% lower accuracy but 40% faster — worth it for latency-sensitive use cases?").
+1. **Accuracy gate:** Use the user's declared target and metric definition. Report mean answer-correctness and full-credit answer rate separately; a 90% mean judge score is not 90% fully correct answers. Require complete repeated evaluations on the same frozen question set and judge version. If no model qualifies, recommend none and continue development rather than silently relaxing the target.
+2. **Accuracy preference:** Prefer better confirmed accuracy among qualifying models. Treat differences within observed uncertainty as unresolved, not an automatic win. Logical consistency and tool metrics remain quality diagnostics or explicit user-defined floors, not replacements for answer correctness.
+3. **Speed:** Among models with comparable qualifying accuracy, prefer lower response latency. Report mean, median, and p95 using one record per request, not duplicated metric rows. Match workload, budgets, warehouse conditions, and interleave run order; disclose cache and concurrency differences. Small timing differences without adequate evidence do not establish a winner.
+4. **Cost:** Among models with comparable qualifying accuracy and speed, prefer lower measured cost per request. Match request IDs to usage, report coverage and accounting latency, and separate agent token credits, warehouse compute, and evaluation-judge cost. Missing usage is unknown, not zero. Token counts alone are not prices; label estimates explicitly.
+
+Present accuracy, latency, and cost together in the comparison table. A faster or cheaper model below the accuracy threshold is a tradeoff option, not the recommended winner. If evidence is insufficient to distinguish qualifying models, report no clear winner and retain the existing configuration. Explain any user-authorized change in priorities before applying it.
 
 Present recommendation with reasoning.
 

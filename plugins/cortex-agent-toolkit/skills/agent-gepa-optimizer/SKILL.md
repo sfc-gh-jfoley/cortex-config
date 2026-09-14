@@ -205,7 +205,7 @@ CALL EXECUTE_AI_EVALUATION('START',
   '<STAGE_PATH>/config_gepa_cand<N>.yaml');
 ```
 
-Poll all in parallel using `references/eval-polling.md` pattern until every candidate reports `COMPLETED_METRICS > 0`.
+Poll all in parallel using `references/eval-polling.md` until every candidate reaches terminal COMPLETED and passes the canonical question/metric coverage check. Partial metric rows are not fitness.
 
 ### Step 8: Collect Scores
 

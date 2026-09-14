@@ -78,9 +78,16 @@ def add_candidate(state: dict, candidate_id: str, mutations: list[str],
                   generation: int, parent_id: str | None = None,
                   file_dir: str | None = None) -> dict:
     """Add a single candidate to the population."""
+    root = candidate_id
+    if parent_id:
+        parent = next((candidate for candidate in state["population"] if candidate["id"] == parent_id), None)
+        if parent is None or (parent.get("parent_id") and not parent.get("original_parent")):
+            raise ValueError("Parent ancestry is unavailable; reconstruct lineage before registration")
+        root = parent.get("original_parent") or parent["id"]
     state["population"].append({
         "id": candidate_id,
         "parent_id": parent_id,
+        "original_parent": root,
         "mutations_applied": mutations,
         "generation_born": generation,
         "last_fitness": None,

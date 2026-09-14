@@ -220,7 +220,7 @@ generated text back for that slot.
 **Anti-pattern checks** (reject and regenerate if detected):
 - Variant is identical to parent (no-op mutation)
 - Variant adds verbose checklists or step-by-step instructions for the LLM
-- Variant modifies tool descriptions or tool routing logic
+- Variant modifies fields outside its declared instruction target. Routing changes are allowed for routing operators.
 - Variant exceeds 2x the parent instruction length
 
 ### Step 3.2: STOP Gate — Operator Coverage Review
@@ -362,6 +362,7 @@ VALUES ('tpe_trial_<N>', '<run_id>', <N>, '<operator_for_instruction_idx>',
 ```bash
 python scripts/tpe_record.py \
   --study-db <WORKSPACE_ROOT>/<AGENT_DIR>/tpe_study.db \
+  --agent-name <AGENT_NAME> \
   --trial-number <N> \
   --score <mean_score>
 ```
@@ -384,10 +385,13 @@ Return to Step 4.1.
 ```bash
 python scripts/tpe_suggest.py \
   --study-db <WORKSPACE_ROOT>/<AGENT_DIR>/tpe_study.db \
+  --agent-name <AGENT_NAME> \
+  --instruction-pool <WORKSPACE_ROOT>/<AGENT_DIR>/instruction_pool.json \
+  --trace-pool <WORKSPACE_ROOT>/<AGENT_DIR>/trace_pool.json \
   --best-only
 ```
 
-Returns: best `instruction_idx`, `fewshot_indices`, `score`.
+Returns `trial_number`, `value` (fitness), and `params`. Read `params.instruction_idx` and join `params.fewshot_0` through `params.fewshot_<k-1>` in numeric order as the builder's comma-separated `--fewshot-indices`. If `trial_number` is null, no completed winner exists: stop and report instead of building a candidate.
 
 ### Step 5.2: Deploy Winner as Validation Candidate
 

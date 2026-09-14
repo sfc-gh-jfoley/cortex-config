@@ -188,18 +188,17 @@ Existing SV Coverage: None (these tables are not in any existing SV)
 
 ## Next Steps After Discovery
 
-1. **sv-ddl** — Build the semantic view DDL for each recommended domain
+1. **sv-ddl** — Build DDL for the recommended SV groupings; multiple business domains may share one SV (see Phase 3B).
 2. **sv-evaluation** — Evaluate the new SV's quality with VQRs
 3. **sv-gepa-optimizer** — Optimize the SV if evaluation scores are low
 
 ### Size guardrail — keep each SV under ~100,000 tokens
 
-There's no hard limit on semantic view size, and no table count target. A domain with 45 tables covering one clear analytical purpose belongs in one SV. The practical upper bound is **~100,000 tokens** — beyond that, the combined size of the SV, agent instructions, and conversation history approaches the LLM's context window, which adds latency and degrades answer quality. Treat ~100K tokens as a technical ceiling, not a design goal.
+There is no table-count target. Use **~100,000 tokens** as a context-size guideline, not an automatic split rule or a guarantee of accuracy. Prefer the fewest SVs that correctly support the workload; check common cross-boundary questions and relationship/grain compatibility before splitting (Phase 3B).
 
 When you present domain groupings in Phase 4, **estimate the token size** of each proposed SV. SV DDL tokenizes at roughly 2–3 characters per token (SQL keywords, quoted identifiers, and structural delimiters are denser than prose — not the standard ~4 chars/token rule of thumb). Use **~2.5 characters per token** as the heuristic for serialized DDL including all table/column/metric/relationship descriptions and VQR SQL. If a proposed grouping exceeds ~100K tokens:
-- Recommend splitting it into multiple SVs along sub-domain boundaries (Cortex Agents selects the relevant SV per question).
-- Surface the split recommendation in the confidence-score notes for that domain.
-- Prefer fewer, focused SVs over one large SV — the official Snowflake guidance is "fewer generally perform better," and customers running 50+ SVs is the ceiling, not the target.
+- Consider trimming unnecessary metadata or splitting along workload boundaries; account for repeated dimensions and descriptions in split SVs.
+- Record a brief reason and cross-boundary query caveat for any split. Label size estimates and untested performance benefits as assumptions.
 
 For SVs that must be large (densely connected single-domain), flag the pruning risk in the handoff so the author knows to keep descriptions concise and columns business-relevant.
 

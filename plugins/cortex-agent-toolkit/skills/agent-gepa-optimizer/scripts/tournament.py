@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import random
 import sys
 from collections import Counter
@@ -21,9 +22,16 @@ def run_tournament(population: list[dict], scores: dict) -> tuple[list[dict], li
     Returns:
         (winners, losers) — each a list of candidate dicts
     """
+    if not isinstance(scores, dict) or not population:
+        raise ValueError("A nonempty population and score mapping are required")
+    for candidate in population:
+        record = scores.get(candidate["id"])
+        value = record.get("EVAL_AGG_SCORE") if isinstance(record, dict) else None
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"Missing or invalid fitness for {candidate['id']}")
+
     def fitness(cand_id: str) -> float:
-        s = scores.get(cand_id, {})
-        return s.get("EVAL_AGG_SCORE", 0.0)
+        return scores[cand_id]["EVAL_AGG_SCORE"]
 
     shuffled = list(population)
     random.shuffle(shuffled)
@@ -101,7 +109,10 @@ def check_diversity(population: list[dict]) -> bool:
     # Count root parents (use parent_id, or id if no parent)
     roots = []
     for cand in population:
-        root = cand.get("parent_id") or cand["id"]
+        root = cand.get("original_parent")
+        if root is None and cand.get("parent_id"):
+            raise ValueError("Legacy candidate lacks root ancestry; reconstruct lineage before selection")
+        root = root or cand["id"]
         roots.append(root)
 
     counter = Counter(roots)
@@ -124,10 +135,14 @@ def fill_population(winners: list[dict], pop_size: int,
 
     for i in range(slots_to_fill):
         parent = winners[i % len(winners)]
+        root = parent.get("original_parent")
+        if root is None and parent.get("parent_id"):
+            raise ValueError("Parent lacks root ancestry; reconstruct lineage before mutation")
         new_id = f"gen{generation}_cand{i}"
         new_candidates.append({
             "id": new_id,
             "parent_id": parent["id"],
+            "original_parent": root or parent["id"],
             "mutations_applied": [],  # Filled by mutate.py later
             "generation_born": generation,
             "last_fitness": None,

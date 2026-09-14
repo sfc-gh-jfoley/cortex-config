@@ -22,6 +22,8 @@ def format_few_shot_section(traces: list[dict]) -> str:
         q = t.get("input", "")
         # Prefer agent_response when non-empty; fall back to expected_output
         answer = t.get("agent_response") or t.get("expected_output", "")
+        if isinstance(answer, dict) and "ground_truth_output" in answer:
+            answer = answer["ground_truth_output"]
         if isinstance(answer, (dict, list)):
             answer = json.dumps(answer)
         lines.append(f"**Q:** {q}")
@@ -85,15 +87,19 @@ def main():
     few_shot_section = format_few_shot_section(demos)
     combined_text = instruction_text + few_shot_section
 
-    # Inject into spec — handle common field names
     spec = dict(base_spec)
-    for field in ("instructions", "instruction", "system_prompt", "orchestration_instructions"):
-        if field in spec:
-            spec[field] = combined_text
-            break
-    else:
-        # No known field found — add as 'instructions'
-        spec["instructions"] = combined_text
+    target_fields = {
+        "orchestration_instructions.md": "orchestration",
+        "response_instructions.md": "response",
+    }
+    target = entry.get("target_file")
+    if target not in target_fields:
+        raise ValueError(f"Unsupported instruction target: {target!r}")
+    instructions = spec.get("instructions", {})
+    if not isinstance(instructions, dict):
+        raise ValueError("Agent instructions must be an object")
+    spec["instructions"] = dict(instructions)
+    spec["instructions"][target_fields[target]] = combined_text
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

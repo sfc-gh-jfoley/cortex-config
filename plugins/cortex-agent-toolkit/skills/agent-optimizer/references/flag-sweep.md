@@ -162,7 +162,7 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 WHERE METRIC_NAME IS NOT NULL;
 ```
 
-`COMPLETED_METRICS > 0` = done.
+Metric rows indicate progress only. Follow `../../agent-evaluation/references/completion-contract.md`: require terminal COMPLETED and validated question/metric coverage for each variant before comparison.
 
 Alternative — use STATUS check:
 ```sql

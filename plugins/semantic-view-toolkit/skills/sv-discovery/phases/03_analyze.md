@@ -7,7 +7,7 @@ description: Cluster tables into domain groupings using the relationship graph a
 
 ## Purpose
 
-Take the relationship graph from Phase 2 and cluster tables into semantic view domain groupings. Each domain represents a coherent business area that should become one semantic view.
+Take the relationship graph from Phase 2 and identify coherent business areas. Business domains are not automatically separate semantic views; choose SV boundaries using the workload checks below.
 
 **Input variables from Phase 2:** `RELATIONSHIP_GRAPH`, `COLUMN_USAGE`, `PK_MAP`, `CONSTRAINTS_AVAILABLE`, `ORPHAN_TABLES`, `SCAN_STRATEGY`  
 **Input variables from Phase 1:** `DISCOVERY_DB`, `DISCOVERY_SCHEMAS`, `EXISTING_SVS`, `COVERED_TABLES`, `OBJECT_TYPE_COUNTS`, `MODE`
@@ -44,54 +44,23 @@ INITIAL_DOMAINS = [
 
 ---
 
-## Step 3B: Domain Coherence Validation and Splitting
+## Step 3B: Choose Lightweight SV Boundaries
 
-A semantic view should cover **one clear analytical domain** — a single business
-perspective that answers a coherent set of related questions. Table count is not
-a split criterion. A domain with 45 tables is fine if they all serve one analytical
-purpose. A domain with 8 tables should be split if two fact tables cover overlapping
-dimensional tables from different analytical angles.
+Prefer the fewest SVs that correctly support the workload. Business domains, channels,
+multiple fact tables, different grains, and table count alone are not reasons to split.
+Prefer one SV when its estimated size is comfortably within the guideline and its
+relationships support the required questions correctly.
 
-### Split signal: multiple facts over shared dimensions
+Before recommending a split, check:
+- Do common questions cross the proposed boundary? Use available questions or usage evidence; if unavailable, label the grouping provisional.
+- Can those questions be answered correctly without coordinating multiple tools? Check shared keys and aggregation grains; do not assume results can simply be combined.
+- Is there a concrete reason to split: excessive estimated context size, unresolved relationship ambiguity, or genuinely independent workloads?
 
-The primary split trigger is **multiple fact tables that cover the same dimensional
-tables** from different analytical perspectives. This is the Sony pattern — not "too
-many tables" but "two separate business questions sharing a star schema."
-
-Detection:
-```
-For each pair of fact tables (F1, F2) in a cluster:
-  Shared dimensions = tables connected to BOTH F1 and F2
-  If shared_dimensions >= 2 AND F1 and F2 measure different business processes:
-    → Split signal: these are two domains, not one
-    → Proposed split: {F1 + its dimensions} and {F2 + its dimensions}
-    → Shared dimensions: include in BOTH (bridge table pattern)
-```
-
-How to identify fact tables: high fan-out (many FK relationships pointing to them),
-typically named with transactional or event semantics (ORDERS, EVENTS, SESSIONS,
-TRANSACTIONS, SALES). Dimension tables have fewer incoming FKs and describe
-entities (CUSTOMERS, PRODUCTS, DATES, REGIONS).
-
-### Split signal: mixed analytical intent
-
-Split when a single cluster contains tables from clearly distinct business processes
-that happen to share a common dimension (e.g., a DATE table). Shared dimensions
-belong in both SVs — do not use them as a reason to merge domains.
-
-```
-Red flags for mixed intent within a cluster:
-- Tables from different business units (e.g., Sales + HR) connected only via DIM_DATE
-- Metrics that would never appear in the same question ("what is revenue by region"
-  vs "what is headcount by department")
-- Fact tables with very different grain (order-level vs daily aggregates)
-```
-
-### No split needed
-
-Do NOT split a cluster purely because it is large. If all tables serve one analytical
-domain — even 30-50 tables — keep them together. The 100K token guardrail (SKILL.md)
-is the practical upper bound, not a table count.
+Shared dimensions alone justify neither merging nor splitting. Validate multi-fact
+aggregation and population-versus-transaction metrics during the existing DDL tests.
+Give a brief reason for each recommended split and label untested benefits as assumptions.
+Use the existing recommendation output: recommendation, reason, and any validation caveat.
+No extra approval gate, handoff schema, or mandatory architecture experiment is required.
 
 ### Too Small (1 table)
 
