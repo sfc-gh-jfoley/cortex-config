@@ -15,16 +15,16 @@ didn't, and proposes improvements to the framework for next time.
 
 ```bash
 # Count rejections
-grep "REJECTED" .agent-project/manifest.log | wc -l
+grep -c '^[^#].*| REVIEW_FAILED |' .agent-project/manifest.log
 
 # Count test failures
-grep "FAIL" .agent-project/manifest.log | wc -l
+grep -c '^[^#].*| TESTER_FAILED |' .agent-project/manifest.log
 
 # Count blocked workers
-grep "BLOCKED" .agent-project/manifest.log | wc -l
+grep -c '^[^#].*| BLOCKED |' .agent-project/manifest.log
 
 # Count escalations
-grep "ESCALATION" .agent-project/manifest.log | wc -l
+grep -c '^[^#].*| ESCALATED |' .agent-project/manifest.log
 
 # Average attempts per task (CLAIMED entries vs DONE entries)
 CLAIMS=$(grep -c "| CLAIMED |" .agent-project/manifest.log)

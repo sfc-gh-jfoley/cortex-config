@@ -1,63 +1,11 @@
-# Escalation Format
+# Escalation
 
-When a task exceeds retry limits or hits a blocker the framework cannot resolve,
-the Architect escalates to the user using this structured format.
+Primary records ESCALATED using event.py with run, unique id and reason. Record the
+blocking task, attempts, findings, unavailable checks and operator options in a
+committed report. Active escalations block dispatch and shipping. Do not hide them
+in a commit message alone. Three total task attempts is the default budget, not
+three retries after an initial attempt. Permission or safety blockers pause sooner.
 
-## Template
-
-```
-ESCALATION: <task_id> — <task_title>
-PHASE: <which phase failed (GATE / VERIFY / EXECUTE)>
-REASON: <SecArch rejected 2x | Tester failed 2x | Build loop stuck | Dependency missing>
-
-ATTEMPTS:
-  Attempt 1: <what was tried, what happened>
-  Attempt 2: <what was tried differently, what happened>
-
-FINDINGS (cumulative across all attempts):
-  - [CRITICAL/HIGH] <finding from SecArch or Tester>
-    File: <path>:<line>
-    Description: <the actual problem>
-    Remediation tried: <what the worker attempted>
-    Why it didn't work: <why the fix failed or was rejected again>
-
-ARCHITECT ASSESSMENT:
-  <Architect's analysis of the root cause — why retries aren't converging>
-
-OPTIONS:
-  A) Descope — remove this task from the plan (state what's lost)
-  B) Provide guidance — tell the Architect what to relay to the next Worker
-  C) Manual fix — you edit the code directly, then we resume gating
-  D) Change approach — suggest a different architectural path for this task
-```
-
-## When to Escalate
-
-| Trigger | Threshold |
-|---|---|
-| SecArch REJECTED same task | After 2nd rejection |
-| Tester FAIL same task | After 2nd failure |
-| Worker self-reports BLOCKED (build loop) | After 3 toolchain cycles with no green |
-| Worker BLOCKED on missing dependency | Immediately (no retry — dependency must be resolved) |
-| Stuck task (no progress, agent terminated) | After 1 re-spawn attempt fails |
-
-## Headless Mode Escalation
-
-In headless execution, escalations go to the configured channel:
-
-| `escalation_channel` | Behavior |
-|---|---|
-| `"user"` | `ask_user_question()` — blocks until response (interactive only) |
-| `"git"` | Append to `.agent-project/escalation.md` + `git add .agent-project/escalation.md && git commit -m "ESCALATION: <task_id> — <reason>"`. Review with `git log --grep=ESCALATION`. Default. |
-| `"file"` | Write to `.agent-project/escalation.md` only — no commit (fallback when git not initialized) |
-
-In headless mode with `halt_on` conditions, CRITICAL escalations STOP the entire
-project. The Architect writes full context to `escalation.md` and exits.
-
-## Rules
-
-- Never escalate without attempting the full retry budget first
-- Always include what was tried — the user needs context to make a decision
-- The Architect MUST provide its own assessment (not just relay findings)
-- Options must be concrete and actionable — not "what should we do?"
-- After user responds, the Architect relays the decision to the next Worker spawn
+After an explicit operator decision, Primary records ESCALATION_RESOLVED with the
+same id and a pointer to the committed decision. Resume only the approved scope.
+Unknown agent liveness requires reconciliation, not speculative duplicate spawning.

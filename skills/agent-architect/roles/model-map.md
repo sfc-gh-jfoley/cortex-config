@@ -6,7 +6,7 @@ Right-size models per role. Not everything needs the heaviest model.
 
 > **Models are specified by capability tier, not by a fixed version string.** Pick a
 > current model matching the tier from whatever your platform offers, and record the
-> choice in `.agent-project/manifest.log` as `MODEL_<ROLE>=<value>` during Startup so
+> choice in `.agent-project/notes.md` as `MODEL_<ROLE>=<value>` during Startup so
 > the whole run is reproducible. Concrete IDs below are examples that were current
 > when this was written — verify against your account before relying on them.
 >
@@ -27,7 +27,7 @@ Right-size models per role. Not everything needs the heaviest model.
 SecArch and Tester MUST run on a **different model family** than Worker and Architect.
 Shared training means shared blind spots: a reviewer from the same family as the
 implementer tends to miss the same things. If you only have one family available, say
-so explicitly in the manifest (`MODEL_CROSS_FAMILY=unavailable`) and treat every gate
+so explicitly in notes.md (`MODEL_CROSS_FAMILY=unavailable`) and treat every gate
 verdict as weaker evidence — do not pretend the gate is independent.
 
 ## When to Override
@@ -58,7 +58,7 @@ Task(
 The Architect runs on the heavy tier by default — it is the session model.
 Spawned teammates get their model explicitly set.
 
-## Cost Impact
+## Cost Measurement
 
 | Role | Typical invocations per project | Tier | Relative cost |
 |---|---|---|---|
@@ -69,6 +69,6 @@ Spawned teammates get their model explicitly set.
 | Testers | 5-15 | Balanced-to-heavy, secondary family | ~0.1x each |
 | Team Architects | 1-4 (multi-team headless) | Balanced | 0.1x each |
 
-A typical 10-task project: 1 heavy-tier session + ~30 balanced spawns + ~15 secondary-family
-gate spawns. Without right-sizing (everything heavy): 10x+ cost increase with marginal
-quality gain.
+The table is illustrative, not a measured cost forecast. Measure actual tokens,
+latency, defect detection and false rejection on representative runs before choosing
+tiers for cost. No fixed cost multiplier or quality gain is guaranteed.

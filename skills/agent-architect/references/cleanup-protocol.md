@@ -1,142 +1,35 @@
-# Cleanup Protocol
+# Framework-Owned Recovery
 
-Procedures for recovering from stuck workers, crashed sessions, and stale git artifacts.
-Referenced by `SKILL.md` Cleanup Protocol section and Phase 6 Ship.
+Primary owns canonical task claims. CLI task/step ownership is diagnostic only:
+never call implicit-current-task undo/edit to authorize recovery. Never create a
+replacement logical task merely because platform bookkeeping remains claimed.
 
----
+1. Confirm agent terminal status; unknown liveness pauses recovery. Inspect committed
+   evidence before retrying. A valid completed result resumes normal processing.
+2. Inventory the dispatch's child shells. Stop only confirmed owned running shells
+   and verify terminal status. Cancellation alone does not establish child cleanup.
+3. Read the current framework dispatch and recorded agent from canonical state.
+   If launch acknowledgement was lost, reconcile and record the actual agent ID
+   before releasing its claim. Recheck owner, dispatch and attempt immediately
+   before committing recovery; stale observations cannot release a newer claim.
+4. Run recovery.py with framework_claim status claimed, owner, dispatch and attempt.
+   Commit a reconciliation report with observed agent/shell status. Primary writes
+   BLOCKED on the same task, including current dispatch, owner and report pointer.
+5. Write ISSUES_FOUND on that same task with attempt incremented. This clears the
+   canonical dispatch and records released_dispatch. Commit before new dispatch.
+6. Re-read committed state. Supply framework_claim status pending, owner null,
+   dispatch null, incremented attempt, released_dispatch and release_committed true.
+   recovery.py permits a fresh unique dispatch on the SAME task ID. Do not pass
+   release_committed=true for an uncommitted candidate.
 
-## Stuck Worker Recovery
+The observation requires run, task, dispatch, agent and attempt (the interrupted
+attempt), evidence_checked, terminal_evidence, children_inventory_complete, children
+and framework_claim. Platform step IDs are optional audit metadata and are ignored
+for authorization. The helper is read-only: exit 0 permits retry, 2 requires further
+reconciliation, 1 indicates malformed input. It does not perform cancellation.
 
-**Detection** (in Phase 3 drain loop):
-A worker is STUCK when all of the following are true:
-1. `git log <worker-branch> -1 --format="%ct"` has not changed in 120+ seconds
-2. `agent_output(agent_id, wait=false)` shows the agent is still running (not completed)
-
-**Actions (in order):**
-1. Kill the agent: `kill_agent(agent_id)`
-2. Remove its worktree: `git worktree remove --force <worktree_path>`
-3. Append BLOCKED to manifest.log:
-   `<timestamp> | <task_id> | BLOCKED | team-arch-<N> | sha=unknown | cycles=stuck | reason=no git activity 120s`
-4. Commit: `git add .agent-project/manifest.log && git commit -m "CLEANUP: <task_id> — stuck worker removed"`
-5. **If `retry_count < retry_budget`** → write ISSUES_FOUND, re-spawn worker with same task spec + DOMAIN_HINTS
-6. **If `retry_count >= retry_budget`** → escalate (see `escalation-format.md`)
-
----
-
-## Session Crash Recovery
-
-Run this procedure when the Architect session restarts unexpectedly:
-
-```bash
-# 1. Find last committed state
-git log .agent-project/manifest.log --oneline | head -20
-
-# 2. Find dangling worktrees from previous session
-git worktree list
-
-# 3. For each dangling worktree, check manifest for task progress:
-grep "| <task_id> | CODE_WRITTEN \|" .agent-project/manifest.log
-# Match → task progressed past worker phase → safe to remove worktree
-# No match → worker was mid-task → needs re-spawn
-```
-
-**For each dangling worktree:**
-- **Progressed** (CODE_WRITTEN or later phase in manifest): `git worktree remove --force <path>`
-- **Incomplete**: `git worktree remove --force <path>`, then re-spawn worker with same task spec
-
-After resolving all worktrees:
-```bash
-git add .agent-project/manifest.log
-git commit -m "log: RECOVERY — resumed from <last-commit-sha>"
-```
-
-**4. Resolving worktrees is NOT the same as the run being complete.** Check the two
-terminal invariants before declaring recovery finished:
-
-```bash
-M=.agent-project/manifest.log
-reg=$(grep -c "| TASK_REGISTERED |" "$M" 2>/dev/null); reg=${reg:-0}
-done_n=$(grep -c "| DONE |" "$M" 2>/dev/null); done_n=${done_n:-0}
-rearch_n=$(grep -c "| REARCHITECT |" "$M" 2>/dev/null); rearch_n=${rearch_n:-0}
-open_c=$(grep -c "| CONDITION_OPEN |" "$M" 2>/dev/null); open_c=${open_c:-0}
-closed_c=$(grep -c "| CONDITION_CLOSED |" "$M" 2>/dev/null); closed_c=${closed_c:-0}
-shipped=$(grep -c "| SHIPPED |" "$M" 2>/dev/null); shipped=${shipped:-0}
-
-[ "$open_c" -eq "$closed_c" ] || echo "OPEN CONDITIONS: $((open_c - closed_c)) unremediated"
-[ "$((done_n + rearch_n))" -eq "$reg" ] || echo "INCOMPLETE: $reg registered, $done_n done, $rearch_n rearchitected"
-[ "$done_n" -gt 0 ] && [ "$shipped" -eq 0 ] && echo "NOT SHIPPED: run never reached Phase 6"
-```
-
-A recovered run with clean worktrees, all tasks DONE, and **no SHIPPED entry** is
-abandoned — finish Phase 6 or write an `ESCALATED` entry saying why not. Unremediated
-`CONDITION_OPEN` entries are usually security findings; surface them to the user
-rather than closing out the run.
-
----
-
-## Multi-Team Stuck-Team Escalation
-
-A Team Architect is considered stuck when:
-- No `[SHIPPED]` tag after 2x the expected team duration
-- No new commits on `arch/<slug>/team-<N>/` for `team_stuck_threshold_seconds` (default: 1800s / 30 min)
-
-**Actions:**
-1. Check escalation log: `git log arch/<slug>/team-<N> --grep="ESCALATION" --oneline`
-   - If escalations exist → review them, determine if team is blocked on a dependency
-   - If no escalations → team may have crashed silently
-2. Check team manifest: `git show arch/<slug>/team-<N>:.agent-project/manifest.log | tail -20`
-3. If team is unrecoverable: kill team agent, re-spawn Team Architect with same charter + latest manifest state
-4. Commit: `git commit -m "CLEANUP: team-<N> — re-spawned after stuck detection"`
-
----
-
-## End-of-Project Cleanup (Phase 6)
-
-Run after all tasks complete and before the retrospective:
-
-```bash
-# 1. Remove any remaining worktrees
-git worktree list
-# For each non-main worktree:
-git worktree remove --force <path>
-
-# 2. Audit merged branches before pruning
-git branch --merged arch/<slug>/main | grep "arch/<slug>/"
-# Review the list — these are safe to delete
-
-# 3. Prune merged worker and team branches
-git branch --merged arch/<slug>/main | grep "arch/<slug>/" | xargs git branch -d
-
-# 4. For multi-team: verify all team SHIPPED tags exist
-git tag | grep "arch/<slug>/team-"
-
-# 5. Final branch audit — should only show integration branch
-git branch -a | grep "arch/<slug>/"
-```
-
-**Expected final state:**
-- `arch/<slug>/main` → integration branch (will be merged to project main by Architect)
-- All `arch/<slug>/team-N/` branches → deleted (merged)
-- All `arch/<slug>/team-N/worker-*` branches → deleted (merged)
-- All team SHIPPED tags → present and intact
-
----
-
-## Stale Artifact Detection
-
-Run if you suspect leftover artifacts from a previous incomplete build:
-
-```bash
-# Branches not merged to main that are older than 24h
-git for-each-ref --sort=committerdate refs/heads/arch/<slug>/ \
-  --format='%(refname:short) %(committerdate:relative)'
-
-# Worktrees with no recent activity
-git worktree list --porcelain
-
-# Untracked .agent-project/ entries (possible leftover manifests)
-find .agent-project/ -name "manifest.log" -newer .agent-project/manifest.log
-```
-
-Stale artifacts from previous failed runs should be removed before starting a new run
-on the same slug. Rename the slug or clean up manually.
+Preserve orphaned platform claims separately as interrupted bookkeeping; do not mark
+them successful. Same-task canonical recovery does not depend on clearing them.
+Reject new evidence from the old attempt; exact previously accepted receipts remain
+replayable. Retain refs before removing clean disposable worktrees without force.
+Do not remove dirty or unrelated worktrees or issue broad PID/branch cleanup.
