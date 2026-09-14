@@ -65,29 +65,39 @@ Before recommending new SVs, check what already exists:
 SHOW SEMANTIC VIEWS IN DATABASE <DISCOVERY_DB>;
 ```
 
-For each found SV, describe it to understand table coverage:
+> **Note:** `DESCRIBE SEMANTIC VIEW` returns DDL text, not a result set. Do NOT attempt
+> to parse it for structured metadata — it will produce inconsistent results. Use the
+> queries below for structured coverage data instead.
+
+For table coverage, query `OBJECT_DEPENDENCIES`:
 
 ```sql
-DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
+SELECT
+    REFERENCING_OBJECT_DATABASE || '.' || REFERENCING_OBJECT_SCHEMA || '.' || REFERENCING_OBJECT_NAME AS sv_fqn,
+    REFERENCED_OBJECT_DATABASE || '.' || REFERENCED_OBJECT_SCHEMA || '.' || REFERENCED_OBJECT_NAME AS table_fqn
+FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
+WHERE REFERENCING_OBJECT_DOMAIN = 'SEMANTIC VIEW'
+  AND REFERENCING_OBJECT_DATABASE = '<DISCOVERY_DB>'
+ORDER BY sv_fqn, table_fqn;
 ```
 
 Extract from each existing SV:
-- Which tables it references
-- How many columns/metrics/VQRs it has
-- Relationship definitions
+- Which tables it references (from OBJECT_DEPENDENCIES above)
 
 Store as:
-- `EXISTING_SVS` — list of `{sv_fqn, tables_covered[], column_count, vqr_count, relationship_count}`
-- `COVERED_TABLES` — flat set of all table FQNs already in an existing SV
+- `EXISTING_SVS` — list of `{sv_fqn, tables_covered[]}`
+- `COVERED_TABLES` — flat set of all table FQNs (uppercased, fully qualified) already in an existing SV
+
+**FQN normalization:** Uppercase all table names when building `COVERED_TABLES` and when comparing against ACCESS_HISTORY results. This prevents false NOT_COVERED results from case differences.
 
 Present to user:
 ```
 Existing Semantic Views Found: <N>
 
-| # | Semantic View | Tables Covered | VQRs | Status |
-|---|---|---|---|---|
-| 1 | DB.SCHEMA.SALES_SV | ORDERS, CUSTOMERS, PRODUCTS | 12 | Active |
-| 2 | DB.SCHEMA.MARKETING_SV | CAMPAIGNS, LEADS | 5 | Active |
+| # | Semantic View | Tables Covered | Status |
+|---|---|---|---|
+| 1 | DB.SCHEMA.SALES_SV | ORDERS, CUSTOMERS, PRODUCTS | Active |
+| 2 | DB.SCHEMA.MARKETING_SV | CAMPAIGNS, LEADS | Active |
 
 Tables already covered: <N> of <total>
 Tables NOT covered: <remaining> (these are discovery candidates)
@@ -102,7 +112,7 @@ No existing semantic views found in <DISCOVERY_DB>. All tables are discovery can
 
 ## Step 1.4: Enumerate All Queryable Objects
 
-Count objects by type (not just BASE TABLEs — see `references/queryable-objects.md`):
+Count objects by type (not just BASE TABLEs — see `../../references/queryable-objects.md`):
 
 ```sql
 -- Base tables and materialized views
@@ -197,8 +207,8 @@ ORDER BY LAST_ALTERED DESC;
 
 ## Step 1.6: Confirm Scope
 
-**GUIDED mode:** Mandatory gate — do NOT proceed until user confirms.
-**AUTOPILOT mode:** Auto-confirm unless there are concerns (>200 objects, or existing SVs cover >80% of tables).
+**INTERACTIVE mode:** Mandatory gate — do NOT proceed until user confirms.
+**AUTONOMOUS mode:** Auto-confirm unless there are concerns (>200 objects, or existing SVs cover >80% of tables).
 
 Present the scope summary:
 
@@ -210,12 +220,12 @@ Discovery scope:
   Existing SVs:   <N> (covering <M> tables)
   ACCESS_HISTORY: <available / not available>
   Connection:     <SV_CONNECTION>
-  Mode:           <AUTOPILOT / GUIDED>
+  Mode:           <AUTONOMOUS / INTERACTIVE>
 
 Proceed with scanning? (yes / adjust)
 ```
 
-Wait for explicit user confirmation (GUIDED) or auto-proceed (AUTOPILOT).
+Wait for explicit user confirmation (INTERACTIVE) or auto-proceed (AUTONOMOUS).
 
 If user says "adjust", let them add/remove schemas and re-present the summary.
 
@@ -233,4 +243,4 @@ If user says "adjust", let them add/remove schemas and re-present the summary.
 | `OBJECT_TYPE_COUNTS` | Breakdown by type per schema |
 | `EXISTING_SVS` | List of existing SVs with their table coverage |
 | `COVERED_TABLES` | Set of table FQNs already in existing SVs |
-| `MODE` | AUTOPILOT or GUIDED |
+| `MODE` | AUTONOMOUS or INTERACTIVE |

@@ -15,7 +15,8 @@ Each call consumes your agent token budget.
 Proceed? (yes / skip Phase 4)
 ```
 
-**STOP** — wait for confirmation.
+**INTERACTIVE mode:** STOP — wait for confirmation before proceeding.
+**AUTONOMOUS mode:** Auto-proceed with cost logging. Log: `[AUTO-RESOLVED: VQR-CURATOR-ANALYSIS → proceed (<N> agent calls, autonomous mode)]`
 
 ## Step 4.2 — VQR fast-path detection method
 

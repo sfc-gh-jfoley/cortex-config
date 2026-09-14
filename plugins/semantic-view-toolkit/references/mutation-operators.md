@@ -1,8 +1,8 @@
 # SV Mutation Operators
 
-Canonical catalog of 13 semantic view mutation operators with LLM prompt templates. Used by `sv-optimization` (single-mutation) and `sv-gepa-optimizer` (population-based) to mutate SV DDL. Each operator targets a specific part of the SV DDL and is selected based on evaluation failure signals and tournament-adjusted weights.
+Canonical catalog of 13 semantic view mutation operators with LLM prompt templates. Used by `sv-iterative-optimizer` (single-mutation) and `sv-gepa-optimizer` (population-based) to mutate SV DDL. Each operator targets a specific part of the SV DDL and is selected based on evaluation failure signals and tournament-adjusted weights.
 
-> This is the single canonical operator reference. `sv-optimization` and `sv-gepa-optimizer` both point here; there is no longer a duplicate copy.
+> This is the single canonical operator reference. `sv-iterative-optimizer` and `sv-gepa-optimizer` both point here; there is no longer a duplicate copy.
 
 ---
 

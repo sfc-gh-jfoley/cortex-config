@@ -235,11 +235,11 @@ Present this as a complete, self-contained SQL block the user can paste into any
   DDL saved above — copy to hol_setup.sql or version control.
 
 Next options:
-  - Add this SV to a Cortex Agent   → run cortex-agent-ddl skill
+  - Add this SV to a Cortex Agent   → run agent-ddl skill
   - Add more verified queries       → repeat Phase 7
   - Schedule drift monitoring       → Phase 8 (weekly/monthly health check)
   - Optimize with Cortex Analyst    → run semantic-view skill (existing/optimization path)
-  - A/B test agent configurations   → use the cortex-agent-toolkit plugin's agent-flag-tester skill if installed
+  - A/B test agent configurations   → use the cortex-agent-toolkit plugin's agent-model-tester skill if installed
 ```
 
 ### Multi-tenant handoff note
@@ -248,11 +248,15 @@ If `IS_MTT = true` for this semantic view, append the following note to the fina
 
 ```
 ⚠️  Multi-tenant SV: The downstream Cortex Agent MUST use a matching tenant
-    isolation pattern (user/role/session-attr). See cortex-agent-ddl Phase 4b
+    isolation pattern (user/role/session-attr). See agent-ddl Phase 4b
     for the three patterns. RAPs applied to base tables automatically scope
     agent-generated SQL queries because Cortex Analyst generates SQL against
     the SV's source tables — the RAP evaluates at query time regardless of
     whether the query was written by a human or by the AI.
 ```
 
-⚠️ **STOPPING POINT** — Present final summary and wait for user's next action.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Present final summary and wait for user's next action.
+
+**AUTONOMOUS:** this is the workflow's natural completion point — log the final summary
+and return control (the SV is built and validated; there's no further action to take
+autonomously).

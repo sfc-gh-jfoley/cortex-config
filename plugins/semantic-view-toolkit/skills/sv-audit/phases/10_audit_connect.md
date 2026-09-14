@@ -523,7 +523,9 @@ Requirements:
 Proceed? (yes / no)
 ```
 
-**Wait for user confirmation before loading Phase 11.**
+**Wait for user confirmation before loading Phase 11 (INTERACTIVE mode). AUTONOMOUS:** proceed
+if the privilege requirements above are met; log the decision. If IMPORTED PRIVILEGES
+are missing, this is a genuine blocker in both modes (can't be auto-resolved).
 
 If user says no, stop and report: "Audit cancelled. The describe summary above is available for reference."
 

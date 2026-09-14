@@ -29,6 +29,15 @@ triggers:
 
 ---
 
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+
+- **INTERACTIVE**: All `STOP Gate (INTERACTIVE mode)` labels block for user input.
+- **AUTONOMOUS**: Judgment and courtesy gates resolve to their documented defaults and log the resolution. Permanent blockers (missing grants, zero VQRs, redacted ground truth) still terminate in both modes.
+
+---
+
 ## Workflow
 
 ### Phase 1: Connect & Validate
@@ -41,7 +50,7 @@ Ask the user for the semantic view fully-qualified name (or infer from context/p
 Which semantic view do you want to evaluate?
 ```
 
-**Size check before evaluating.** Estimate the SV's token size (~1 token per ~4 chars of serialized DDL via `GET_DDL('SEMANTIC VIEW', '<fqn>')`). If it exceeds ~100,000 tokens, warn the user: in production Cortex Agents may prune the SV to fit the context window (latency + reduced accuracy), and eval results on an oversized SV may not reflect production behavior accurately. Recommend splitting the SV (see `sv-discovery` / `sv-composer`) before investing in eval. This is a guideline, not a hard block — eval will still run.
+**Size check before evaluating.** Estimate the SV's token size (~1 token per ~2.5 chars of serialized DDL via `GET_DDL('SEMANTIC VIEW', '<fqn>')`). If it exceeds ~100,000 tokens, warn the user: in production Cortex Agents may prune the SV to fit the context window (latency + reduced accuracy), and eval results on an oversized SV may not reflect production behavior accurately. Recommend splitting the SV (see `sv-discovery` / `sv-rearchitect`) before investing in eval. This is a guideline, not a hard block — eval will still run.
 
 **Step 2: Validate Access**
 
@@ -86,7 +95,8 @@ A) Proceed and flag contaminated VQR failures as REFERENCE_CONTAMINATED (read-on
 B) Exclude contaminated VQRs from this eval run
 ```
 
-**STOP Gate (GUIDED mode):** Wait for user choice before proceeding.
+**INTERACTIVE mode (STOP Gate):** Wait for user choice before proceeding.
+**AUTONOMOUS mode default:** Proceed with option A — flag CONTAMINATED VQRs as REFERENCE_CONTAMINATED and continue. Log: `[AUTO-RESOLVED: EVAL-CONTAMINATED-VQR → option A (flag and continue)]`
 
 ---
 
@@ -144,10 +154,11 @@ When `with extension (CA='...')` is found in GET_DDL output:
 
   C) Abort.
 
-  **GUIDED mode:** Pause here and present options A/B/C to the user.
-  **AUTOPILOT mode:** Default to A, log the clone FQN, and continue.
+  **INTERACTIVE mode:** Pause here and present options A/B/C to the user.
+  **AUTONOMOUS mode:** Default to A, log the clone FQN, and continue.
 
-**STOP Gate:** Wait for user choice on CRITICAL findings. Warn and continue for HIGH/MEDIUM.
+**INTERACTIVE mode (STOP Gate):** Wait for user choice on CRITICAL findings. Warn and continue for HIGH/MEDIUM.
+**AUTONOMOUS mode:** Auto-resolve CRITICAL findings using the documented default above; warn and continue for HIGH/MEDIUM.
 
 ---
 
@@ -179,7 +190,8 @@ Dry-run summary:
 ```
 
 If any COMPILE_ERROR: offer to skip them or abort eval.
-**STOP Gate (GUIDED mode):** Wait for user confirmation if COMPILE_ERROR > 0.
+**INTERACTIVE mode (STOP Gate):** Wait for user confirmation if COMPILE_ERROR > 0.
+**AUTONOMOUS mode default:** Skip COMPILE_ERROR VQRs, log them, and proceed with EXECUTES VQRs only. Log: `[AUTO-RESOLVED: EVAL-COMPILE-ERROR-VQR → skip N VQR(s): <names>]`
 
 ---
 
@@ -246,7 +258,7 @@ VQRs: M verified queries available
 Status: Ready for evaluation
 ```
 
-**STOP Gate (GUIDED mode only):** Wait for user confirmation before proceeding.
+**STOP Gate (INTERACTIVE mode only):** Wait for user confirmation before proceeding.
 
 ---
 
@@ -254,7 +266,7 @@ Status: Ready for evaluation
 
 **Step 6: Choose VQR Scope**
 
-Ask user (or auto-select all in AUTOPILOT):
+Ask user (or auto-select all in AUTONOMOUS):
 
 ```
 VQR selection:
@@ -380,7 +392,7 @@ CALL EXECUTE_AI_EVALUATION(
 
 Status progression: `CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_PROGRESS → COMPLETED`
 
-In GUIDED mode, report progress at each status change.
+In INTERACTIVE mode, report progress at each status change.
 
 **Timeout handling:**
 - After 15 minutes without COMPLETED → report current status
@@ -533,7 +545,7 @@ Top Recommendations:
 
 ```
 What would you like to do next?
-A) Optimize this SV (→ sv-optimization / sv-gepa-optimizer)
+A) Optimize this SV (→ sv-iterative-optimizer / sv-gepa-optimizer)
 B) Fix specific failures manually (show DDL changes)
 C) Re-run evaluation with a different VQR subset
 D) Export report to a table
@@ -636,7 +648,7 @@ FROM raw;
 |----------|----------|
 | No VQRs available | → vqr-generator |
 | Accuracy < 70% (broad issues) | → sv-gepa-optimizer (population-based) |
-| 1-3 specific failures | → sv-optimization (sequential mutation) |
+| 1-3 specific failures | → sv-iterative-optimizer (sequential mutation) |
 | Missing relationships detected | → sv-discovery (re-scan) |
 | Want to monitor over time | Persist to EVAL_HISTORY + set up recurring eval |
 

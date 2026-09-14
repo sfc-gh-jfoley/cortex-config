@@ -75,9 +75,9 @@ FULLY COVERED (skip):
 
 ---
 
-## Step 4B: Interactive Adjustment (GUIDED mode)
+## Step 4B: Interactive Adjustment (INTERACTIVE mode)
 
-In GUIDED mode, present adjustment options:
+In INTERACTIVE mode, present adjustment options:
 
 ```
 Adjustments available:
@@ -99,9 +99,9 @@ Which adjustments would you like to make? (or "accept" to proceed)
 
 ---
 
-## Step 4C: AUTOPILOT Mode Behavior
+## Step 4C: AUTONOMOUS Mode Behavior
 
-In AUTOPILOT mode:
+In AUTONOMOUS mode:
 - **HIGH confidence domains:** Auto-approve, no gate
 - **MEDIUM confidence domains:** Auto-approve with note "medium confidence — review recommended"
 - **LOW confidence domains:** STOP and ask user
@@ -111,10 +111,25 @@ In AUTOPILOT mode:
   Options:
   A) Include anyway (may produce a low-quality SV)
   B) Skip this domain
-  C) Switch to GUIDED mode for this domain
+  C) Switch to INTERACTIVE mode for this domain
   ```
 - **FULLY_COVERED domains:** Auto-skip (report "skipped — already covered")
-- **PARTIALLY_COVERED domains:** STOP and ask user (need decision on extend vs new)
+- **PARTIALLY_COVERED domains:** STOP and run sv-audit on the existing SV before presenting options. The extend-vs-new decision depends on the quality of the existing SV — extending a low-quality SV is worse than creating a new one.
+
+  **sv-audit gate:**
+  ```
+  Before offering extend vs create for domain "<name>":
+  → Invoke sv-audit on <existing_sv_fqn>
+  → Present the audit score alongside the options
+  ```
+
+  Options to present after audit:
+  - If audit score is HIGH → recommend EXTEND (SV is healthy, worth building on)
+  - If audit score is MEDIUM → present both options, surface audit findings
+  - If audit score is LOW → recommend CREATE NEW, note existing SV quality issues
+
+  If the user prefers not to run sv-audit (AUTONOMOUS mode or explicit skip):
+  default to presenting both options without a recommendation.
 
 ---
 
@@ -139,8 +154,8 @@ Remaining orphans: <N> (not included in any SV)
 Proceed to handoff? (yes / adjust more)
 ```
 
-**GUIDED mode:** Mandatory gate — wait for explicit "yes" or "proceed".
-**AUTOPILOT mode:** Auto-proceed (unless any LOW confidence domains were included).
+**INTERACTIVE mode:** Mandatory gate — wait for explicit "yes" or "proceed".
+**AUTONOMOUS mode:** Auto-proceed (unless any LOW confidence domains were included).
 
 ---
 

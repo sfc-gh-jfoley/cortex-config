@@ -31,13 +31,15 @@ lifecycle pipeline (eval → flags → optimize → GEPA).
 
 | Trigger | Skill |
 |---|---|
-| create/build agent, agent DDL | cortex-agent-ddl |
+| create/build agent, agent DDL | agent-ddl |
 | evaluate, baseline, accuracy | agent-evaluation |
-| flags, model sweep, A/B test | agent-flag-tester |
-| optimize, improve, iterate | cortex-agent-optimization |
+| flags, model sweep, A/B test | agent-model-tester |
+| tune instructions, prompt optimization | agent-instruction-optimizer |
+| optimize, improve, iterate | agent-optimizer |
 | GEPA, evolutionary, plateau | agent-gepa-optimizer |
-| query, invoke, DATA_AGENT_RUN | query-cortex-agent |
-| flags reference | cortex-agent-flags |
+| pilot feedback, thumbs down | agent-feedback-analyzer |
+| query, invoke, DATA_AGENT_RUN | agent-query |
+| flags reference | agent-flags-reference |
 | version, alias, rollback, CI/CD | agent-versioning |
 
 ## Key Rule

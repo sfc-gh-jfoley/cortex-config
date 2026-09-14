@@ -15,9 +15,10 @@ A worker is STUCK when all of the following are true:
 **Actions (in order):**
 1. Kill the agent: `kill_agent(agent_id)`
 2. Remove its worktree: `git worktree remove --force <worktree_path>`
-3. Commit the event: `git add .agent-project/manifest.log && git commit -m "STUCK: <task_id> — no git activity 120s"`
-4. Append to manifest.log: `<timestamp> | worker-<task_id> | STUCK | retry <N>`
-5. **If `retry_count < retry_budget`** → re-spawn worker with same task spec + DOMAIN_HINTS from manifest
+3. Append BLOCKED to manifest.log:
+   `<timestamp> | <task_id> | BLOCKED | team-arch-<N> | sha=unknown | cycles=stuck | reason=no git activity 120s`
+4. Commit: `git add .agent-project/manifest.log && git commit -m "CLEANUP: <task_id> — stuck worker removed"`
+5. **If `retry_count < retry_budget`** → write ISSUES_FOUND, re-spawn worker with same task spec + DOMAIN_HINTS
 6. **If `retry_count >= retry_budget`** → escalate (see `escalation-format.md`)
 
 ---
@@ -33,14 +34,14 @@ git log .agent-project/manifest.log --oneline | head -20
 # 2. Find dangling worktrees from previous session
 git worktree list
 
-# 3. For each dangling worktree path, check if its task completed:
-git log <branch> --grep="\[DONE\]" --oneline
-# Non-empty → task finished, worktree just wasn't cleaned up → safe to remove
-# Empty → worker was mid-task → needs re-spawn
+# 3. For each dangling worktree, check manifest for task progress:
+grep "| <task_id> | CODE_WRITTEN \|" .agent-project/manifest.log
+# Match → task progressed past worker phase → safe to remove worktree
+# No match → worker was mid-task → needs re-spawn
 ```
 
 **For each dangling worktree:**
-- **Completed** (`[DONE]` commit exists): `git worktree remove --force <path>`
+- **Progressed** (CODE_WRITTEN or later phase in manifest): `git worktree remove --force <path>`
 - **Incomplete**: `git worktree remove --force <path>`, then re-spawn worker with same task spec
 
 After resolving all worktrees:
@@ -56,12 +57,13 @@ terminal invariants before declaring recovery finished:
 M=.agent-project/manifest.log
 reg=$(grep -c "| TASK_REGISTERED |" "$M" 2>/dev/null); reg=${reg:-0}
 done_n=$(grep -c "| DONE |" "$M" 2>/dev/null); done_n=${done_n:-0}
+rearch_n=$(grep -c "| REARCHITECT |" "$M" 2>/dev/null); rearch_n=${rearch_n:-0}
 open_c=$(grep -c "| CONDITION_OPEN |" "$M" 2>/dev/null); open_c=${open_c:-0}
 closed_c=$(grep -c "| CONDITION_CLOSED |" "$M" 2>/dev/null); closed_c=${closed_c:-0}
 shipped=$(grep -c "| SHIPPED |" "$M" 2>/dev/null); shipped=${shipped:-0}
 
 [ "$open_c" -eq "$closed_c" ] || echo "OPEN CONDITIONS: $((open_c - closed_c)) unremediated"
-[ "$reg" -eq "$done_n" ]      || echo "INCOMPLETE: $reg registered, $done_n done"
+[ "$((done_n + rearch_n))" -eq "$reg" ] || echo "INCOMPLETE: $reg registered, $done_n done, $rearch_n rearchitected"
 [ "$done_n" -gt 0 ] && [ "$shipped" -eq 0 ] && echo "NOT SHIPPED: run never reached Phase 6"
 ```
 

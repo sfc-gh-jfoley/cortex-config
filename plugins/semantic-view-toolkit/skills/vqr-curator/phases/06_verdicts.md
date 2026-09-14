@@ -83,6 +83,10 @@ Actions available:
 
 **STOP — do not modify the SV until user selects A or B.**
 
+> **This gate is PERMANENT and applies in BOTH INTERACTIVE and AUTONOMOUS modes.**
+> VQR mutations (rewrite, remove, deduplicate) on an existing customer SV require explicit
+> operator authorization. AUTONOMOUS mode does not override this gate.
+
 ## Step 6.4 — Apply approved changes
 
 For FIX_SQL verdicts:

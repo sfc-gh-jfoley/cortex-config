@@ -26,6 +26,16 @@ fitness(candidate) = mean(answer_correctness scores across all mini-batch questi
 
 For runs_per_split=1 (mini-batch default), this is a single eval run's mean score. For full validation (Phase 4), use the configured runs_per_split from metadata.yaml and average across runs.
 
+> **⚠️ GEPA fitness optimizes `answer_correctness` only — `tool_selection_accuracy` (TSA) and
+> `tool_execution_accuracy` (TEA) never drive tournament selection or mutation direction.**
+> A candidate can win every tournament and be declared the GEPA winner while making 2-3x more
+> tool calls than necessary (low TSA), because nothing in this fitness function rewards tool
+> efficiency. Before accepting a GEPA winner as production-ready, explicitly check its TSA/TEA
+> scores against the population baseline — an AC > 0.80 winner can still have TSA < 0.60.
+> Phase 4's regression check (agent-optimizer/references/review.md) only rejects if TSA/TEA
+> got *worse*, not if they were never improved. See agent-gepa-optimizer/SKILL.md Phase 4 for
+> the explicit post-convergence TSA/TEA check.
+
 ## Elitism
 
 **Top-1 elitism:** The single highest-fitness candidate in the population ALWAYS survives to the next generation, regardless of tournament outcome.

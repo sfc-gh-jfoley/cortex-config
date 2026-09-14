@@ -1,0 +1,9 @@
+[project]
+name = "agent-instruction-optimizer"
+version = "0.2.0"
+description = "MIPROv2-inspired TPE instruction optimizer for Cortex Agents"
+requires-python = ">=3.11"
+dependencies = [
+    "optuna>=3.6.0",
+    "snowflake-connector-python>=3.0.0",
+]

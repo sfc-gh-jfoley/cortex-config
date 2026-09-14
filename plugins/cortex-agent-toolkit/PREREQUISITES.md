@@ -14,7 +14,7 @@ GRANT USAGE ON WAREHOUSE <warehouse> TO ROLE <your_role>;
 -- Access to Cortex functions
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <your_role>;
 
--- For agent evaluations (agent-evaluation / agent-flag-tester skills)
+-- For agent evaluations (agent-evaluation / agent-model-tester skills)
 GRANT EXECUTE TASK ON ACCOUNT TO ROLE <your_role>;
 GRANT CREATE FILE FORMAT ON SCHEMA <database>.<schema> TO ROLE <your_role>;
 GRANT CREATE DATASET ON SCHEMA <database>.<schema> TO ROLE <your_role>;
@@ -50,7 +50,7 @@ cortex --version
 
 ### snow CLI
 
-Required by `agent-evaluation` and `agent-flag-tester` for agent operations (DESCRIBE, CREATE, ALTER).
+Required by `agent-evaluation` and `agent-model-tester` for agent operations (DESCRIBE, CREATE, ALTER).
 
 ```bash
 # Check installation

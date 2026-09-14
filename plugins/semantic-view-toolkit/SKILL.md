@@ -119,19 +119,29 @@ sv-rearchitect                                            sv-audit ◄───�
 
 ## Execution Modes
 
-Every skill in this toolkit supports two modes:
+> **Mode is declared once per session and propagates to every delegated sub-skill automatically.
+> Sub-skills must never re-ask for mode confirmation.**
 
-### AUTOPILOT
-Point and run. Minimal interaction. Agent makes decisions, reports results.
-- Best for: demos, quick iterations, experienced users
-- Trigger: user says "just run it", "autopilot", or starts with a clear target
-
-### GUIDED
-Step-by-step walkthrough. Explains each step, asks for approval at gates.
+### INTERACTIVE
+Step-by-step with human review. Explains each phase and pauses at gates.
+- Judgment / courtesy gates: presents options, waits for operator choice
+- Production mutation gates: shows diff/plan, waits for explicit approval before overwrite
 - Best for: first-time users, learning, careful production changes
-- Trigger: user says "walk me through it", "explain", or default for new users
+- Trigger: "walk me through it", "explain", "guided" — also the **default for new users**
 
-**Mode is asked once per session, remembered for all subsequent skill invocations.**
+### AUTONOMOUS
+Runs to completion. Resolves judgment and courtesy gates using documented defaults, logs every resolution, and continues without pausing.
+- **Judgment / courtesy gates** → resolved by the documented deterministic default; logged as `[AUTO-RESOLVED: <gate-id> → <default>]`
+- **Additive / idempotent metadata setup** → executed without prompting (`CREATE SCHEMA IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, `CREATE OR ALTER` preserving materializations)
+- **True blockers** → do NOT become questions when no operator decision can unblock them; either auto-remediate via a deterministic path, terminate with a `[BLOCKER: <reason>]` record, or escalate only when operator input is genuinely required
+- Trigger: "just run it", "autopilot", "autonomous", "headless", "run to completion"
+
+**Permanent OPERATOR_REQUIRED gates — never auto-resolved in any mode:**
+- Mutation of an existing customer VQR (modify, delete, or rewrite) — VQRs are immutable without explicit customer authorization (see [Gate Inventory](references/gate-inventory.md) — `SV-VQR-MUTATE`)
+- Acceptance of a winning SV configuration before production overwrite (see [Gate Inventory](references/gate-inventory.md) — `GEPA-PROD-OVERWRITE`)
+- Any action explicitly listed as OPERATOR_REQUIRED in the gate inventory
+
+**Gate categories and full inventory:** See `references/gate-inventory.md`
 
 ---
 
@@ -139,10 +149,11 @@ Step-by-step walkthrough. Explains each step, asks for approval at gates.
 
 This toolkit persists state in a `_SV_TOOLKIT_META` schema (created on first use in the user's target database):
 
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> **DDL/DML safety gate**: Before creating `_SV_TOOLKIT_META` objects, in INTERACTIVE mode ask:
+> "Want me to create a rollback clone first so we can undo this?
 > (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
 > If yes, create the clone before proceeding.
+> In AUTONOMOUS mode, `CREATE SCHEMA/TABLE IF NOT EXISTS` is additive and idempotent — no prompt needed.
 
 ```sql
 -- Created automatically when needed:

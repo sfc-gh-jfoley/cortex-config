@@ -326,7 +326,8 @@ Auto-description preview (3 of N columns):
 Proceed with these descriptions? (yes / regenerate / skip descriptions)
 ```
 
-⚠️ **STOPPING POINT** — Wait for user approval before continuing to Phase 3.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user approval before continuing to Phase 3.
+**AUTONOMOUS:** accept the generated descriptions as-is, log the decision, proceed.
 
 ---
 

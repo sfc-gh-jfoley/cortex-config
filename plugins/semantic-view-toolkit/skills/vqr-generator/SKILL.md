@@ -25,7 +25,18 @@ Use this skill when:
 - You want data-driven question suggestions based on actual user behavior
 - You're bootstrapping a new SV and need initial example queries
 
-**VQRs are the foundation of SV evaluation and optimization.** Without them, sv-evaluation and sv-optimization cannot run.
+**VQRs are the foundation of SV evaluation and optimization.** Without them, sv-evaluation and sv-iterative-optimizer cannot run.
+
+**Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
+
+---
+
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+
+- **INTERACTIVE**: Phase 4 STOP Gate blocks for operator approval of candidates before any SV mutation.
+- **AUTONOMOUS**: Phase 4 auto-selects only `VALID` candidates (discards `INVALID`, holds `NEEDS_FIX` for review), logs selections, and proceeds. **Phase 5 (applying VQRs to an existing customer SV) requires separate explicit mutation authorization in BOTH modes** — this is an OPERATOR_REQUIRED gate. Auto-generation of candidates is allowed; auto-insertion into a customer SV is not.
 
 **Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
 
@@ -182,11 +193,17 @@ Check:
 
 Mark each candidate: VALID / INVALID / NEEDS_FIX
 
-**STOP Gate**: Present validated candidates for user approval.
+**INTERACTIVE mode (STOP Gate):** Present validated candidates for user approval before proceeding to Phase 5.
+**AUTONOMOUS mode:** Auto-select `VALID` candidates, discard `INVALID`, hold `NEEDS_FIX`. Log: `[AUTO-RESOLVED: VQR-GEN-VALID-SELECT → N VALID selected, M INVALID discarded, K NEEDS_FIX held]`. **Still requires explicit mutation authorization before Phase 5 applies any VQR to the customer SV.**
 
 ---
 
 ## Phase 5: Apply
+
+> **OPERATOR_REQUIRED gate [VQR-GEN-INSERT] — required in BOTH modes:**
+> Inserting VQRs into an existing customer SV is a write mutation. Explicit operator
+> authorization is required before executing this phase, regardless of mode.
+> Present the selected candidates and the DDL diff; do not apply until confirmed.
 
 For approved candidates, add VQRs to the SV:
 
@@ -236,7 +253,7 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 
 - **Fed by sv-ddl**: after creating a SV, bootstrap VQRs
 - **Feeds sv-evaluation**: VQRs enable running evals
-- **Feeds sv-optimization**: more VQRs = better eval coverage for optimization
+- **Feeds sv-iterative-optimizer**: more VQRs = better eval coverage for optimization
 - **Can be triggered by sv-evaluation**: if eval fails due to too few VQRs, route here
 
 ---

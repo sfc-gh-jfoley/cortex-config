@@ -137,8 +137,8 @@ FROM all_tbl WHERE t NOT IN (SELECT t FROM rel_tbl);
 
 | Result | Action |
 |---|---|
-| FAN_TRAP row returned | **STOP** — return to Phase 4/5, move metric to bridge-table grain |
-| CHASM_TRAP row returned | **STOP** — return to Phase 4/5, aggregate each fact to shared dimension grain in separate CTEs |
+| FAN_TRAP row returned | **STOP** (both modes — structural defect, not a judgment call) — return to Phase 4/5, move metric to bridge-table grain |
+| CHASM_TRAP row returned | **STOP** (both modes) — return to Phase 4/5, aggregate each fact to shared dimension grain in separate CTEs |
 | ORPHAN row returned | **WARN** — surface to user; add missing RELATIONSHIP or remove orphaned table |
 | All return 0 rows | ✓ Proceed to Step 6.4 — but also verify star-topology paths manually (see fan-trap note above) |
 | Any query errors with "invalid identifier" | Column names in the pre-flight didn't match; re-read Step 6.3.1 preamble and remap column names |
@@ -292,7 +292,7 @@ If **any failures**: return to Phase 5 with the specific fixes identified. Incre
 
 **Iteration limit**: after 3 rounds without progress, stop and present the issues to the user for manual input.
 
-⚠️ **STOPPING POINT** — Present validation results. Ask:
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Present validation results. Ask:
 ```
 Validation complete.
   Passed: N/N questions
@@ -303,3 +303,8 @@ Options:
   2. Accept as-is → proceed to Phase 7 (add verified queries, export)
   3. Show me the failing SQL so I can debug it manually
 ```
+
+**AUTONOMOUS:** if 0 issues, proceed to Phase 7. If issues > 0, take option 1 (fix and
+iterate) up to the existing 3-round iteration limit above; if still failing after 3
+rounds, that limit already converts this into a genuine stop — present the issues
+(matches the existing "stop and present to user for manual input" behavior).

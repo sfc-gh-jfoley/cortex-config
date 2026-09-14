@@ -101,7 +101,16 @@ For each domain where action is `EXTEND_EXISTING`:
 **Tier 2:** UTM_SOURCE, UTM_MEDIUM, FIRST_TOUCH_DATE
 
 ### Instruction for sv-ddl
-Add these tables and relationships to the existing SV DDL. Run `DESCRIBE SEMANTIC VIEW <existing_sv>` first to get current DDL, then merge.
+
+Snowflake has no `ALTER SEMANTIC VIEW ADD TABLE` syntax. The only path is
+`CREATE OR REPLACE SEMANTIC VIEW` with the full merged DDL.
+
+Protocol:
+1. Run `GET_DDL('SEMANTIC VIEW', '<existing_sv_fqn>')` to retrieve the current DDL
+2. Parse the DDL to extract existing tables, relationships, dimensions, metrics, and VQRs
+3. Merge in the new tables and relationships from the specification above
+4. Emit a complete `CREATE OR REPLACE SEMANTIC VIEW` statement containing all existing + new content
+5. Present the merged DDL to the user for review before executing
 ```
 
 ---
@@ -137,35 +146,38 @@ To build a specific domain, say:
 
 ## Step 5D: Persist State (Optional)
 
-Offer to persist discovery results for future reference:
+Offer to persist discovery results for future reference.
 
-**GUIDED mode:** Ask the user:
+**Both modes** — ask the user once before creating any objects:
+
 ```
-Would you like to save this discovery to <DISCOVERY_DB>._SV_TOOLKIT_META.DISCOVERY_STATE?
+I can save this discovery to a metadata table for future reference.
 
 Benefits:
   - Resume if interrupted
   - Compare discoveries over time (schema evolution)
   - Feed domain context to other toolkit skills
 
-(yes / no)
+This creates:
+  CREATE SCHEMA IF NOT EXISTS <target>
+  CREATE TABLE IF NOT EXISTS <target>.DISCOVERY_STATE (...)
+
+Where should I create it?
+  A) <DISCOVERY_DB>._SV_TOOLKIT_META  (default — co-located with your data)
+  B) A different database/schema (type it)
+  C) Skip — don't persist
 ```
 
-**AUTOPILOT mode:** Auto-persist without asking.
+Use `ask_user_question` for this. Do NOT create any schema or table until the user responds with A or B and confirms the target.
 
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
-> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding.
-
-**Persistence SQL:**
+**Persistence SQL** (substitute `<TARGET_SCHEMA>` with the user-confirmed location):
 
 ```sql
 -- Create meta schema if needed
-CREATE SCHEMA IF NOT EXISTS <DISCOVERY_DB>._SV_TOOLKIT_META;
+CREATE SCHEMA IF NOT EXISTS <TARGET_SCHEMA>;
 
 -- Create discovery state table
-CREATE TABLE IF NOT EXISTS <DISCOVERY_DB>._SV_TOOLKIT_META.DISCOVERY_STATE (
+CREATE TABLE IF NOT EXISTS <TARGET_SCHEMA>.DISCOVERY_STATE (
     discovery_id VARCHAR DEFAULT UUID_STRING(),
     discovery_timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
     database_name VARCHAR,
@@ -182,7 +194,7 @@ CREATE TABLE IF NOT EXISTS <DISCOVERY_DB>._SV_TOOLKIT_META.DISCOVERY_STATE (
 );
 
 -- Insert this discovery run
-INSERT INTO <DISCOVERY_DB>._SV_TOOLKIT_META.DISCOVERY_STATE
+INSERT INTO <TARGET_SCHEMA>.DISCOVERY_STATE
     (database_name, schemas_analyzed, domains, relationship_graph, orphan_tables, bridge_tables, mode, existing_svs, column_importance, adjustment_log)
 SELECT
     '<DISCOVERY_DB>',

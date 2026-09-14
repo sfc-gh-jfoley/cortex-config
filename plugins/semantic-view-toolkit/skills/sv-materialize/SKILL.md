@@ -4,7 +4,7 @@ description: >
   Manage semantic view materializations to accelerate repeated Semantic SQL queries.
   Assess eligibility, design grain and staleness targets, create materializations,
   verify planner use via refresh history, and diagnose auto-suspend.
-  NOT for Cortex Analyst accuracy — use sv-optimization for that.
+  NOT for Cortex Analyst accuracy — use sv-iterative-optimizer for that.
 triggers:
   - materialize SV
   - add materialization
@@ -26,7 +26,7 @@ triggers:
 > or standard SQL against the SV. **Cortex Analyst, Cortex Agents, and CoWork emit physical SQL
 > directly against base tables and receive zero benefit from materializations.**
 >
-> If your workload is Analyst-driven, this skill will not help you. Use `sv-optimization` to
+> If your workload is Analyst-driven, this skill will not help you. Use `sv-iterative-optimizer` to
 > improve Analyst accuracy instead.
 
 # SV Materialize Skill
@@ -486,7 +486,7 @@ Queries fall back to base table scan (materialization is NOT used) when:
 
 ## Integration with Toolkit
 
-- **After sv-optimization**: when Analyst accuracy is maximized and query latency is the next concern
+- **After sv-iterative-optimizer**: when Analyst accuracy is maximized and query latency is the next concern
 - **Flagged by sv-audit**: Section 9b surfaces repeated query patterns with additive metrics on large tables as materialization candidates
 - **Monitored by sv-watch**: Check 6 surfaces auto-suspended materializations
-- **Preserved by sv-ddl / sv-optimization**: use `CREATE OR ALTER` not `CREATE OR REPLACE` when materializations exist
+- **Preserved by sv-ddl / sv-iterative-optimizer**: use `CREATE OR ALTER` not `CREATE OR REPLACE` when materializations exist

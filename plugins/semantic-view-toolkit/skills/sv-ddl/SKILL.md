@@ -35,6 +35,27 @@ Use this skill when:
 
 ---
 
+## Execution Mode
+
+Detect or ask whether to run **INTERACTIVE** or **AUTONOMOUS** (same convention as
+`sv-iterative-optimizer` / `agent-optimizer`):
+
+- **INTERACTIVE** (default): every `MANDATORY STOP` / `STOPPING POINT` across phases 1–8 blocks
+  for user input, as written.
+- **AUTONOMOUS**: courtesy and judgment-call stops resolve to their documented default and
+  log the decision instead of blocking (see each phase file for its specific default).
+  Genuine data-integrity stops — FAN_TRAP/CHASM_TRAP in Phase 6, `REGULATED_MODE=true`
+  governance notes in Phase 3, zero-object/zero-answer conditions — still hard-stop in
+  both modes; these aren't judgment calls, they're defects or compliance requirements.
+  DDL-mutating steps (Phase 5 execute, Phase 8 drift fixes) snapshot the prior DDL via
+  `GET_DDL` before applying, since semantic views have no built-in undo.
+
+Default to INTERACTIVE if the user's preference is unclear. A standing "run to completion" /
+"don't stop until done" directive for this task counts as an explicit request for
+AUTONOMOUS without asking again.
+
+---
+
 ## Source Object Support
 
 This skill handles ALL queryable objects as SV sources:
@@ -75,7 +96,7 @@ Phase 8: Drift Monitor (optional)   → scheduled weekly/monthly health check
 
 **Stopping points**: Phases 1, 2, 5, 6, 7 each have a mandatory user approval gate.
 
-**Size guardrail (~100K tokens):** In Phase 5, after generating the DDL, estimate the serialized SV size (~1 token per ~4 chars of DDL including all descriptions, metrics, and VQR SQL). If the SV exceeds ~100,000 tokens, warn the author: Cortex Agents may prune the SV to fit the context window, adding latency and reducing answer quality. Recommend splitting along sub-domain boundaries into multiple SVs (Cortex Agents selects the relevant one per question) or trimming non-business-relevant columns. See `sv-discovery` for the split guidance. This is a guideline, not a hard limit.
+**Size guardrail (~100K tokens):** In Phase 5, after generating the DDL, estimate the serialized SV size (~1 token per ~2.5 chars of DDL including all descriptions, metrics, and VQR SQL). If the SV exceeds ~100,000 tokens, warn the author: Cortex Agents may prune the SV to fit the context window, adding latency and reducing answer quality. Recommend splitting along sub-domain boundaries into multiple SVs (Cortex Agents selects the relevant one per question) or trimming non-business-relevant columns. See `sv-discovery` for the split guidance. This is a guideline, not a hard limit.
 
 ---
 
@@ -151,5 +172,5 @@ This skill **does not replace** the bundled `semantic-view` skill. Use each for:
 |------|-------------|
 | DDL path, HOL, quick creation, unreliable FastGen | **This skill** (sv-ddl) |
 | YAML/FastGen path, Tableau import | Bundled `semantic-view` skill |
-| Optimize/audit existing semantic view | sv-audit or sv-optimization |
-| VQR suggestions, filters & metrics suggestions | sv-optimization or vqr-generator |
+| Optimize/audit existing semantic view | sv-audit or sv-iterative-optimizer |
+| VQR suggestions, filters & metrics suggestions | sv-iterative-optimizer or vqr-generator |

@@ -28,7 +28,16 @@ Use this skill for ongoing production maintenance of semantic views:
 
 ---
 
-## Execution Modes
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router. Never re-asks.
+
+- **INTERACTIVE** (one-shot manual runs): Check findings are presented and recommendations require user confirmation before any action is taken.
+- **AUTONOMOUS / Scheduled (cron)**: All watch checks (Checks 1–6) run automatically. All idempotent metadata operations (`CREATE TABLE IF NOT EXISTS` on `WATCH_LOG`) execute without prompting — these are additive and must not block scheduled runs. Report findings are written to `WATCH_LOG`; CRITICAL findings terminate with a `[BLOCKER]` record so the cron caller can detect them.
+
+---
+
+## Run Modes
 
 ### Manual (One-shot)
 ```
@@ -196,10 +205,11 @@ LIMIT 5;
 
 Watch results are stored in `_SV_TOOLKIT_META.WATCH_LOG`:
 
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
+> **Note (INTERACTIVE mode only):** When creating `_SV_TOOLKIT_META` for the first time
+> in INTERACTIVE mode, offer: "Want me to create a rollback clone first?
 > (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding.
+> In AUTONOMOUS/scheduled mode, `CREATE TABLE IF NOT EXISTS` is additive and idempotent
+> — no prompt; scheduled runs must not block on this.
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.WATCH_LOG (
@@ -230,7 +240,7 @@ Alternatively, tell the user to type `/loop` in Cortex Code to set up an interac
 ## Integration with Toolkit
 
 - **Triggers sv-audit**: CRITICAL/WARNING findings can feed into sv-audit for deeper analysis
-- **Triggers sv-optimization**: repeated drift patterns suggest optimization opportunities
+- **Triggers sv-iterative-optimizer**: repeated drift patterns suggest optimization opportunities
 - **Triggers sv-materialize**: MAT_HEALTH SUSPENDED findings route to sv-materialize for diagnosis
 - **Fed by sv-ddl**: after creating/modifying a SV, set up watch
 - **Independent**: can run standalone without any prior toolkit usage
