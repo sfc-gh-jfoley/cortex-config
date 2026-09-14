@@ -46,7 +46,7 @@
 
 **⚠️ Primary Role Only:** `EXECUTE_AI_EVALUATION` can only be called from a **primary role**. If your current role is not primary (e.g., a secondary role or role in a hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
 
-### sv-optimization / sv-gepa-optimizer
+### sv-iterative-optimizer / sv-gepa-optimizer
 
 | Requirement | Why | Fallback if Missing |
 |---|---|---|
@@ -63,7 +63,7 @@
 | `SELECT` on semantic views to monitor | DESCRIBE to compare | Cannot proceed |
 | `CREATE TABLE` on `_SV_TOOLKIT_META` | Persist watch history | Cannot proceed |
 
-### sv-composer
+### sv-rearchitect
 
 | Requirement | Why | Fallback if Missing |
 |---|---|---|

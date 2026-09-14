@@ -273,9 +273,13 @@ DIMENSION ENRICHMENT:
   [ADD]    CUSTOMER_TIER — missing sample_values (top 10: GOLD, SILVER, ...)
 ```
 
-**⚠️ STOPPING POINT** — Wait for user to approve/reject each item.
+**⚠️ STOPPING POINT (INTERACTIVE mode)** — Wait for user to approve/reject each item.
 
 Ask: "Which items should I apply? Reply with numbers, 'all ADD', or specific selections."
+
+**AUTONOMOUS:** these are additive metadata fixes (missing descriptions/sample_values,
+not structural changes) — apply all `[ADD]` items, skip `[SKIP]` items as already marked,
+snapshot DDL first via `GET_DDL` (same rollback convention as Phase 5), log what was applied.
 
 ---
 

@@ -26,7 +26,26 @@ Use this skill when you have an existing semantic view and want to know:
 - Are there common aggregation patterns that should be defined as METRICS?
 - What's the overall column coverage (SV columns vs total source columns)?
 
-**This skill analyzes but does not modify.** It produces a prioritized recommendation report. Apply changes via sv-ddl or sv-optimization.
+**This skill analyzes but does not modify.** It produces a prioritized recommendation report. Apply changes via sv-ddl or sv-iterative-optimizer.
+
+## Execution Mode
+
+Detect or ask whether to run **INTERACTIVE** or **AUTONOMOUS**:
+
+- **INTERACTIVE** (default): the Phase 10 usage-audit consent stop and the Phase 12 apply-DDL
+  stop both block for user input.
+- **AUTONOMOUS**: Phase 10 proceeds automatically (the audit itself is read-only; the
+  gate exists to flag privilege/cost, not because it's a judgment call — proceed if
+  `IMPORTED PRIVILEGES` are present, otherwise this becomes a genuine blocker and the
+  skill degrades to structural-only audit as already documented). Phase 12 applies only
+  deterministic, reversible recommendations (relationship additions, clearly safe column
+  additions with `ALTER SEMANTIC VIEW … ADD`) after a DDL snapshot; recommendations that
+  require judgment (e.g., removing columns, changing relationship types, restructuring
+  metrics) are logged and deferred for explicit operator review. Do not equate AUTONOMOUS
+  with "apply all audit recommendations" — only changes whose validation makes them
+  deterministic and safe are auto-applied.
+
+Default to INTERACTIVE if unclear.
 
 ---
 
@@ -118,4 +137,4 @@ After the audit report, users can:
 - **Feeds into sv-ddl**: Audit findings become modification instructions for sv-ddl
 - **Feeds into sv-evaluation**: After audit, suggest running eval for baseline
 - **Fed by sv-watch**: Watch alerts can trigger targeted audits
-- **Feeds into sv-optimization**: Audit findings inform which mutation operators to prioritize
+- **Feeds into sv-iterative-optimizer**: Audit findings inform which mutation operators to prioritize

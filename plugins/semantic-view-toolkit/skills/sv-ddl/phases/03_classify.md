@@ -221,7 +221,8 @@ Proposed METRICS (aggregate expressions):
 Override any classification? (type column name and new type, or 'ok' to proceed)
 ```
 
-⚠️ **STOPPING POINT** — Wait for user to confirm or override classifications.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user to confirm or override classifications.
+**AUTONOMOUS:** accept the skill's own classification as-is, log, proceed to Step 3.3.
 
 ---
 

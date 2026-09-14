@@ -234,7 +234,7 @@ CREATE OR REPLACE CORTEX AGENT my_analytics_agent
 
 ### Hand-Off Document Format
 
-When the semantic-view-toolkit produces SVs intended for multi-SV agent composition, it generates a structured hand-off document that can be consumed by `cortex-agent-toolkit`'s `cortex-agent-ddl` skill:
+When the semantic-view-toolkit produces SVs intended for multi-SV agent composition, it generates a structured hand-off document that can be consumed by `cortex-agent-toolkit`'s `agent-ddl` skill:
 
 ```json
 {
@@ -288,7 +288,7 @@ When the semantic-view-toolkit produces SVs intended for multi-SV agent composit
 | Query complexity | Questions span multiple related tables | Questions target one domain at a time |
 | Team ownership | Same team owns all tables | Different teams own different domains |
 | Evaluation | Single evaluation covers all | Evaluate each SV independently |
-| Scale | < 10 tables total | 10+ tables across domains |
+| Scale | One coherent domain (any table count) | Multiple distinct domains |
 
 ### Decision Framework
 

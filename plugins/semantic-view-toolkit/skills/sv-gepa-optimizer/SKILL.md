@@ -24,15 +24,15 @@ Population-based evolutionary optimization for Snowflake Semantic Views using Ge
 ## When to Use
 
 Use this skill when:
-- Sequential optimization (sv-optimization) has stalled — 2-3 consecutive rejections indicate a local optimum
+- Sequential optimization (sv-iterative-optimizer) has stalled — 2-3 consecutive rejections indicate a local optimum
 - You want to explore the SV structure space broadly rather than greedily
 - Multiple aspects of the SV need simultaneous improvement (descriptions, metrics, relationships)
 - The SV has enough VQRs (5+) for meaningful mini-batch evaluation
 
 Do NOT use when:
-- The SV has fewer than 5 VQRs (use sv-optimization for sequential single-mutation improvement)
+- The SV has fewer than 5 VQRs (use sv-iterative-optimizer for sequential single-mutation improvement)
 - You haven't established a baseline eval score yet (run sv-evaluation first)
-- The issue is a single known defect (use targeted sv-optimization instead)
+- The issue is a single known defect (use targeted sv-iterative-optimizer instead)
 
 ## Prerequisites
 
@@ -53,6 +53,15 @@ Do NOT use when:
 | `max_generations` | 10 | 3–20 | Hard generation cap |
 | `mini_batch_pct` | 0.30 | 0.20–0.50 | Fraction of VQRs evaluated per generation |
 | `convergence_threshold` | 3 | 2–5 | Generations without improvement before stopping |
+
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+
+- **INTERACTIVE**: Population review gate (Step 4) and production overwrite gate (Step 12) both block for explicit operator approval.
+- **AUTONOMOUS**: Step 4 auto-proceeds after logging the population matrix. Step 12 production overwrite (`GEPA-PROD-OVERWRITE`) is **OPERATOR_REQUIRED in both modes** — AUTONOMOUS mode does not bypass it. Convergence stops are always algorithmic (never judgment calls).
+
+**Permanent OPERATOR_REQUIRED gate:** The production overwrite in Step 12 is `GEPA-PROD-OVERWRITE` — always pauses in both INTERACTIVE and AUTONOMOUS modes; presents the validated diff and waits for explicit acceptance. `GEPA-PROD-SNAPSHOT` (snapshot before overwrite) fires automatically in both modes before the gate.
 
 ---
 
@@ -164,9 +173,9 @@ python3 scripts/population_state.py add-candidate \
   --mutations "<OPERATOR>: <brief description of change>"
 ```
 
-### Step 4: STOP Gate (GUIDED mode)
+### Step 4: Population Review
 
-Present the population matrix to the user:
+Present the population matrix:
 
 ```
 ┌─────────┬──────────────────────┬──────────────────────────────────────┐
@@ -184,7 +193,9 @@ Baseline fitness: 0.65 (from eval: full_eval_20250520)
 Population size: 6 | Mini-batch: 30% of VQRs | Max generations: 10
 ```
 
-**Wait for user approval before deploying candidates.**
+**INTERACTIVE mode:** Wait for user approval before deploying candidates.
+**AUTONOMOUS mode:** Log the population matrix and proceed to Phase 2 automatically.
+`[AUTO-RESOLVED: GEPA-POP-REVIEW → proceed (population validated, autonomous mode)]`
 
 ---
 
@@ -406,9 +417,34 @@ python3 scripts/population_state.py get-status \
   /tmp/gepa_workspace/gepa_state.json
 ```
 
+> **Production safety gate [GEPA-PROD-OVERWRITE] — OPERATOR_REQUIRED in BOTH modes:**
+> Before overwriting the production SV, verify the snapshot from Step 1 is present:
+> ```bash
+> ls /tmp/gepa_workspace/current_sv.sql
+> ```
+> If the file is absent or empty, snapshot now before proceeding (`AUTO_REMEDIATE: GEPA-PROD-SNAPSHOT`):
+> ```sql
+> SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
+> -- Save output to /tmp/gepa_workspace/current_sv.sql
+> ```
+> **Do NOT proceed if the snapshot cannot be obtained.**
+>
+> Present the winner summary and wait for explicit approval in **both INTERACTIVE and AUTONOMOUS modes**:
+> ```
+> Winner: <cand_N> | Operator: <OPERATOR> | Mini-batch fitness: <SCORE>
+> Baseline: <BASELINE_SCORE> | Delta: +<DELTA>
+>
+> This will overwrite the production SV: <DB>.<SCHEMA>.<SV_NAME>
+> Approve production overwrite? (yes / no / show diff)
+> ```
+> Log the operator's decision: `[OPERATOR-DECISION: GEPA-PROD-OVERWRITE → <yes/no>]`
+> Do not deploy until the operator explicitly approves.
+
 Read the winner's DDL and deploy as the production semantic view:
 
 ```sql
+-- For SVs with materializations, use CREATE OR ALTER to preserve them.
+-- For SVs without materializations, CREATE OR REPLACE is also valid.
 CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
   <DDL from winning candidate>
 ;

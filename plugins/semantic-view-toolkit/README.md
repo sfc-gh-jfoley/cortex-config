@@ -24,10 +24,10 @@ location works.
 | `sv-ddl` | Create or edit SVs using SQL DDL with AI-generated descriptions, self-check, and validation | Building a new SV from known tables, or editing an existing one |
 | `sv-audit` | Audit existing SV against actual query usage patterns | "Is my SV missing tables? Are columns unused?" |
 | `sv-evaluation` | Run native Cortex Analyst evaluations (sql_correctness) against VQRs | Measuring SV quality: can Analyst generate correct SQL? |
-| `sv-optimization` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
+| `sv-iterative-optimizer` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
 | `sv-gepa-optimizer` | Population-based evolutionary optimization via tournament selection | Sequential optimizer hit a plateau — explore broadly |
 | `sv-watch` | Drift detection, schema change monitoring, coverage decay alerts | Ongoing production maintenance |
-| `sv-composer` | Multi-SV composition patterns: IMPORTS clause (GA, not Analyst-compatible) or multi-tool Agent composition (GA, Analyst-compatible) | Multiple domains that need to work together |
+| `sv-rearchitect` | Multi-SV composition patterns: IMPORTS clause (GA, not Analyst-compatible) or multi-tool Agent composition (GA, Analyst-compatible) | Multiple domains that need to work together |
 | `vqr-generator` | Auto-generate verified query candidates from query history | Need more VQRs for eval coverage |
 
 ## Entry Point
@@ -45,16 +45,16 @@ sv-discovery (find tables, recommend domains)
   └── sv-ddl (create SV from recommendations)
        └── vqr-generator (bootstrap VQRs if none exist)
             └── sv-evaluation (baseline accuracy measurement)
-                 ├── sv-optimization (iterative improvement)
+                 ├── sv-iterative-optimizer (iterative improvement)
                  │   └── sv-gepa-optimizer (evolutionary search if stuck)
-                 └── sv-composer (compose for multi-domain agent)
+                 └── sv-rearchitect (compose for multi-domain agent)
                       └── → hand off to cortex-agent-toolkit
 
 sv-audit (enter here if you have an existing SV)
   └── feeds into sv-evaluation or sv-ddl (for fixes)
 
 sv-watch (ongoing, independent of creation workflow)
-  └── alerts feed into sv-audit or sv-optimization
+  └── alerts feed into sv-audit or sv-iterative-optimizer
 ```
 
 ## Source Object Support

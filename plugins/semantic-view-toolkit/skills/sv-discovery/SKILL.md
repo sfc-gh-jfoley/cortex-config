@@ -1,6 +1,6 @@
 ---
 name: sv-discovery
-description: Discover optimal semantic view domain groupings from a Snowflake account. Uses ACCOUNT_USAGE structured JSON (ACCESS_HISTORY.base_objects_accessed) + INFORMATION_SCHEMA. Supports AUTOPILOT/GUIDED modes, all queryable object types, and existing-SV detection.
+description: Discover optimal semantic view domain groupings from a Snowflake account. Uses ACCOUNT_USAGE structured JSON (ACCESS_HISTORY.base_objects_accessed) + INFORMATION_SCHEMA. Supports AUTONOMOUS/INTERACTIVE modes, all queryable object types, and existing-SV detection.
 triggers:
   - semantic view discovery
   - discover semantic views
@@ -50,23 +50,23 @@ User: "Audit my semantic view ANALYTICS_DB.PUBLIC.SALES_SV"
 
 ---
 
-## Interaction Modes: AUTOPILOT vs GUIDED
+## Interaction Modes: AUTONOMOUS vs INTERACTIVE
 
 **Step Zero:** At the very start, ask the user which mode they prefer:
 
 ```
 How would you like to run discovery?
 
-A) AUTOPILOT — minimal interaction, runs through phases automatically, presents final recommendations
-B) GUIDED — step-by-step with explanations and approval gates at each phase
+A) AUTONOMOUS — minimal interaction, runs through phases automatically, presents final recommendations
+B) INTERACTIVE — step-by-step with explanations and approval gates at each phase
 ```
 
 Use `ask_user_question` for this.
 
 | Mode | Behavior |
 |------|----------|
-| **AUTOPILOT** | Runs all phases without stopping. Only pauses on errors, ambiguity, or LOW confidence domains. Presents final recommendations at the end. |
-| **GUIDED** | Pauses at each phase gate. Explains what's happening. Asks for approval before proceeding. |
+| **AUTONOMOUS** | Runs all phases without stopping. Only pauses on errors, ambiguity, or LOW confidence domains. Presents final recommendations at the end. |
+| **INTERACTIVE** | Pauses at each phase gate. Explains what's happening. Asks for approval before proceeding. |
 
 ---
 
@@ -85,8 +85,8 @@ Phase 5: Handoff                → output table lists ready for sv-ddl
 ```
 
 **Stopping points:**
-- GUIDED mode: Phases 1, 2 (summary), 4 have mandatory approval gates
-- AUTOPILOT mode: Only Phase 4 has a gate (and only for LOW confidence domains)
+- INTERACTIVE mode: Phases 1, 2 (summary), 4 have mandatory approval gates
+- AUTONOMOUS mode: Only Phase 4 has a gate (and only for LOW confidence domains)
 
 ### Phase Reference
 
@@ -120,7 +120,7 @@ All queries run on the **customer's own account**. No Snowhouse access required.
 
 ## Confidence Scoring
 
-See `references/confidence-scoring.md` for the full scoring model.
+See `../../references/confidence-scoring.md` for the full scoring model.
 
 Summary:
 
@@ -134,7 +134,7 @@ Summary:
 
 ## Queryable Object Types
 
-This skill discovers ALL queryable object types, not just BASE TABLEs. See `references/queryable-objects.md` for detection patterns and design considerations.
+This skill discovers ALL queryable object types, not just BASE TABLEs. See `../../references/queryable-objects.md` for detection patterns and design considerations.
 
 | Type | Discovered | Notes |
 |------|-----------|-------|
@@ -194,9 +194,9 @@ Existing SV Coverage: None (these tables are not in any existing SV)
 
 ### Size guardrail — keep each SV under ~100,000 tokens
 
-There's no hard limit on semantic view size, but as an SV grows past roughly 100,000 tokens, the combined size of the SV, agent instructions, and conversation history approaches the LLM's context window. At that point Cortex Agents may need to **prune** the SV to fit — which adds latency and reduces answer quality. Treat ~100K tokens as a guideline, not a fixed threshold.
+There's no hard limit on semantic view size, and no table count target. A domain with 45 tables covering one clear analytical purpose belongs in one SV. The practical upper bound is **~100,000 tokens** — beyond that, the combined size of the SV, agent instructions, and conversation history approaches the LLM's context window, which adds latency and degrades answer quality. Treat ~100K tokens as a technical ceiling, not a design goal.
 
-When you present domain groupings in Phase 4, **estimate the token size** of each proposed SV (a rough heuristic: ~1 token per ~4 characters of serialized DDL, including all table/column/metric/relationship descriptions and VQR SQL). If a proposed grouping exceeds ~100K tokens:
+When you present domain groupings in Phase 4, **estimate the token size** of each proposed SV. SV DDL tokenizes at roughly 2–3 characters per token (SQL keywords, quoted identifiers, and structural delimiters are denser than prose — not the standard ~4 chars/token rule of thumb). Use **~2.5 characters per token** as the heuristic for serialized DDL including all table/column/metric/relationship descriptions and VQR SQL. If a proposed grouping exceeds ~100K tokens:
 - Recommend splitting it into multiple SVs along sub-domain boundaries (Cortex Agents selects the relevant SV per question).
 - Surface the split recommendation in the confidence-score notes for that domain.
 - Prefer fewer, focused SVs over one large SV — the official Snowflake guidance is "fewer generally perform better," and customers running 50+ SVs is the ceiling, not the target.
@@ -207,16 +207,22 @@ For SVs that must be large (densely connected single-domain), flag the pruning r
 
 ## State Persistence
 
-After discovery completes, offer to persist the relationship graph and domain groupings:
+After discovery completes, Phase 5 will ask where to persist results before creating any objects:
 
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
-> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding.
+```
+Where should I create it?
+  A) <DISCOVERY_DB>._SV_TOOLKIT_META  (default)
+  B) A different database/schema
+  C) Skip
+```
+
+This applies in both AUTONOMOUS and INTERACTIVE modes. No schema or table is created until the user confirms a target location.
+
+Once confirmed, Phase 5 creates:
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;
-CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.DISCOVERY_STATE (
+CREATE SCHEMA IF NOT EXISTS <TARGET_SCHEMA>;
+CREATE TABLE IF NOT EXISTS <TARGET_SCHEMA>.DISCOVERY_STATE (
     discovery_id VARCHAR DEFAULT UUID_STRING(),
     discovery_timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
     database_name VARCHAR,
@@ -226,7 +232,10 @@ CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.DISCOVERY_STATE (
     orphan_tables VARIANT,
     bridge_tables VARIANT,
     mode VARCHAR,
-    existing_svs VARIANT
+    existing_svs VARIANT,
+    column_importance VARIANT,
+    adjustment_log VARIANT,
+    PRIMARY KEY (discovery_id)
 );
 ```
 

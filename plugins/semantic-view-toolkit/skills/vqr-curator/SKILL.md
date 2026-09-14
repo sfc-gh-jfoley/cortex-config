@@ -46,6 +46,13 @@ quality rubric and verdicts used throughout this skill.
 - Replace `vqr-generator` — use that to create VQRs; use this to audit existing ones
 - Run EXECUTE_AI_EVALUATION — use sv-evaluation for formal accuracy scoring
 
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+
+- **INTERACTIVE**: Phase 6 STOP gate blocks for explicit user selection before any SV mutation.
+- **AUTONOMOUS**: Phases 1–5 (analysis, scoring, uniqueness, activation, coverage) run automatically. Phase 4 activation live-call test runs with cost logging. **Phase 6 STOP gate is PERMANENT in BOTH modes** — VQR mutations (rewrite, remove, deduplicate) require explicit operator authorization regardless of mode. The activation/analysis workflow auto-runs; the mutation decision does not.
+
 ---
 
 ## Execution

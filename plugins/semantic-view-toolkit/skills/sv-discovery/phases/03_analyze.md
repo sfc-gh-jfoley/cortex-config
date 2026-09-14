@@ -44,18 +44,54 @@ INITIAL_DOMAINS = [
 
 ---
 
-## Step 3B: Size Validation and Splitting
+## Step 3B: Domain Coherence Validation and Splitting
 
-Semantic views work best with 3-8 tables. Apply size constraints:
+A semantic view should cover **one clear analytical domain** — a single business
+perspective that answers a coherent set of related questions. Table count is not
+a split criterion. A domain with 45 tables is fine if they all serve one analytical
+purpose. A domain with 8 tables should be split if two fact tables cover overlapping
+dimensional tables from different analytical angles.
 
-### Too Large (>10 tables)
+### Split signal: multiple facts over shared dimensions
 
-Split large clusters using modularity-based subdivision:
+The primary split trigger is **multiple fact tables that cover the same dimensional
+tables** from different analytical perspectives. This is the Sony pattern — not "too
+many tables" but "two separate business questions sharing a star schema."
 
-1. Find the "weakest link" — the edge with lowest confidence within the cluster
-2. Remove it and check if the cluster splits into two viable sub-clusters (each ≥2 tables)
-3. If yes: split. If no: try the next weakest link.
-4. Repeat until all clusters are ≤10 tables or no more splits are viable.
+Detection:
+```
+For each pair of fact tables (F1, F2) in a cluster:
+  Shared dimensions = tables connected to BOTH F1 and F2
+  If shared_dimensions >= 2 AND F1 and F2 measure different business processes:
+    → Split signal: these are two domains, not one
+    → Proposed split: {F1 + its dimensions} and {F2 + its dimensions}
+    → Shared dimensions: include in BOTH (bridge table pattern)
+```
+
+How to identify fact tables: high fan-out (many FK relationships pointing to them),
+typically named with transactional or event semantics (ORDERS, EVENTS, SESSIONS,
+TRANSACTIONS, SALES). Dimension tables have fewer incoming FKs and describe
+entities (CUSTOMERS, PRODUCTS, DATES, REGIONS).
+
+### Split signal: mixed analytical intent
+
+Split when a single cluster contains tables from clearly distinct business processes
+that happen to share a common dimension (e.g., a DATE table). Shared dimensions
+belong in both SVs — do not use them as a reason to merge domains.
+
+```
+Red flags for mixed intent within a cluster:
+- Tables from different business units (e.g., Sales + HR) connected only via DIM_DATE
+- Metrics that would never appear in the same question ("what is revenue by region"
+  vs "what is headcount by department")
+- Fact tables with very different grain (order-level vs daily aggregates)
+```
+
+### No split needed
+
+Do NOT split a cluster purely because it is large. If all tables serve one analytical
+domain — even 30-50 tables — keep them together. The 100K token guardrail (SKILL.md)
+is the practical upper bound, not a table count.
 
 ### Too Small (1 table)
 
@@ -105,18 +141,11 @@ NAMED_DOMAINS = [
 
 ## Step 3D: Score Domain Confidence
 
-For each domain, compute an overall confidence score. Follow the scoring model in `references/confidence-scoring.md`.
+For each domain, compute an overall confidence score using the domain-level formula
+in `../../references/confidence-scoring.md` (Domain-Level Confidence section).
 
-**Domain-level confidence = weighted average of internal edge confidences:**
-
-```
-domain_confidence = SUM(edge_confidence * edge_co_query_count) / SUM(edge_co_query_count)
-```
-
-If no co-occurrence data is available (no ACCESS_HISTORY), use simple average:
-```
-domain_confidence = AVG(internal_edge_confidences)
-```
+**Summary:** weighted average of internal edge confidences by co_query_count;
+fall back to simple average if no ACCESS_HISTORY. Zero-denominator guard applies.
 
 **Tier assignment:**
 - ≥ 0.85 → HIGH
@@ -125,8 +154,8 @@ domain_confidence = AVG(internal_edge_confidences)
 
 **Demotion rules:**
 - If domain contains ≥1 orphan table (attached via LOW edge): demote one tier
-- If domain has >8 tables: demote one tier (size complexity)
 - If domain crosses >2 schemas: add note "cross-schema domain" (not auto-demoted, but flagged)
+- If domain has multiple fact tables over shared dimensions (split signal from Step 3B was not applied): demote one tier and flag for user review
 
 ---
 
@@ -212,7 +241,7 @@ If `COLUMN_USAGE` is unavailable (no ACCESS_HISTORY): include all non-system col
 
 ## Step 3I: Analysis Summary
 
-In GUIDED mode, present the full analysis before Phase 4:
+In INTERACTIVE mode, present the full analysis before Phase 4:
 
 ```
 Analysis Complete:
@@ -237,8 +266,8 @@ Fully Covered Domains (already have SVs): <N>
   - Finance (covered by FINANCE_SV)
 ```
 
-**GUIDED mode:** Wait for approval before Phase 4.
-**AUTOPILOT mode:** Continue to Phase 4 automatically.
+**INTERACTIVE mode:** Wait for approval before Phase 4.
+**AUTONOMOUS mode:** Continue to Phase 4 automatically.
 
 ---
 

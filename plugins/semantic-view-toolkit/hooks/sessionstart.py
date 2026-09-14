@@ -23,7 +23,7 @@ over the bundled `semantic-view` skill for all SV work.
 ## Override Directive
 
 When the user requests semantic view work (discover, create, audit, evaluate, \
-optimize, compose, watch, or generate VQRs), invoke `$semantic-view-toolkit` — \
+optimize, rearchitect, watch, or generate VQRs), invoke `$semantic-view-toolkit` — \
 do NOT use the bundled `semantic-view` skill.
 
 **Exceptions — stay on the bundled skill:**
@@ -38,9 +38,9 @@ do NOT use the bundled `semantic-view` skill.
 | create SV, DDL, I know my tables | sv-ddl |
 | audit, what's missing, coverage | sv-audit |
 | evaluate, accuracy, sql correctness | sv-evaluation |
-| optimize, improve, iterate | sv-optimization |
+| optimize, improve, iterate | sv-iterative-optimizer |
 | GEPA, evolutionary, plateau | sv-gepa-optimizer |
-| compose, nested SV, multi-domain | sv-composer |
+| rearchitect, nested SV, multi-domain | sv-rearchitect |
 | watch, drift, monitor | sv-watch |
 | VQR, verified queries, generate questions | vqr-generator |
 

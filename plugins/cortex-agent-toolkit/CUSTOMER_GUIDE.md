@@ -31,7 +31,7 @@ If you have tables ready and just want a working agent fast:
    ```
    Create an agent using my semantic view MY_DB.PUBLIC.ORDERS_SV
    ```
-   The `cortex-agent-ddl` skill discovers the semantic view's structure, generates tool descriptions, builds the agent spec, and deploys it.
+   The `agent-ddl` skill discovers the semantic view's structure, generates tool descriptions, builds the agent spec, and deploys it.
 
 3. **Test it** — Type:
    ```
@@ -71,7 +71,7 @@ The skill will:
 
 ## Phase B: Create Your Agent
 
-> **Skill:** `cortex-agent-ddl`
+> **Skill:** `agent-ddl`
 
 This phase creates a Cortex Agent that uses your semantic view(s) as tools. The agent gets auto-generated tool descriptions, validated instructions, and a 17-rule spec check before deployment.
 
@@ -192,7 +192,7 @@ Evaluate my agent MY_DB.PUBLIC.SALES_AGENT
 
 ## Phase D: Optimize Your Agent
 
-> **Skill:** `cortex-agent-optimization`
+> **Skill:** `agent-optimizer`
 
 Optimization is an iterative loop: analyze failures on a dev set, make targeted instruction changes, evaluate, and decide whether to accept or reject each iteration. A separate test set ensures you're not overfitting.
 
@@ -258,7 +258,7 @@ Optimize my agent MY_DB.PUBLIC.SALES_AGENT
 
 ## Phase E: Flag-Test Variants
 
-> **Skill:** `agent-flag-tester`
+> **Skill:** `agent-model-tester`
 
 Snowflake Cortex Agents support experimental flags that change how the agent reasons and generates SQL. This skill creates three agent variants with different flag combinations and evaluates them head-to-head.
 
@@ -302,7 +302,7 @@ Run a flag test on my agent MY_DB.PUBLIC.SALES_AGENT
 
 6. **Recommend winner** — Statistical comparison determines which variant performs best overall.
 
-7. **Apply or hand off** — You can apply the winning flags to your agent immediately, or hand off to `cortex-agent-optimization` for further improvement using the winning config as a baseline.
+7. **Apply or hand off** — You can apply the winning flags to your agent immediately, or hand off to `agent-optimizer` for further improvement using the winning config as a baseline.
 
 **Output:** A comparison report, a recommended flag configuration, and a `flag_sweep_baseline.json` file that the optimization skill uses as its starting point.
 
@@ -310,7 +310,7 @@ Run a flag test on my agent MY_DB.PUBLIC.SALES_AGENT
 
 ## Phase F: Query Your Agent
 
-> **Skill:** `query-cortex-agent`
+> **Skill:** `agent-query`
 
 Once your agent is deployed, you can invoke it programmatically from SQL. This is useful for testing, scripting, and building applications on top of your agent.
 
@@ -399,13 +399,13 @@ SELECT TRY_PARSE_JSON(
 ### Full Journey: New Agent from Scratch
 
 ```
-Phase A (semantic-view-ddl)  →  Phase B (cortex-agent-ddl)  →  Phase C (agent-evaluation)
+Phase A (semantic-view-ddl)  →  Phase B (agent-ddl)  →  Phase C (agent-evaluation)
                                                                        ↓
-                                                              Phase E (agent-flag-tester)
+                                                              Phase E (agent-model-tester)
                                                                        ↓
-                                                              Phase D (cortex-agent-optimization)
+                                                              Phase D (agent-optimizer)
                                                                        ↓
-                                                              Phase F (query-cortex-agent) — production use
+                                                              Phase F (agent-query) — production use
 ```
 
 ### Tuning an Existing Agent
@@ -440,7 +440,7 @@ Create a cortex agent that routes between these sub-agents:
 - HR_AGENT (headcount and compensation questions)
 ```
 
-The `cortex-agent-ddl` skill supports multi-agent orchestration where a master agent dispatches to sub-agents via UDF custom tools.
+The `agent-ddl` skill supports multi-agent orchestration where a master agent dispatches to sub-agents via UDF custom tools.
 
 ---
 

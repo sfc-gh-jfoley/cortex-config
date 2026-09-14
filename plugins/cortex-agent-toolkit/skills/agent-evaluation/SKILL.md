@@ -7,6 +7,19 @@ description: "Evaluate Cortex Agents using native Snowflake Agent Evaluations (p
 
 End-to-end workflow for evaluating Cortex Agents: discover the agent, build an evaluation dataset, run the evaluation, analyze results, and iterate to improve agent quality.
 
+## Execution Mode
+
+Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+
+- **INTERACTIVE** (default): Judgment/courtesy gates block for explicit user confirmation.
+- **AUTONOMOUS**: Judgment gates resolve to documented defaults and are logged. Permanent blockers — missing grants, schema mismatch, zero-dataset, zero-confidence ground truth — still terminate in both modes.
+  - `EVAL-AGENT-DISCOVER`: auto-confirm the first discovered agent; log `[AUTO-RESOLVED: EVAL-AGENT-DISCOVER → <fqn>]`.
+  - `EVAL-METRIC-SELECT`: auto-select the full metric set; log `[AUTO-RESOLVED: EVAL-METRIC-SELECT → full set]`.
+  - `EVAL-GROUND-TRUTH-VALIDATE`: skip invalid/NULL rows; log count.
+  - `EVAL-ROLLBACK-CLONE`: execute clone before replacing eval table; no prompt.
+
+See `../../references/gate-inventory.md` for full classifications.
+
 ## Metrics Reference
 
 | Metric | API Name | Requires Ground Truth | Description |
@@ -305,7 +318,7 @@ Then skip to Phase 4 with only `logical_consistency` metric.
 
 **Eval table schema (canonical — Schema B):**
 
-This schema is shared across agent-evaluation, agent-flag-tester, and cortex-agent-optimization.
+This schema is shared across agent-evaluation, agent-model-tester, and agent-optimizer.
 - `GROUND_TRUTH` is **VARIANT** (JSON object) — parsed by the evaluator at runtime
 - `SPLIT` enables DEV/TEST partitioning used by the optimization loop downstream
 - Use `OBJECT_CONSTRUCT('ground_truth_invocations', PARSE_JSON('[...]'), 'ground_truth_output', '...')` to populate
@@ -500,6 +513,15 @@ USE DATABASE <DATABASE>;
 USE SCHEMA <SCHEMA>;
 ```
 
+> ⚠️ **This context must persist into the `SYSTEM$CREATE_EVALUATION_DATASET` call below (4.2 Step 1).**
+> If you are running these as separate `sql_execute`-style tool calls (one call per statement),
+> the `USE DATABASE`/`USE SCHEMA` from this step does **not** carry over — each call may run in
+> its own session, so `SYSTEM$CREATE_EVALUATION_DATASET` in the next call executes with no
+> database/schema context and fails or resolves against the wrong schema, with no obvious
+> connection back to this step. Run 4.1 and 4.2 Step 1 as a **single script in one session**,
+> e.g. `snow sql -c <CONNECTION> -f /tmp/create_dataset.sql` (or your CLI's equivalent), rather
+> than as separate ad-hoc SQL calls.
+
 ### 4.2 Create Stage and Generate Eval Config
 
 > ⚠️ **CRITICAL: Eval table must be in the same `DATABASE.SCHEMA` as the agent.**
@@ -530,15 +552,29 @@ CREATE STAGE IF NOT EXISTS <DATABASE>.<SCHEMA>.AGENT_EVAL_CONFIGS
 Generate a YAML eval config file (`/tmp/eval_config.yaml`) using the template below.
 Fill in `<DATABASE>`, `<SCHEMA>`, `<AGENT_NAME>`, `<EVAL_TABLE>`, and the selected metrics:
 
-```yaml
-dataset:
-  dataset_type: "CORTEX AGENT"
-  table_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL"
-  dataset_name: "<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>"
-  column_mapping:
-    query_text: "INPUT_QUERY"
-    ground_truth: "GROUND_TRUTH"
+> ⚠️ **Two-step pattern — always use this to avoid "dataset already exists" failures:**
+>
+> **Step 1 — Create the dataset once (SQL, not YAML):**
+> ```sql
+> CALL SYSTEM$CREATE_EVALUATION_DATASET(
+>     'Cortex Agent',
+>     '<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL',
+>     '<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>',
+>     OBJECT_CONSTRUCT('query_text', 'INPUT_QUERY', 'expected_tools', 'GROUND_TRUTH')
+> );
+> ```
+> Note: column mapping key is `expected_tools` here (not `ground_truth` — different from YAML).
+>
+> **Step 2 — YAML for the run (no `dataset:` block — omit it entirely once dataset exists):**
+> The `dataset:` block in YAML tells Snowflake to CREATE the dataset. If it already exists from Step 1
+> (or a previous run), including `dataset:` causes a "dataset already exists" failure even when
+> only `run_name` changes. Omit the `dataset:` block for all subsequent runs.
+>
+> ⚠️ **`source_metadata.type` is case-sensitive and must be lowercase `"dataset"`.**
+> `"DATASET"` (uppercase) fails with: `Invalid source_metadata type: Unknown type: DATASET`.
 
+```yaml
+# YAML for run against an existing dataset (no dataset: block)
 evaluation:
   agent_params:
     agent_name: "<DATABASE>.<SCHEMA>.<AGENT_NAME>"
@@ -547,15 +583,26 @@ evaluation:
     label: "evaluation"
     description: "Evaluation: <brief description>"
   source_metadata:
-    type: "DATASET"
+    type: "dataset"              # ← lowercase, case-sensitive — "DATASET" fails
     dataset_name: "<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>"
 
+# IMPORTANT: Always pin an explicit version on every metric below, using the `name`/`version`
+# mapping form (a bare string like "answer_correctness" implicitly uses version "auto", which
+# is equivalent to omitting version — NOT a plain unversioned string with no risk).
+# The v1 default judge (claude-4-sonnet) entered legacy state 2026-08-12: accounts with no
+# prior claude-4-sonnet usage get a run failure when a metric resolves to v1 via auto/omitted
+# version, with no actionable error beyond "Metric '<name>' failed" (see eval-troubleshooting.md
+# section 8 if this happens). Pin "v3" (or "v3_0" to freeze the exact minor version) instead.
 metrics:
-  - "answer_correctness"       # include only if selected
-  - "logical_consistency"      # include only if selected
+  - name: "answer_correctness"       # include only if selected
+    version: "v3"
+  - name: "logical_consistency"      # include only if selected
+    version: "v3"
   # Native metrics (default since Jun 11):
-  - "tool_selection_accuracy"  # native system metric — include only if selected
-  - "tool_execution_accuracy"  # native system metric — include only if selected
+  - name: "tool_selection_accuracy"  # native system metric — include only if selected
+    version: "v3"
+  - name: "tool_execution_accuracy"  # native system metric — include only if selected
+    version: "v3"
   
   # Custom metrics (legacy, for pre-Jun-11 workflows or custom scoring logic):
   # If using custom tool_selection_accuracy instead of native, replace above with:
@@ -666,6 +713,16 @@ Navigate to Snowsight Evaluations tab or check the run status. Runs show:
 - Thread details with agent reasoning
 - Trace details with tool call information
 
+> **⚠️ Score field location differs by metric — check before trusting a number.**
+> `answer_correctness` and `logical_consistency` expose their score directly (e.g. via
+> `full_metadata.normalized_score` when querying `GET_AI_EVALUATION_DATA`). Native
+> `tool_selection_accuracy` (v3) and `tool_execution_accuracy` (v3), however, may not
+> populate that field consistently — the authoritative score can instead be embedded only
+> in the free-text `EXPLANATION` column, in a format like `**Score:** 0.33` or `= **0.80**`
+> (format varies by metric). If a tool metric's score looks unexpectedly uniform, zero, or
+> null, do not treat that as the real result — open the `EXPLANATION` text for that row and
+> parse the score from there before drawing any conclusion or feeding it into optimization.
+
 ### 5.2 Score Breakdown Analysis
 
 Review each metric and categorize questions:
@@ -761,8 +818,8 @@ Questions: <N>
 
 | Issue Category | Skill to Use | Action |
 |----------------|-------------|--------|
-| Agent instructions | `agent-optimization` | Refine instructions, add routing guidance |
-| Ambiguous column descriptions, wrong metric interpretation | `sv-optimization` | `tool_execution_accuracy` low; SV returns data but agent interprets wrong |
+| Agent instructions | `agent-optimizer` | Refine instructions, add routing guidance |
+| Ambiguous column descriptions, wrong metric interpretation | `sv-iterative-optimizer` | `tool_execution_accuracy` low; SV returns data but agent interprets wrong |
 | Missing metrics, tables, or dimensions | `sv-ddl` | `cortex analyst query` returns empty or error for valid questions |
 | Repeated identical questions failing with correct SQL | `vqr-generator` | Same questions fail consistently — VQRs lock in correct SQL, bypass generation variance |
 

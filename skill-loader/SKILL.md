@@ -23,15 +23,17 @@ If unsure which skill matches, ask the user.
 
 | Skill | When to use | Path |
 |-------|-------------|------|
-| semantic-view-toolkit | Full SV lifecycle router (discovery, DDL, audit, eval, optimization, GEPA, watch, compose, VQR) | `plugins/semantic-view-toolkit/` |
+| semantic-view-toolkit | Full SV lifecycle router (discovery, DDL, audit, eval, optimization, GEPA, watch, rearchitect, VQR) | `plugins/semantic-view-toolkit/` |
 | sv-discovery | Find SV candidates from schema analysis | `plugins/semantic-view-toolkit/skills/sv-discovery/` |
 | sv-ddl | Build/edit semantic views (DDL path); supports SQL queries as logical tables, VARIABLES clause, SAMPLE_VALUES + ENUM_INDICATOR (all GA Jun 2026) | `plugins/semantic-view-toolkit/skills/sv-ddl/` |
 | sv-audit | Audit existing SV against usage patterns | `plugins/semantic-view-toolkit/skills/sv-audit/` |
 | sv-evaluation | Run Cortex Analyst evaluations on SVs | `plugins/semantic-view-toolkit/skills/sv-evaluation/` |
-| sv-optimization | Iterative SV improvement loop | `plugins/semantic-view-toolkit/skills/sv-optimization/` |
+| sv-iterative-optimizer | Iterative SV optimization using Cortex Analyst evaluations | `plugins/semantic-view-toolkit/skills/sv-iterative-optimizer/` |
 | sv-gepa-optimizer | Population-based evolutionary SV optimization | `plugins/semantic-view-toolkit/skills/sv-gepa-optimizer/` |
 | sv-watch | Drift detection + SV maintenance monitoring | `plugins/semantic-view-toolkit/skills/sv-watch/` |
-| sv-composer | Nested SVs + multi-SV agent composition | `plugins/semantic-view-toolkit/skills/sv-composer/` |
+| sv-rearchitect | Nested SVs + multi-SV agent composition | `plugins/semantic-view-toolkit/skills/sv-rearchitect/` |
+| sv-coverage-checker | GT SQL vs SV coverage gap analysis | `plugins/semantic-view-toolkit/skills/sv-coverage-checker/` |
+| sv-snippet-suggester | Pattern recognition and snippet suggestion for SV DDL | `plugins/semantic-view-toolkit/skills/sv-snippet-suggester/` |
 | vqr-generator | Auto-generate verified queries from query history | `plugins/semantic-view-toolkit/skills/vqr-generator/` |
 | vqr-curator | Audit and curate an existing VQR set — score complexity, detect duplicates, check activation, find coverage gaps, produce KEEP/FIX/REMOVE verdicts | `plugins/semantic-view-toolkit/skills/vqr-curator/` |
 | semantic-view-ddl | (LEGACY) Build/edit semantic views — use sv-ddl instead | `skills/semantic-view-ddl/` |
@@ -42,18 +44,20 @@ If unsure which skill matches, ask the user.
 | Skill | When to use | Path |
 |-------|-------------|------|
 | cortex-agent-toolkit | Full agent lifecycle router (create, eval, flags, optimize, GEPA, query) | `plugins/cortex-agent-toolkit/` |
-| cortex-agent-ddl | Create/deploy Cortex Agents | `plugins/cortex-agent-toolkit/skills/cortex-agent-ddl/` |
-| cortex-agent-flags | Agent experimental flags reference | `plugins/cortex-agent-toolkit/skills/cortex-agent-flags/` |
-| cortex-agent-optimization | Iterative agent prompt optimization + full lifecycle | `plugins/cortex-agent-toolkit/skills/cortex-agent-optimization/` |
+| agent-ddl | Create/deploy Cortex Agents | `plugins/cortex-agent-toolkit/skills/agent-ddl/` |
+| agent-flags-reference | Agent experimental flags reference | `plugins/cortex-agent-toolkit/skills/agent-flags-reference/` |
+| agent-optimizer | Iterative agent prompt optimization + full lifecycle | `plugins/cortex-agent-toolkit/skills/agent-optimizer/` |
 | agent-evaluation | Run EXECUTE_AI_EVALUATION | `plugins/cortex-agent-toolkit/skills/agent-evaluation/` |
-| agent-flag-tester | Compare agent flag variants (3-way) | `plugins/cortex-agent-toolkit/skills/agent-flag-tester/` |
-| query-cortex-agent | Query an existing agent via SQL | `plugins/cortex-agent-toolkit/skills/query-cortex-agent/` |
+| agent-model-tester | Compare agent flag variants (3-way) | `plugins/cortex-agent-toolkit/skills/agent-model-tester/` |
+| agent-query | Query an existing agent via SQL | `plugins/cortex-agent-toolkit/skills/agent-query/` |
 | agent-gepa-optimizer | Evolutionary population-based agent optimization | `plugins/cortex-agent-toolkit/skills/agent-gepa-optimizer/` |
-| analytical-search | Semantic + ranked search over large document collections as an agent tool type (GA Jul 2026) | `plugins/cortex-agent-toolkit/skills/analytical-search/` |
+| agent-feedback-analyzer | Read-only diagnostic triage of CoWork pilot user feedback (thumbs up/down) | `plugins/cortex-agent-toolkit/skills/agent-feedback-analyzer/` |
+| agent-instruction-optimizer | DSPy MIPROv2 optimizer for Cortex Agent instructions | `plugins/cortex-agent-toolkit/skills/agent-instruction-optimizer/` |
+| agent-analytical-search | Semantic + ranked search over large document collections as an agent tool type (GA Jul 2026) | `plugins/cortex-agent-toolkit/skills/agent-analytical-search/` |
 
 > **Bundled Skill Override**: If the bundled `cortex-agent`, `semantic-view`, or `machine-learning` skill was
 > just invoked, load the vault toolkit instead (see paths above). The bundled skills lack
-> the full lifecycle (eval → flag-test → optimize → GEPA; or ML feature store → train → experiments → registry → deploy → observe). Exceptions: YAML/FastGen
+> the full lifecycle (eval → model-test → optimize → GEPA; or ML feature store → train → experiments → registry → deploy → observe). Exceptions: YAML/FastGen
 > and Tableau/PBI import stay on bundled semantic-view.
 
 ### Knowledge Graph & Ontology

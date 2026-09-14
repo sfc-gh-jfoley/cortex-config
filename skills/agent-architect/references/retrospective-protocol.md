@@ -26,14 +26,14 @@ grep "BLOCKED" .agent-project/manifest.log | wc -l
 # Count escalations
 grep "ESCALATION" .agent-project/manifest.log | wc -l
 
-# Average attempts per task (STARTED entries vs DONE entries)
-STARTS=$(grep -c "STARTED" .agent-project/manifest.log)
-DONES=$(grep -c "DONE" .agent-project/manifest.log)
+# Average attempts per task (CLAIMED entries vs DONE entries)
+CLAIMS=$(grep -c "| CLAIMED |" .agent-project/manifest.log)
+DONES=$(grep -c "| DONE |" .agent-project/manifest.log)
 ```
 
 ### 2. Pattern Analysis
 
-For each REJECTED or FAIL entry, categorize:
+For each REVIEW_FAILED or TESTER_FAILED entry, categorize:
 
 | Pattern | Example | Frequency |
 |---|---|---|

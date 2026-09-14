@@ -415,7 +415,15 @@ What would you like to do?
      → End audit with no changes
 ```
 
-**GATE: Do NOT proceed with any DDL changes until the user explicitly selects A or B.**
+**GATE (INTERACTIVE (default)): Do NOT proceed with any DDL changes until the user explicitly selects A or B.**
+
+**AUTONOMOUS mode:** before applying anything, snapshot the current DDL
+(`GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')` to a timestamped local file — this is the
+rollback point since SV DDL has no built-in undo). Then select **Option A (Apply all
+recommendations)** and proceed. Log the decision and the snapshot file path. This
+gate stays a genuine block only if Step 12A/12B found zero recommendations (nothing
+to apply) or a recommendation the audit itself flagged as uncertain/conflicting —
+those still require Option B/D judgment and are not auto-resolved.
 
 ---
 

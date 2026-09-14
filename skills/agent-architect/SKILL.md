@@ -71,7 +71,7 @@ deliberately instead of failing silently.
 | Terminate a subagent | `kill_agent(agent_id)` | Yes — stuck recovery | Stuck workers must be killed manually |
 | Group agents | `team_create(team_name)` / `team_delete()` | No | Skip; use naming conventions only |
 | Task registry | `task_create()` / `task_update` | No | manifest.log is already the source of truth — rely on it alone |
-| Ask the operator | `ask_user_question()` | Yes — Phase 0/2 gates | Prompt in plain text and wait |
+| Ask the operator | `ask_user_question()` | Yes — Phase 0/2 gates ONLY | Prompt in plain text and wait |
 | Run shell / git | standard shell | **Yes** — git is the coordination bus | Framework cannot run |
 | Compile-check SQL | `sql_execute(only_compile=true)` | No | Worker skips SQL validation; note it in the manifest |
 | Search docs | `cortex search docs` | No | Researcher proceeds with web/codebase only and records the limitation |
@@ -93,10 +93,11 @@ prefer interactive mode.
 
 | File | Role |
 |---|---|
+| `roles/manifest-schema.md` | **Canonical phase state machine** — all valid phases, evidence fields, grep recipes, invariants |
 | `roles/model-map.md` | Model assignments per role (cost/speed right-sizing) |
 | `roles/researcher.md` | Researcher prompt template |
-| `roles/security-gate.md` | SecArch checklist + verdict format |
-| `roles/worker.md` | Worker TDD protocol + ownership rules |
+| `roles/security-gate.md` | SecArch completeness + security gate |
+| `roles/worker.md` | Worker TDD protocol + CODE_WRITTEN contract |
 | `roles/tester.md` | Spec-blind verification protocol |
 | `roles/team-architect.md` | Multi-team charter execution + Phase 1–5 mini-lifecycle |
 | `references/security-checklist.md` | Reusable security checklist (standalone) |
@@ -133,10 +134,15 @@ When this skill is invoked:
        M=.agent-project/manifest.log
        shipped=$(grep -c "| SHIPPED |" "$M" 2>/dev/null); shipped=${shipped:-0}
        done_n=$(grep -c "| DONE |" "$M" 2>/dev/null); done_n=${done_n:-0}
+       verified_n=$(grep -c "| VERIFIED |" "$M" 2>/dev/null); verified_n=${verified_n:-0}
+       code_written_n=$(grep -c "| CODE_WRITTEN |" "$M" 2>/dev/null); code_written_n=${code_written_n:-0}
        open_c=$(grep -c "| CONDITION_OPEN |" "$M" 2>/dev/null); open_c=${open_c:-0}
        closed_c=$(grep -c "| CONDITION_CLOSED |" "$M" 2>/dev/null); closed_c=${closed_c:-0}
        if [ "$done_n" -gt 0 ] && [ "$shipped" -eq 0 ]; then
            echo "ABANDONED RUN: $done_n tasks DONE, no SHIPPED marker."
+       fi
+       if [ "$code_written_n" -gt "$done_n" ]; then
+           echo "IN-FLIGHT: $((code_written_n - done_n)) task(s) written but not DONE (may be in gate)."
        fi
        if [ "$open_c" -gt "$closed_c" ]; then
            echo "UNRESOLVED: $((open_c - closed_c)) security condition(s) still open."
@@ -289,22 +295,23 @@ Log all charters under `CHARTERS_DEFINED` in manifest.log. Commit. Then launch T
 
 For each ready task (no unmet deps), spawn a Worker (see `roles/worker.md`).
 
-⛔ **DRAIN GATE — mandatory before Phase 4:**
-After spawning a batch of workers, drain EVERY worker before proceeding.
-Do NOT check task_list for new work, do NOT spawn the next batch, do NOT
-begin Phase 4 until every agent in the current batch has returned.
+Workers write `CODE_WRITTEN` to manifest when their toolchain loop passes — this is the
+signal that triggers Phase 4. Workers do NOT write DONE.
 
 **Shared-pool workers** (`team_mode="shared_pool"`, no worktree_isolation):
 ```
 spawn all workers in batch
 for each worker in batch:
     agent_output(agent_id=<id>, wait=true)   ← blocking wait; no polling loop
+    confirm CODE_WRITTEN in manifest before triggering Phase 4
 task_list → check for newly unblocked tasks → spawn next batch if any
 ```
 
 **Worktree-isolated workers** (`worktree_isolation=True`):
 Git-First Drain Loop (120s stuck threshold):
 ```
+M=.agent-project/manifest.log
+
 for each batch of ready tasks:
     spawn all workers in batch (parallel, worktree_isolation=true)
     for each worker in batch:
@@ -313,31 +320,39 @@ for each batch of ready tasks:
 
         loop:
             result = agent_output(agent_id, wait=false)
-            if agent completed → break
+            if agent completed:
+                # Confirm CODE_WRITTEN in manifest — do not trust return value alone
+                if grep -q "| <task_id> | CODE_WRITTEN |" "$M":
+                    → proceed to Phase 4 (SecArch gate)
+                elif grep -q "| <task_id> | BLOCKED |" "$M":
+                    → handle BLOCKED (see Retry & Escalation)
+                else:
+                    → worker exited without CODE_WRITTEN or BLOCKED: treat as BLOCKED
+                      write BLOCKED entry to manifest, then handle
+                break
 
             current = $(git log <worker-branch> -1 --format="%ct" 2>/dev/null || echo "0")
             if current != last_commit:
                 last_commit = current
-                elapsed_since_commit = 0      # reset timer on git activity
+                elapsed_since_commit = 0
             else:
                 elapsed_since_commit += 30
 
             if elapsed_since_commit >= 120:
-                → STUCK (see Cleanup Protocol section)
+                → stuck worker (see Cleanup Protocol: write BLOCKED, re-spawn or escalate)
                 break
 
-            # Guard against a worker that commits but does not progress: the
-            # timer above resets on ANY commit, so trivial checkpoint commits
-            # every <120s would keep it alive forever. Also cap total runtime.
             total_elapsed += 30
-            if total_elapsed >= 1800:          # 30 min hard ceiling per worker
-                → check for a [DONE] commit on the worker branch.
-                  If absent → STUCK (no real progress in 30 min despite activity)
+            if total_elapsed >= 1800:    # 30 min hard ceiling
+                # Check manifest phase, not git commit message
+                if grep -q "| <task_id> | CODE_WRITTEN |" "$M":
+                    break  # completed but agent didn't return cleanly — proceed to Phase 4
+                else:
+                    → stuck worker (no CODE_WRITTEN after 30 min despite commits)
                 break
 
             sleep(30)
 
-        read manifest.log → reconcile state → git commit log updates
     check: did completions unblock new tasks? → next batch
 ```
 
@@ -345,65 +360,106 @@ for each batch of ready tasks:
 
 Workers commit to branches. They do NOT merge to main.
 
+**⛔ NO MID-EXECUTION `ask_user_question()`.** Once Phase 2 is approved, the plan is
+the contract. If the Architect or a Worker hits a design ambiguity, an unresolved
+approach question, or anything that isn't a formal escalation trigger (see `Retry &
+Escalation` below), it does NOT stop and does NOT call `ask_user_question()` —
+`ask_user_question()` is scoped to Phase 0/2 only (see Tool Requirements). Instead:
+
+1. Pick the lowest-risk default that keeps the plan's stated goal reachable.
+2. Append one entry to `manifest.log`:
+   `<timestamp> | <role>-<task_id> | ASSUMPTION_LOGGED | <what was ambiguous> | <default chosen> | <why>`
+   then `git add .agent-project/manifest.log && git commit -m "log: assumption <task_id>"`.
+3. Keep executing. Do not summarize-and-wait, do not ask "should I continue" — continue.
+
+A summary of progress-so-far is not itself a stop condition. "This is real, not
+simulated, and there's more scope left" is never, by itself, a reason to pause —
+only the formal Retry & Escalation triggers are. If a later, real Phase 4/5
+escalation surfaces, every `ASSUMPTION_LOGGED` entry along the way is what lets the
+operator audit which defaults were picked without having replayed the whole run.
+
 ---
 
 ## Phase 4: Security Gate (SecArch)
 
-After **all** workers in the batch have drained (per the Phase 3 Drain Gate), run
-SecArch for each completed task — one review at a time, sequentially. Do not spawn
-SecArch mid-drain; the Drain Gate governs.
+For each task that reaches `CODE_WRITTEN`, write `REVIEW_REQUESTED` to manifest then
+spawn SecArch (see `roles/security-gate.md`). In single-team mode this runs sequentially
+per task; in multi-team mode the Team Architect handles this per charter.
 
-Verdicts:
-- **APPROVED** → proceed to Phase 5, log + commit
-- **APPROVED_WITH_CONDITIONS** → **record every condition before proceeding.** For each
-  condition, append one manifest entry and commit:
-  ```
-  <timestamp> | secarch-<task_id> | CONDITION_OPEN | <condition_id> | <description>
-  ```
-  Then create the follow-up task (`task_create()` + `TASK_REGISTERED`) and proceed to
-  Phase 5. When a condition is remediated, append:
-  ```
-  <timestamp> | worker-<task_id> | CONDITION_CLOSED | <condition_id>
-  ```
-  **A condition that exists only in the SecArch's returned text is lost when the
-  session ends.** Writing it to the manifest is what makes it survive. Phase 6 will
-  refuse to ship while open > closed.
-- **REJECTED** → re-spawn Worker with remediation (max 2 retries → escalate)
+**Read phase from manifest, not from SecArch's return value.** SecArch writes
+`REVIEW_PASSED` or `REVIEW_FAILED` to manifest and commits before returning. If it
+crashes after writing but before returning, the manifest entry survives.
 
-For `is_major_change` tasks: Architect ALSO reviews after SecArch approves.
+```bash
+M=.agent-project/manifest.log
+# Poll until REVIEW_PASSED or REVIEW_FAILED appears (30s poll, 10 min timeout)
+until grep -q "| <task_id> | REVIEW_PASSED \|| <task_id> | REVIEW_FAILED |" "$M"; do
+    sleep 30
+done
+```
+
+Outcomes:
+- **REVIEW_PASSED** → write `TESTER_ASSIGNED`, proceed to Phase 5
+- **REVIEW_FAILED** → write `ISSUES_FOUND`, re-spawn worker with findings file path
+  (findings file is committed to git by SecArch at `.agent-project/findings-<task_id>-r<N>.md`)
+- **APPROVED_WITH_CONDITIONS** → SecArch writes `REVIEW_PASSED` with `conditions=N`;
+  `CONDITION_OPEN` entries also appear in manifest. Phase 6 gate enforces closure.
+
+For `is_major_change` tasks: Architect ALSO reviews after REVIEW_PASSED appears.
 
 ---
 
 ## Phase 5: Verify (Testers)
 
-After SecArch APPROVES, spawn a Tester (see `roles/tester.md`).
+After `REVIEW_PASSED` appears in manifest, write `TESTER_ASSIGNED` then spawn a Tester
+(see `roles/tester.md`).
 
-**Sequential** — one test at a time.
+**Read phase from manifest, not from Tester's return value.** Tester writes `VERIFIED`
+or `TESTER_FAILED` to manifest and commits before returning.
 
-Verdicts:
-- **PASS** → mark task COMPLETE, log + commit
-- **PASS_WITH_WARNINGS** → note warnings, mark COMPLETE
-- **FAIL** → re-spawn Worker with findings (max 2 retries → escalate)
+```bash
+M=.agent-project/manifest.log
+# Poll until VERIFIED or TESTER_FAILED appears
+until grep -q "| <task_id> | VERIFIED \|| <task_id> | TESTER_FAILED |" "$M"; do
+    sleep 30
+done
+```
+
+Outcomes:
+- **VERIFIED** → write `DONE` to manifest (Architect writes DONE, not Tester):
+  ```bash
+  SHA=$(grep "| <task_id> | VERIFIED |" "$M" | tail -1 | grep -o 'sha=[^ |]*' | cut -d= -f2)
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) | <task_id> | DONE | orchestrator | sha=$SHA | via=VERIFIED | <summary>" >> "$M"
+  git add "$M" && git commit -m "[DONE] <task_id> — <summary>"
+  ```
+- **TESTER_FAILED** → write `ISSUES_FOUND`, re-spawn worker with tester report path
+  (report committed at `.agent-project/tester-<task_id>-r<N>.md`)
+- **PASS_WITH_WARNINGS** → treat as VERIFIED; note warnings in DONE entry
 
 ---
 
 ## Phase 6: Ship
 
-When all tasks COMPLETE:
+When all tasks reach DONE or REARCHITECT:
 
-1. **Pre-ship gate — all three checks must pass. Do not proceed on any failure:**
+1. **Pre-ship gate — all checks must pass. Do not proceed on any failure:**
    ```bash
    M=.agent-project/manifest.log
    reg=$(grep -c "| TASK_REGISTERED |" "$M")
    done_n=$(grep -c "| DONE |" "$M")
+   verified_n=$(grep -c "| VERIFIED |" "$M")
+   rearch_n=$(grep -c "| REARCHITECT |" "$M")
    open_c=$(grep -c "| CONDITION_OPEN |" "$M")
    closed_c=$(grep -c "| CONDITION_CLOSED |" "$M")
 
-   [ "$reg" -eq "$done_n" ]      || { echo "BLOCKED: $reg registered vs $done_n done"; exit 1; }
-   [ "$open_c" -eq "$closed_c" ] || { echo "BLOCKED: $((open_c - closed_c)) conditions open"; exit 1; }
+   # Every registered task must be DONE or REARCHITECT
+   [ "$((done_n + rearch_n))" -eq "$reg" ] || { echo "BLOCKED: $reg registered, $done_n done, $rearch_n rearchitected"; exit 1; }
+   # Every DONE must have a corresponding VERIFIED (no self-reported completions)
+   [ "$verified_n" -eq "$done_n" ]          || { echo "BLOCKED: $done_n DONE but only $verified_n VERIFIED"; exit 1; }
+   # All conditions closed
+   [ "$open_c" -eq "$closed_c" ]            || { echo "BLOCKED: $((open_c - closed_c)) conditions open"; exit 1; }
    ```
-   Both counts come from git history, so this gate works after any session restart —
-   it does not depend on remembering how many tasks were planned.
+   All counts come from git history — this gate works after any session restart.
 2. **Merge branches** (if GitHub: `gh pr merge --squash --delete-branch`)
 3. **Tag release**: `git tag v1.0 -m "<goal> — initial ship"`
 4. **Write design-doc.md**: decisions, deviations, trade-offs
@@ -422,10 +478,16 @@ leaving the run silently unterminated.
 
 | Event | Max Retries | Then |
 |---|---|---|
-| SecArch REJECTED | 2 | Escalate (see `references/escalation-format.md`) |
-| Tester FAIL | 2 | Escalate |
-| Worker BLOCKED | 0 | Re-spawn after dependency completes |
-| Worker build loop (3 cycles) | 0 | Self-reports BLOCKED → escalate |
+| SecArch REVIEW_FAILED | 3 (ISSUES_FOUND entries) | Escalate or REARCHITECT |
+| Tester TESTER_FAILED | 3 (ISSUES_FOUND entries) | Escalate or REARCHITECT |
+| Worker BLOCKED (dependency) | 0 | Re-spawn after dependency DONE |
+| Worker BLOCKED (toolchain, 3 cycles) | 2 re-spawns | REARCHITECT |
+| Worker exited without CODE_WRITTEN | 1 re-spawn | Escalate if repeats |
+
+**REARCHITECT** is a first-class outcome, not a failure. When retry budget exhausts, the
+Architect assesses: is this a fixable implementation problem (escalate) or a scope problem
+(REARCHITECT with a revised successor task)? See `roles/manifest-schema.md` for the
+REARCHITECT phase and `roles/team-architect.md` for the re-registration protocol.
 
 ---
 
@@ -440,13 +502,14 @@ notifications). manifest.log is the durable workaround.
 If a session crashes, state is recoverable from `git log .agent-project/manifest.log`.
 
 **Rules**:
-- Never merge a branch whose worker has no DONE entry in manifest.log
+- Never merge a branch whose task has no DONE entry in manifest.log
+- DONE requires a VERIFIED entry for the same task_id — the Phase 6 gate enforces this
 - Every log write is immediately followed by `git add .agent-project/manifest.log && git commit -m "log: <event>"`
 - The platform task registry is ALSO updated where available (belt + suspenders) but manifest.log is canonical
 - **manifest.log records only transitions that have already happened.** Planning
   notes, intended next steps, and in-progress reasoning go in
-  `.agent-project/notes.md`. STATUS must be one of the values defined in
-  `templates/manifest.log` — never free text, never future tense.
+  `.agent-project/notes.md`. STATUS must be one of the phases defined in
+  `roles/manifest-schema.md` — never free text, never future tense.
 - **Terminal state is explicit.** DONE entries with no SHIPPED entry mean the run was
   abandoned, not that it is still going. Startup detects this; Phase 6 is what
   prevents it.
@@ -610,7 +673,7 @@ arch/<slug>/team-<N>/worker-<task_id>     # worker branches (Workers)
 | Task complete | `[DONE] <task_id> — <summary>` |
 | Team shipped | `[SHIPPED] team-<N> — <summary>` |
 | Escalation | `ESCALATION: <team/task> — <summary>` |
-| Stuck worker | `STUCK: <task_id> — no git activity 120s` |
+| Stuck worker | `CLEANUP: <task_id> — stuck worker removed` |
 | Cleanup event | `CLEANUP: <what> — <reason>` |
 | Log/state | `log: <event>` |
 
@@ -644,8 +707,9 @@ git log --all --grep="\[SHIPPED\] team-1" --oneline
 **Stuck worker (detected by drain loop — no git commits in 120s):**
 1. `kill_agent(agent_id)`
 2. `git worktree remove --force <worktree_path>`
-3. `git commit -m "STUCK: <task_id> — no git activity 120s"`
-4. Append `STUCK | <task_id> | <timestamp>` to manifest.log + commit
+3. `git commit -m "CLEANUP: <task_id> — stuck worker removed"`
+4. Append BLOCKED entry to manifest.log in schema format and commit:
+   `<timestamp> | <task_id> | BLOCKED | team-arch-<N> | sha=unknown | cycles=stuck | reason=no git activity 120s`
 5. If `retry_count < retry_budget` → re-spawn worker with same task spec + DOMAIN_HINTS
 6. Else → escalate (see `references/escalation-format.md`)
 
@@ -653,9 +717,10 @@ git log --all --grep="\[SHIPPED\] team-1" --oneline
 1. `git log .agent-project/manifest.log --oneline` → find last committed state
 2. `git worktree list` → identify dangling worktrees from crashed session
 3. For each dangling worktree:
-   - `git log <branch> --grep="\[DONE\]"` non-empty → task finished, just remove: `git worktree remove --force <path>`
-   - Empty → worker was mid-task → re-spawn with same task spec
-4. Append `RECOVERY | <timestamp> | resumed from <last-commit>` to manifest.log + commit
+   - Check manifest for CODE_WRITTEN or later phase for that task_id → task progressed, remove worktree: `git worktree remove --force <path>`
+   - No CODE_WRITTEN → worker was mid-task → re-spawn with same task spec
+4. Log recovery in manifest using schema format and commit:
+   `<timestamp> | recovery | ASSUMPTION_LOGGED | orchestrator | resumed from <last-commit-sha>`
 
 **End-of-project cleanup (Phase 6 additions after existing steps):**
 ```bash
@@ -726,7 +791,10 @@ grep "| TEAMS_LAUNCHED |" "$M" | head -1
 echo "=== TASKS ==="
 reg=$(grep -c "| TASK_REGISTERED |" "$M")
 done_n=$(grep -c "| DONE |" "$M")
-echo "Registered: $reg | Done: $done_n | Remaining: $((reg - done_n))"
+verified_n=$(grep -c "| VERIFIED |" "$M")
+rearch_n=$(grep -c "| REARCHITECT |" "$M")
+code_written_n=$(grep -c "| CODE_WRITTEN |" "$M")
+echo "Registered: $reg | Done: $done_n | Verified: $verified_n | Rearchitected: $rearch_n | In-gate: $((code_written_n - done_n - rearch_n < 0 ? 0 : code_written_n - done_n - rearch_n))"
 
 # Open security conditions
 open_c=$(grep -c "| CONDITION_OPEN |"   "$M")
@@ -755,11 +823,14 @@ Triggered by the user when `arch status` shows all teams SHIPPED. Runs Phase 6.
 M=.agent-project/manifest.log
 reg=$(grep -c "| TASK_REGISTERED |" "$M")
 done_n=$(grep -c "| DONE |" "$M")
+verified_n=$(grep -c "| VERIFIED |" "$M")
+rearch_n=$(grep -c "| REARCHITECT |" "$M")
 open_c=$(grep -c "| CONDITION_OPEN |" "$M")
 closed_c=$(grep -c "| CONDITION_CLOSED |" "$M")
 
-[ "$reg" -eq "$done_n" ]      || { echo "BLOCKED: $reg registered, $done_n done"; exit 1; }
-[ "$open_c" -eq "$closed_c" ] || { echo "BLOCKED: $((open_c - closed_c)) conditions open"; exit 1; }
+[ "$((done_n + rearch_n))" -eq "$reg" ] || { echo "BLOCKED: $reg registered, $done_n done, $rearch_n rearchitected"; exit 1; }
+[ "$verified_n" -eq "$done_n" ]          || { echo "BLOCKED: $done_n DONE but only $verified_n VERIFIED"; exit 1; }
+[ "$open_c" -eq "$closed_c" ]            || { echo "BLOCKED: $((open_c - closed_c)) conditions open"; exit 1; }
 ```
 
 If both checks pass → run Phase 6 (merge branches, tag release, design-doc, retrospective,
@@ -769,6 +840,6 @@ cleanup, SHIPPED entry). If either check fails → report exactly what is blocki
 
 ## Related Skills
 
-- `cortex-agent-optimization` — optimizing Snowflake Cortex Agents built by this framework
+- `agent-optimizer` — optimizing Snowflake Cortex Agents built by this framework
 - `prompt-determinism-tester` — validating prompts produced by this framework
 - `cortex-accelerator` — Snowflake-specific Cortex AI builds (SV + agent pipelines)

@@ -116,3 +116,45 @@ Example 4: LOGS.SESSION_TOKEN → SESSIONS.TOKEN
   - Combined: 0.30 (co-query only)
   - Result: LOW (0.30)
 ```
+
+---
+
+## Domain-Level Confidence (sv-discovery)
+
+Edge confidence scores above apply to individual table-pair relationships. When
+scoring an entire domain (cluster of tables), use a weighted average of all
+internal edge confidences, weighted by co-occurrence query count:
+
+```
+domain_confidence = SUM(edge_confidence × edge_co_query_count)
+                  / SUM(edge_co_query_count)
+```
+
+**If ACCESS_HISTORY is unavailable** (no co-occurrence data), fall back to simple
+average of internal edge confidences:
+
+```
+domain_confidence = AVG(internal_edge_confidences)
+```
+
+**Guard: zero denominator.** If all internal edges have `co_query_count = 0` (e.g.
+all relationships were detected via FK/column pattern only, no co-occurrence data),
+use the simple average fallback — do not divide by zero.
+
+**Tier assignment** (same thresholds as edge-level):
+- ≥ 0.85 → HIGH
+- 0.60–0.84 → MEDIUM
+- 0.30–0.59 → LOW
+
+**Example:**
+```
+Domain: Orders (3 internal edges)
+  ORDERS ↔ ORDER_ITEMS: confidence=1.0, co_query_count=127
+  ORDERS ↔ CUSTOMERS:   confidence=1.0, co_query_count=98
+  ORDER_ITEMS ↔ PRODUCTS: confidence=0.85, co_query_count=64
+
+domain_confidence = (1.0×127 + 1.0×98 + 0.85×64) / (127+98+64)
+                  = (127 + 98 + 54.4) / 289
+                  = 279.4 / 289
+                  = 0.967 → HIGH
+```

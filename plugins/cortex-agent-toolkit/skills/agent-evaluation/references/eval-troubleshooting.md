@@ -192,3 +192,41 @@ GROUP BY DATE_TRUNC('month', event_ts)  -- full expression — safe
 
 **Fix**: Audit all ground-truth SQL in your eval dataset for GROUP BY alias references.
 Replace each alias with the full expression it represents.
+
+---
+
+## 8. "Metric failed" with HTTP 400 — legacy/retired judge model
+
+**Symptom**: `CALL EXECUTE_AI_EVALUATION('STATUS', ...)` returns only a terse message like
+`Metric 'answer_correctness' failed`, every question shows `METRIC_STATUS = FAILED`,
+and no further error detail is available from the STATUS call itself.
+
+**Root cause**: The metric was listed as a bare string (e.g. `"answer_correctness"`), which
+uses version `auto` — same as omitting `version` entirely. `auto`/unversioned resolves to `v1`
+today, whose judge model (`claude-4-sonnet`) entered legacy state on 2026-08-12. Per Snowflake's
+documented behavior, accounts with no prior `claude-4-sonnet` usage get a hard failure (not a
+silent substitution) when a metric resolves to that version. Every judge call for that metric
+then fails, and STATUS surfaces no root cause beyond "failed."
+
+**Diagnosis** — query observability events directly for the real error, since STATUS alone
+is a dead end:
+
+```sql
+SELECT RECORD_ATTRIBUTES:"ai.observability.record_root.output"::STRING AS explanation
+FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_OBSERVABILITY_EVENTS(
+    '<DATABASE>', '<SCHEMA>', '<AGENT_NAME>', 'CORTEX AGENT'))
+WHERE RECORD_ATTRIBUTES:"snow.ai.observability.run.name" = '<run_name>'
+  AND RECORD_ATTRIBUTES:"ai.observability.span_type" = 'metric_eval';
+```
+
+Look for a 400-level error referencing a model in "legacy state" in the returned explanation/output.
+
+**Fix**: Pin an explicit version on every metric using the `name`/`version` mapping form —
+replace `- "answer_correctness"` with:
+```yaml
+- name: "answer_correctness"
+  version: "v3"
+```
+(and likewise for the other three core metrics). See agent-evaluation/SKILL.md Phase 4.2 for
+the pinned template. Do not rely on version `auto` (or an unversioned bare string, which is
+equivalent) for eval judges.

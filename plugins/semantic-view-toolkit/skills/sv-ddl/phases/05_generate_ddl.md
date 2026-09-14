@@ -449,4 +449,8 @@ Next step: Phase 6 — execute and validate.
 Type 'go' to execute, or make edits first.
 ```
 
-⚠️ **STOPPING POINT** — Wait for user to approve or request changes.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user to approve or request changes.
+
+**AUTONOMOUS:** if this is a `CREATE OR REPLACE` on an existing SV, snapshot the current
+DDL via `GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')` to a timestamped file first (the rollback
+point — SVs have no built-in undo). Then execute, log the snapshot path, proceed to Phase 6.

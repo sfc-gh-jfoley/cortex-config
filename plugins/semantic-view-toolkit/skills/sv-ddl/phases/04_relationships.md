@@ -234,7 +234,11 @@ No relationship detected between: orders ↔ vehicles (no common ID columns foun
 Add missing relationships? Remove any above? (type changes or 'ok')
 ```
 
-⚠️ **STOPPING POINT** — Wait for user to confirm.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user to confirm.
+**AUTONOMOUS:** run the overlapping-column-name probe (Step 4.9's fallback query) for any
+undetected pair; add what it finds. For any pair still without a clear join key, set
+no relationship between them (cross-table queries across that pair won't be possible)
+rather than guessing — log which pairs were auto-joined and which were left disjoint.
 
 ---
 
@@ -386,7 +390,14 @@ Present standard FK relationships (from Steps 4.1–4.5) first, then ASOF and ra
 Accept all? Edit? Remove any? (type changes or 'ok')
 ```
 
-⚠️ **STOPPING POINT** — Wait for user to confirm ASOF and range relationships separately from standard FKs. These are more complex and users should verify the temporal semantics are correct.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user to confirm ASOF and range relationships separately from standard FKs. These are more complex and users should verify the temporal semantics are correct.
+
+**AUTONOMOUS:** temporal joins can silently produce wrong aggregates if the range logic
+is wrong — this is not a courtesy checkpoint, it's correctness-sensitive. Accept ONLY
+relationships where the detected range is unambiguous (exactly one non-overlapping tier
+per key, per Step 4.6/4.7's own overlap check). Anything ambiguous is excluded from
+`RELATIONSHIPS` (not guessed) and logged as `NEEDS_REVIEW` — do not silently pick a
+range interpretation.
 
 ---
 
@@ -417,7 +428,12 @@ Based on user response:
 - **User says independent/no join** → set `RELATIONSHIPS = []`, proceed to Phase 5 (SV will work but cross-table queries won't be possible)
 - **User is unsure** → suggest running `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME IN (...)` to look for overlapping column names, then re-evaluate
 
-⚠️ **STOPPING POINT** — Do not proceed to Phase 5 without a clear answer on relationships for multi-table SVs.
+⚠️ **STOPPING POINT (INTERACTIVE mode)** — Do not proceed to Phase 5 without a clear answer on relationships for multi-table SVs.
+
+**AUTONOMOUS:** run the overlapping-column-name probe from the "User is unsure" option
+above automatically. If it finds nothing, proceed to Phase 5 with `RELATIONSHIPS = []` (per the "independent/no join"
+option above) rather than blocking — an SV with no cross-table joins is a valid, if
+limited, deliverable. Log that relationships could not be auto-detected.
 
 ---
 

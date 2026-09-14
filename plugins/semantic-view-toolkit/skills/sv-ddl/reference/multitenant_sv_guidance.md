@@ -52,7 +52,7 @@ Results returned (tenant-scoped)
 | B: Role-per-tenant | `CURRENT_ROLE()` | `tenant_id = CURRENT_ROLE()` | RBAC-heavy orgs, role hierarchy |
 | C: Session attribute | `SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')` | `tenant_id = SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')` | API gateways, connection pools, SaaS apps |
 
-For full implementation details of each pattern, see **cortex-agent-ddl Phase 4b**.
+For full implementation details of each pattern, see **agent-ddl Phase 4b**.
 
 ## SV Design Considerations for MTT
 

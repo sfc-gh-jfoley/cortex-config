@@ -42,7 +42,8 @@ The toolkit will:
 - Scan FK/PK constraints, column name patterns, and query co-occurrence
 - Cluster tables into recommended domain groupings
 - Score confidence based on evidence strength
-- Estimate each proposed SV's token size and warn if any exceeds ~100,000 tokens (above that, Cortex Agents prunes the SV — latency + reduced accuracy); recommend splitting oversized domains
+- Apply domain coherence checks: split when multiple fact tables cover the same dimensional tables from different analytical angles (e.g., Sales and Operations both joining Customers and Products — that is two domains, not one)
+- Estimate each proposed SV's token size (~1 token per ~2.5 chars of DDL) and warn if any exceeds ~100,000 tokens (above that, Cortex Agents prunes the SV — latency + reduced accuracy); recommend splitting domains that exceed the token ceiling
 - Present recommendations for your approval
 
 **Time:** scales with table count and column cardinality.
@@ -93,7 +94,7 @@ The toolkit will:
 
 **Time:** depends on warehouse size and number of questions.
 
-### Step 5: Optimize (sv-optimization)
+### Step 5: Optimize (sv-iterative-optimizer)
 
 ```
 "Optimize my SV — help me get from 60% to 90% accuracy"

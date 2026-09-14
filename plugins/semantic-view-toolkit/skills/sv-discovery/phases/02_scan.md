@@ -17,7 +17,7 @@ Detect relationships between tables in the discovery scope using four methods. B
 
 If `TOTAL_OBJECT_COUNT > 200`, the pairwise column comparison in Step 2B becomes expensive. Present options before scanning:
 
-**GUIDED mode — always ask:**
+**INTERACTIVE mode — always ask:**
 ```
 Your scope has <N> objects. Pairwise column comparison is O(N²) and may be slow.
 
@@ -28,7 +28,7 @@ C) Proceed anyway (may take 2-5 minutes)
 D) Skip column inference entirely (rely on FK constraints + co-occurrence only)
 ```
 
-**AUTOPILOT mode:**
+**AUTONOMOUS mode:**
 - If N > 200 and N <= 500: auto-select option B (schema affinity pre-filter)
 - If N > 500: auto-select option B AND cap co-occurrence pairs at top 1000
 - Report the optimization applied
@@ -39,7 +39,7 @@ Store as: `SCAN_STRATEGY` — `full` | `schema_affinity` | `fk_and_cooccurrence_
 
 ## Step 2A: FK/PK Constraint Scan
 
-Follow the detection method in `references/relationship-detection.md`, Section 1 (Declared FK/PK Constraints).
+Follow the detection method in `../../references/relationship-detection.md`, Section 1 (Declared FK/PK Constraints).
 
 For each schema in `DISCOVERY_SCHEMAS`:
 
@@ -95,7 +95,7 @@ Set flag: `CONSTRAINTS_AVAILABLE = true/false` (if zero FK rows returned).
 
 ## Step 2B: Column Name FK Inference
 
-Follow the detection method in `references/relationship-detection.md`, Section 2 (Column Name Pattern Inference).
+Follow the detection method in `../../references/relationship-detection.md`, Section 2 (Column Name Pattern Inference).
 
 **Skip this step if** `SCAN_STRATEGY = 'fk_and_cooccurrence_only'`.
 
@@ -123,7 +123,7 @@ For each column with a recognized suffix (_ID, _KEY, _CODE, _SK, _NBR, _NO, _FK)
      - Singular: CUSTOMER_ID → CUSTOMER table
      - Alias: CUST_ID → CUSTOMERS (common abbreviations)
   3. In the target table, find PK/UNIQUE column with matching data type
-  4. Assign confidence per references/relationship-detection.md suffix table
+  4. Assign confidence per `../../references/relationship-detection.md` suffix table
 ```
 
 **Schema affinity pre-filter (if SCAN_STRATEGY = 'schema_affinity'):**
@@ -151,7 +151,7 @@ WITH query_tables AS (
     FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY ah,
         LATERAL FLATTEN(input => ah.BASE_OBJECTS_ACCESSED) obj
     WHERE ah.QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-        AND obj.value:objectDomain::STRING IN ('Table', 'View', 'DynamicTable')
+        AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
         AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
 )
 SELECT
@@ -170,7 +170,7 @@ LIMIT 2000;  -- cap for large accounts
 
 **Filter to scope:** Remove pairs where either table is NOT in `DISCOVERY_SCHEMAS`.
 
-**Confidence assignment per `references/confidence-scoring.md`:**
+**Confidence assignment per `../../references/confidence-scoring.md`:**
 - co_query_count >= 50 → HIGH
 - co_query_count 10-49 → MEDIUM
 - co_query_count 3-9 → LOW
@@ -197,7 +197,7 @@ FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY,
     LATERAL FLATTEN(input => BASE_OBJECTS_ACCESSED) obj,
     LATERAL FLATTEN(input => obj.value:columns) col
 WHERE QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-    AND obj.value:objectDomain::STRING IN ('Table', 'View', 'DynamicTable')
+    AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
     AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
 GROUP BY 1, 2
 ORDER BY access_count DESC
@@ -220,7 +220,7 @@ This data is used in Phase 3 for:
 
 ## Step 2E: Merge Edges into Relationship Graph
 
-Combine all detected edges into a unified graph. For table pairs with multiple detection signals, compute combined confidence per `references/confidence-scoring.md`:
+Combine all detected edges into a unified graph. For table pairs with multiple detection signals, compute combined confidence per `../../references/confidence-scoring.md`:
 
 ```
 combined_score = max(individual_scores) + bonus_from_additional_signals
@@ -274,8 +274,8 @@ Top 5 most connected tables:
   ...
 ```
 
-**GUIDED mode:** Present summary and wait for approval before Phase 3.
-**AUTOPILOT mode:** Present summary and continue automatically.
+**INTERACTIVE mode:** Present summary and wait for approval before Phase 3.
+**AUTONOMOUS mode:** Present summary and continue automatically.
 
 ---
 

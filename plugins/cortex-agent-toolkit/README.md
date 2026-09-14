@@ -13,12 +13,12 @@ cortex plugin install /path/to/cortex-agent-toolkit
 
 | Skill | Purpose | When to Use |
 |---|---|---|
-| `cortex-agent-ddl` | Create or edit Cortex Agents using SQL DDL with auto-generated tool descriptions, 17-rule spec validation, tenant isolation (Phase 4b), and CI/CD deployment (Phase 8) | Building a new agent from a semantic view, editing an existing agent's spec, or deploying agents via CI/CD pipelines |
+| `agent-ddl` | Create or edit Cortex Agents using SQL DDL with auto-generated tool descriptions, 17-rule spec validation, tenant isolation (Phase 4b), and CI/CD deployment (Phase 8) | Building a new agent from a semantic view, editing an existing agent's spec, or deploying agents via CI/CD pipelines |
 | `agent-evaluation` | Run native Snowflake agent evaluations with ground-truth datasets | Measuring agent quality: answer correctness, tool selection accuracy, logical consistency |
-| `agent-flag-tester` | Compare model variants (_MODEL_A/B/C: claude-sonnet vs openai-gpt-5 vs haiku) and conditional flag variants (_VQR, _CHART) side-by-side with statistical rigor | Finding the best model/config combination before committing to a final agent configuration |
-| `cortex-agent-optimization` | Iterative improvement loop with dev/test eval splits and accept/reject gates | Systematically improving an existing agent's accuracy over multiple iterations |
-| `cortex-agent-flags` | Reference for experimental flags and chart customization options | Looking up available flags, understanding what each flag does, adding flags to a spec |
-| `query-cortex-agent` | Invoke agents programmatically via SQL (DATA_AGENT_RUN / AGENT_RUN) | Quick agent testing, scripted invocations, multi-turn conversations |
+| `agent-model-tester` | Compare model variants (_MODEL_A/B/C: claude-sonnet vs openai-gpt-5 vs haiku) and conditional flag variants (_VQR, _CHART) side-by-side with statistical rigor | Finding the best model/config combination before committing to a final agent configuration |
+| `agent-optimizer` | Iterative improvement loop with dev/test eval splits and accept/reject gates | Systematically improving an existing agent's accuracy over multiple iterations |
+| `agent-flags-reference` | Reference for experimental flags and chart customization options | Looking up available flags, understanding what each flag does, adding flags to a spec |
+| `agent-query` | Invoke agents programmatically via SQL (DATA_AGENT_RUN / AGENT_RUN) | Quick agent testing, scripted invocations, multi-turn conversations |
 
 ## Key: execution_environment
 
@@ -36,20 +36,20 @@ The #1 deployment failure for new agents is missing `execution_environment` in `
 }
 ```
 
-Without it, `CREATE AGENT` succeeds silently but `DATA_AGENT_RUN` fails with error 399504. The `cortex-agent-ddl` skill enforces this via self-check Rule 3.
+Without it, `CREATE AGENT` succeeds silently but `DATA_AGENT_RUN` fails with error 399504. The `agent-ddl` skill enforces this via self-check Rule 3.
 
 ## Recommended Workflow
 
 ```
 semantic-view-ddl (create semantic view — separate plugin)
-  └── cortex-agent-ddl (create agent from SV)
+  └── agent-ddl (create agent from SV)
        ├── Phase 4b: Tenant Isolation (if multitenant)
        │   └── RAP generation + invocation pattern docs
        └── writes handoff.json
             ├── agent-evaluation (baseline quality measurement)
-            ├── agent-flag-tester (compare flag variants)
+            ├── agent-model-tester (compare flag variants)
             │   └── writes flag_sweep_baseline.json
-            ├── cortex-agent-optimization (iterative improvement)
+            ├── agent-optimizer (iterative improvement)
             │   └── uses flag_sweep_baseline.json as starting point
             └── Phase 8: CI/CD Deploy (GitHub Actions / GitLab / Azure)
                  └── OIDC service user + env promotion + rollback
