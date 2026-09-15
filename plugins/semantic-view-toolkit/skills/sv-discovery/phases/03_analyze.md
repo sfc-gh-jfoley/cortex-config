@@ -124,7 +124,7 @@ fall back to simple average if no ACCESS_HISTORY. Zero-denominator guard applies
 **Demotion rules:**
 - If domain contains ≥1 orphan table (attached via LOW edge): demote one tier
 - If domain crosses >2 schemas: add note "cross-schema domain" (not auto-demoted, but flagged)
-- If domain has multiple fact tables over shared dimensions (split signal from Step 3B was not applied): demote one tier and flag for user review
+- If Step 3B identifies an unresolved relationship or aggregation-grain ambiguity affecting required questions: demote one tier and record the specific validation needed. Multiple facts, shared dimensions, channels, or different grains alone do not lower confidence or require a split.
 
 ---
 
