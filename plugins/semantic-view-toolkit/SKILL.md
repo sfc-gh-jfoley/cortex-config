@@ -37,6 +37,12 @@ triggers:
   - precompute sv
   - sv query performance
   - MAX_STALENESS
+  - coverage check
+  - sv coverage
+  - structural gap report
+  - answerable questions
+  - sv gap analysis
+  - GT SQL coverage
 ---
 
 > **This toolkit is the source of truth for SV lifecycle work.** If the bundled `semantic-view`
@@ -51,16 +57,19 @@ Full lifecycle management for Snowflake Semantic Views — from discovery throug
 Tell me where you are in your SV journey, or pick from the options below:
 
 ```
-1. I have no SV — help me find what to build         → sv-discovery
-2. I know my tables — create an SV                   → sv-ddl
-3. I have an SV — audit/improve it                   → sv-audit
-4. I want to evaluate my SV quality                  → sv-evaluation
-5. I want to optimize my SV iteratively              → sv-iterative-optimizer
-6. I've hit a plateau — try evolutionary search      → sv-gepa-optimizer
-7. I need to compose multiple SVs                    → sv-rearchitect
-8. I need ongoing monitoring/maintenance             → sv-watch
-9. I need more verified queries for my SV            → vqr-generator
-10. My SV queries are slow — precompute aggregations → sv-materialize
+1.  I have no SV — help me find what to build         → sv-discovery
+2.  I know my tables — create an SV                   → sv-ddl
+3.  I have an SV — audit/improve it                   → sv-audit
+4.  I want to evaluate my SV quality                  → sv-evaluation
+5.  I want to optimize my SV iteratively              → sv-iterative-optimizer
+6.  I've hit a plateau — try evolutionary search      → sv-gepa-optimizer
+7.  I need to compose multiple SVs                    → sv-rearchitect
+8.  I need ongoing monitoring/maintenance             → sv-watch
+9.  I need more verified queries for my SV            → vqr-generator
+10. My SV queries are slow — precompute aggregations  → sv-materialize
+11. Audit/prune my existing VQRs                      → vqr-curator
+12. Which DDL pattern fits my table model?            → sv-snippet-suggester
+13. Check if my eval set is structurally answerable   → sv-coverage-checker
 
 Or just describe what you need — I'll figure out where to route you.
 ```
@@ -83,6 +92,7 @@ Or just describe what you need — I'll figure out where to route you.
 | "curate vqrs", "audit my vqrs", "vqr bloat", "vqrs not triggering", "vqr health", "prune vqrs", "which vqrs are useless" | **vqr-curator** | `skills/vqr-curator/SKILL.md` |
 | "what pattern", "which pattern", "how do I model", "snapshot table", "semi-additive", "non additive by", "scd2", "valid_from valid_to", "asof join", "window function", "time intelligence", "sply yoy mom", "multi fact", "derived metric", "scoped dataset", "variables semantic view", "parameterized", "row access policy null", "which snippet", "accumulating snapshot", "role playing", "two date columns", "caller rights" | **sv-snippet-suggester** | `skills/sv-snippet-suggester/SKILL.md` |
 | "materialize", "precompute", "SV is slow", "speed up", "query performance", "MAX_STALENESS", "add materialization", "materialization auto-suspended" | **sv-materialize** | `skills/sv-materialize/SKILL.md` |
+| "coverage check", "SV coverage", "GT SQL coverage", "which questions are answerable", "structural gap", "validate SV against eval set", "check SV gaps", "explain plan manifest" | **sv-coverage-checker** | `skills/sv-coverage-checker/SKILL.md` |
 
 
 ---
@@ -96,10 +106,13 @@ sv-discovery ──────────────────────�
 sv-ddl                                                                    │
   │ "create SV"                                                           │
   ▼                                                                       │
-sv-evaluation ◄── vqr-generator                                           │
-  │ "baseline score"    │ "grow eval coverage"                            │
-  ▼                     │                                                 │
-sv-iterative-optimizer ────────┘                                                 │
+sv-evaluation ◄── vqr-generator ◄── vqr-curator                          │
+  │ "baseline score"    │ "grow eval"   │ "prune/audit VQRs"              │
+  │                     │               │                                 │
+  │              sv-coverage-checker ───┘ (structural gap check,         │
+  │                "answerable?"          run in parallel with eval)      │
+  ▼                                                                       │
+sv-iterative-optimizer                                                    │
   │ "iterative loop"                                                      │
   │ (hit plateau?)                                                        │
   ▼                                                                       │
@@ -113,7 +126,7 @@ sv-rearchitect                                            sv-audit ◄───�
                                                   │ "monitoring + performance"
 ```
 
-**You can enter anywhere.** Have an existing SV? Jump to sv-audit or sv-evaluation. Just need VQRs? Go straight to vqr-generator. Want to monitor? sv-watch doesn't require running discovery first.
+**You can enter anywhere.** Have an existing SV? Jump to sv-audit or sv-evaluation. Just need VQRs? Go straight to vqr-generator. Want to check eval coverage? Run sv-coverage-checker in parallel with sv-evaluation. Want to monitor? sv-watch doesn't require running discovery first.
 
 ---
 
