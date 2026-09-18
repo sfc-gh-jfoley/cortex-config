@@ -22,8 +22,8 @@ description: >
 
 This skill runs a complete flag comparison test in 7 phases:
 
-1. **Discover** — extract agent spec, identify semantic views
-2. **Create Variants** — deploy 3 agent clones with different flag configs
+1. **Discover** — extract agent spec, validate tool descriptions, identify semantic views, **live smoke test**
+2. **Create Variants** — deploy 3 agent clones with different flag configs, **smoke test each**
 3. **Build/Validate Dataset** — create or validate eval table + DEV/TEST splits
 4. **Verify Ground Truth** — run queries against semantic views to confirm data exists
 5. **Generate Configs** — create YAML eval configs + upload to stage
@@ -31,6 +31,12 @@ This skill runs a complete flag comparison test in 7 phases:
 7. **Compare Results** — extract scores, build comparison table, recommend winner
 
 Each phase has a STOP gate requiring user confirmation before proceeding.
+
+**Fail fast on tool routing.** No structural check — `DESCRIBE AGENT`, semantic view
+validation, `cortex analyst query` against a view — can detect an agent whose orchestration
+model ignores its tools at runtime. Only a live invocation can. Phases 1 and 2 therefore each
+end in a smoke test that asserts a `tool_use` block appears in the agent's response, and both
+hard-stop before any dataset or eval work begins.
 
 ## Parameters
 
@@ -91,7 +97,45 @@ Extract from the spec:
 - `spec.models.orchestration` — current model
 - `spec.experimental` — current flag settings (if any)
 
-### Step 1.2: Identify Semantic Views
+### Step 1.2: Validate Tool Descriptions
+
+**Gate ID:** `MODELTEST-TOOL-DESC-MISSING` — **TERMINATE**
+
+Each tool must have a non-empty, concise description stating what it does or what questions it
+answers. Keep routing rules and implementation details in `instructions.orchestration`.
+
+Good:
+```text
+Answers questions about sales, revenue, and returns by channel and date.
+```
+
+Avoid long inventories, routing instructions, and semantic-view implementation details.
+
+```sql
+DESCRIBE AGENT <AGENT_FQN>;
+
+WITH spec AS (
+  SELECT TRY_PARSE_JSON("agent_spec") AS s
+  FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+)
+SELECT
+    t.value:tool_spec:name::STRING AS TOOL_NAME,
+    t.value:tool_spec:type::STRING AS TOOL_TYPE,
+    CASE
+        WHEN COALESCE(LENGTH(TRIM(t.value:tool_spec:description::STRING)), 0) = 0
+        THEN 'FAIL'
+        ELSE 'PASS'
+    END AS STATUS
+FROM spec, LATERAL FLATTEN(input => s:tools) t;
+```
+
+Descriptions are nested at `tools[].tool_spec.description`.
+
+**Gate:** Any `FAIL` is a HARD STOP in both modes. Report the tool names. The agent must be
+updated before model comparison; an agent whose tools cannot be selected produces meaningless
+evaluation results.
+
+### Step 1.3: Identify Semantic Views
 
 For each tool of type `cortex_analyst_text_to_sql`, extract:
 - Tool name (e.g., `query_subscriber_360`)
@@ -99,7 +143,7 @@ For each tool of type `cortex_analyst_text_to_sql`, extract:
 
 Store as `<SEMANTIC_VIEWS>` list for Phase 4 ground truth verification.
 
-### Step 1.3: Validate Semantic Views Exist
+### Step 1.4: Validate Semantic Views Exist
 
 For each semantic view:
 ```sql
@@ -108,7 +152,75 @@ DESCRIBE SEMANTIC VIEW <SEMANTIC_VIEW_FQN>;
 
 If any fail, STOP — the agent's tools are broken and eval will be meaningless.
 
-**STOP GATE (INTERACTIVE):** Present agent summary (model, tools, semantic views, current flags). Confirm before proceeding. **AUTONOMOUS:** log the summary, proceed.
+### Step 1.5: Live Smoke Test — Confirm the Agent Actually Calls a Tool
+
+**Gate ID:** `MODELTEST-SMOKE-NO-TOOL-USE` — **TERMINATE**
+
+Everything above this point is a *structural* check. Structural checks cannot detect a
+tool-routing failure: the spec is well-formed, the semantic views resolve, `DESCRIBE AGENT`
+is green, and the agent still answers in plain prose without touching a tool. The only way to
+catch that is to invoke the agent and inspect the response content blocks.
+
+This step is mandatory and runs **before** any eval dataset work. It costs one agent
+invocation (~30-60s) and replaces the failure mode where the problem surfaces only after the
+dataset is built, N configs are uploaded, and 2N eval runs have been fired.
+
+Pick one representative question. Prefer, in order:
+1. A `sample_questions` entry from `spec.instructions.sample_questions` (the agent author's
+   own declaration of an in-scope question).
+2. An existing `INPUT_QUERY` from `<AGENT_NAME>_EVAL` if the table already exists.
+3. A question naming a concrete metric and dimension from the primary semantic view.
+
+Do **not** use a generic probe like "hello" or "what can you do?" — those are correctly
+answered without a tool call, and would produce a false green in the opposite direction.
+
+```sql
+WITH resp AS (
+  SELECT TRY_PARSE_JSON(
+    SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+      '<AGENT_FQN>',
+      $${"messages":[{"role":"user","content":[{"type":"text","text":"<SMOKE_QUESTION>"}]}],"stream":false}$$
+    )
+  ) AS r
+)
+SELECT
+    COUNT_IF(f.value:type::STRING = 'tool_use')    AS TOOL_USE_BLOCKS,
+    COUNT_IF(f.value:type::STRING = 'tool_result') AS TOOL_RESULT_BLOCKS,
+    COUNT_IF(f.value:type::STRING = 'text')        AS TEXT_BLOCKS,
+    ARRAY_AGG(DISTINCT f.value:type::STRING)       AS BLOCK_TYPES
+FROM resp, LATERAL FLATTEN(input => r:content) f;
+```
+
+Set `timeout_seconds` to at least 300 — agent invocations are slow and a client-side timeout
+here is not a tool-routing failure.
+
+**Gate — evaluate in this order:**
+
+| Observation | Verdict |
+|---|---|
+| `TOOL_USE_BLOCKS >= 1` and `TOOL_RESULT_BLOCKS >= 1` | **PASS** — proceed |
+| `TOOL_USE_BLOCKS >= 1`, `TOOL_RESULT_BLOCKS = 0` | **HARD STOP** — model routes correctly but tool execution fails (warehouse, grants, or semantic view runtime error). Inspect the `tool_result` / error content blocks. |
+| `TOOL_USE_BLOCKS = 0`, `TEXT_BLOCKS >= 1` | **HARD STOP** — this is the silent-failure mode. The model answered from its own knowledge and ignored every tool. Re-check Step 1.2, then the orchestration instructions. |
+| Query errors or returns no content blocks | **HARD STOP** — agent is not invokable at all. Check grants (`SNOWFLAKE.CORTEX_USER`, agent USAGE) and warehouse availability. |
+
+Blocks in **both** INTERACTIVE and AUTONOMOUS modes. This is a data-integrity gate, not a
+judgment gate — no operator decision makes a tool-blind agent worth evaluating.
+
+Log the verdict:
+```
+Smoke Test: <AGENT_FQN>
+  Question:     "<SMOKE_QUESTION>"
+  tool_use:     {N} block(s)   {tool names invoked}
+  tool_result:  {N} block(s)
+  Verdict:      PASS | BLOCKER
+```
+
+> The smoke test uses `DATA_AGENT_RUN` because this skill already executes Snowflake operations
+> through SQL and the CLI. It returns the response content blocks needed to verify tool use.
+
+**STOP GATE (INTERACTIVE):** Present agent summary (model, tools, tool-description check,
+semantic views, current flags, smoke test verdict). Confirm before proceeding.
+**AUTONOMOUS:** log the summary, proceed.
 
 ---
 
@@ -164,6 +276,58 @@ DESCRIBE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>_{SUFFIX};
 ```
 
 Confirm all selected variants are deployed with correct spec changes.
+
+### Step 2.4: Per-Variant Smoke Test
+
+**Gate ID:** `MODELTEST-VARIANT-SMOKE-FAIL` — **TERMINATE**
+
+Step 1.5 proved the *baseline* agent calls its tools. That does not carry over to the variants.
+Tool routing is a behavior of the orchestration model, so a model variant can ignore tools that
+the baseline model used correctly — and for model comparison that is precisely the failure this
+skill exists to detect, not to trip over. A variant that never calls a tool contributes
+`2 x <RUNS_PER_SPLIT>` eval runs of `Invocation failed`, and those wasted runs are only
+discovered in Phase 6.
+
+Re-run the Step 1.5 smoke test against **every** variant, using the **same**
+`<SMOKE_QUESTION>` so the comparison is apples-to-apples:
+
+```sql
+-- Repeat for each variant in <VARIANTS>
+WITH resp AS (
+  SELECT TRY_PARSE_JSON(
+    SNOWFLAKE.CORTEX.DATA_AGENT_RUN(
+      '<DATABASE>.<SCHEMA>.<AGENT_NAME>_{SUFFIX}',
+      $${"messages":[{"role":"user","content":[{"type":"text","text":"<SMOKE_QUESTION>"}]}],"stream":false}$$
+    )
+  ) AS r
+)
+SELECT
+    COUNT_IF(f.value:type::STRING = 'tool_use')    AS TOOL_USE_BLOCKS,
+    COUNT_IF(f.value:type::STRING = 'tool_result') AS TOOL_RESULT_BLOCKS,
+    COUNT_IF(f.value:type::STRING = 'text')        AS TEXT_BLOCKS
+FROM resp, LATERAL FLATTEN(input => r:content) f;
+```
+
+Report the matrix:
+```
+Variant Smoke Test (question: "<SMOKE_QUESTION>")
+  {VARIANT_1}:  tool_use=2  tool_result=2  → PASS
+  {VARIANT_2}:  tool_use=1  tool_result=1  → PASS
+  {VARIANT_3}:  tool_use=0  tool_result=0  → BLOCKER (answered as plain text)
+```
+
+**Gate:**
+- **All variants PASS:** proceed to Phase 3.
+- **Some variants fail, at least 2 pass:** do NOT silently continue with a partial matrix.
+  Drop the failing variants from `<VARIANTS>` so no configs or eval runs are generated for
+  them, and record the exclusion — "model X does not invoke tools for this agent" is a
+  legitimate and reportable comparison finding, and must appear in the Phase 7 results table
+  as `EXCLUDED — no tool invocation` rather than being omitted. INTERACTIVE: confirm the
+  reduced variant list. AUTONOMOUS: apply the reduction and log it.
+- **Fewer than 2 variants pass:** HARD STOP in both modes — there is nothing left to compare.
+
+Blocks in both modes. Cost of this step is `len(<VARIANTS>)` invocations; it prevents
+`len(<VARIANTS>) x 2 x <RUNS_PER_SPLIT>` wasted eval runs.
 
 ---
 
@@ -640,6 +804,15 @@ configs are needed for flag re-validation during the optimization loop.
 
 ## Key Learnings
 
+- `cortex_analyst_text_to_sql` tools with a missing or empty `description` are accepted by
+  `CREATE AGENT` and reported as configured by `DESCRIBE AGENT`, but the orchestration model
+  cannot route to them — it answers as plain text and every eval row returns
+  `Invocation failed`. Validate descriptions (Step 1.2) and smoke-test live (Step 1.5).
+- Tool descriptions nest at `tools[].tool_spec.description`, not `tools[].description`
+- `cortex analyst query --view=...` validates the semantic view, **not** the agent — it bypasses
+  the orchestration model entirely, so Phase 4 can pass green while the agent is tool-blind
+- Tool-routing behavior is model-specific: a variant can ignore tools the baseline model used
+  correctly, so the smoke test must be repeated per variant (Step 2.4)
 - As of April 2026, `EnableAgenticAnalyst` is now the default behavior — model choice is the primary lever for accuracy/latency tradeoffs
 - Multi-hop questions (spanning 2+ semantic views) show biggest divergence between variants
 - `EXECUTE_AI_EVALUATION` requires YAML config on a stage — no inline metric specification

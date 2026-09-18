@@ -71,6 +71,19 @@ Every OPERATOR_REQUIRED gate that fires (in INTERACTIVE mode) must log the opera
 | `GEPA-WINNER-SNAPSHOT` | Snapshot current production spec before applying GEPA winner | **AUTO_REMEDIATE** | Execute snapshot with timestamp before any production mutation |
 | `GEPA-POPULATION-REVIEW` | Review candidate population/mutation diffs before mini-batch eval | **AUTO_RESOLVE** | Log the population table; proceed (candidates are disposable `_GEPA_CAND_<N>` agents, not production) |
 
+### Model Tester Gates
+
+| Gate ID | Description | Classification | Default (AUTONOMOUS) |
+|---|---|---|---|
+| `MODELTEST-TOOL-DESC-MISSING` | One or more agent tools have a missing/empty `tool_spec.description`; orchestration model cannot route to them | **TERMINATE** | — |
+| `MODELTEST-SMOKE-NO-TOOL-USE` | Baseline agent smoke test returned no `tool_use` content block (answered as plain text, or not invokable) | **TERMINATE** | — |
+| `MODELTEST-VARIANT-SMOKE-FAIL` | One or more deployed variants returned no `tool_use` block on the shared smoke question | **AUTO_RESOLVE** | Drop failing variants from `<VARIANTS>`; report them as `EXCLUDED — no tool invocation` in Phase 7. If fewer than 2 variants remain, escalates to **TERMINATE** |
+
+> `MODELTEST-TOOL-DESC-MISSING` and `MODELTEST-SMOKE-NO-TOOL-USE` are classified TERMINATE
+> rather than OPERATOR_REQUIRED deliberately: no operator decision makes a tool-blind agent
+> worth evaluating, and the remediation (add tool descriptions, fix orchestration instructions)
+> belongs to the agent author outside this skill.
+
 ### Instruction Optimization Gates
 
 | Gate ID | Description | Classification | Default (AUTONOMOUS) |

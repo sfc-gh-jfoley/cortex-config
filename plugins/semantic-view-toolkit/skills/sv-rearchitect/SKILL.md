@@ -218,14 +218,14 @@ Produce structured output for `cortex-agent-toolkit`'s `agent-ddl` skill:
     {
       "name": "orders_analyst",
       "type": "cortex_analyst_text_to_sql",
-      "description": "Answer questions about orders, revenue, and customer transactions",
+      "description": "Answers questions about orders, revenue, and customer transactions.",
       "semantic_view": "<DB>.<SCHEMA>.ORDERS_SV",
       "warehouse": "<WAREHOUSE>"
     },
     {
       "name": "support_analyst",
       "type": "cortex_analyst_text_to_sql",
-      "description": "Answer questions about support tickets, resolution times, and customer satisfaction",
+      "description": "Answers questions about support tickets, resolution times, and customer satisfaction.",
       "semantic_view": "<DB>.<SCHEMA>.SUPPORT_SV",
       "warehouse": "<WAREHOUSE>"
     }
@@ -233,6 +233,19 @@ Produce structured output for `cortex-agent-toolkit`'s `agent-ddl` skill:
   "instructions": "Route questions to the appropriate analyst tool based on the business domain. If a question spans multiple domains, use the most relevant tool first."
 }
 ```
+
+### Step 2b: Validate Tool Descriptions
+
+Before presenting the handoff, validate every `cortex_analyst_text_to_sql` tool:
+
+- `description` is present and non-empty.
+- It is one concise sentence about what the tool answers.
+- It is specific to the tool's domain and does not overlap another tool's description.
+- It does not contain table inventories, metric lists, example questions, routing rules, or implementation details.
+
+Keep detailed metadata in `tables_covered`, `key_metrics`, and `example_questions`. Keep routing
+logic in `instructions`. If a description is missing, vague, overlapping, or overly detailed,
+rewrite it before presenting the handoff.
 
 ### Step 3: Present and confirm
 
@@ -249,12 +262,14 @@ Multi-SV Agent Composition Plan:
   Next step: Hand off to $agent-ddl to create the agent.
 ```
 
+**Gate ID:** `REARCH-HANDOFF-ACCEPT`
+
 **INTERACTIVE mode:** Wait for operator confirmation before proceeding to Step 4.
 ```
 Proceed? (yes / adjust)
 ```
 **AUTONOMOUS mode:** Auto-accept the composition plan and log it.
-`[AUTO-RESOLVED: REARCHITECT-PLAN-REVIEW → accept (non-mutating handoff plan, autonomous mode)]`
+`[AUTO-RESOLVED: REARCH-HANDOFF-ACCEPT → accept (non-mutating handoff plan, autonomous mode)]`
 
 ### Step 4: Hand off
 

@@ -323,8 +323,12 @@ This combines both patterns:
 
 ### Routing Quality
 
-The agent routes based on tool descriptions. To improve routing accuracy:
+The agent routes based on tool descriptions. Keep each description concise: state only what the
+tool answers, using specific and non-overlapping domain language. Put routing rules in agent
+instructions and use `routing_hints` for ambiguous terms.
+
+To improve routing accuracy:
 1. Make tool descriptions specific and non-overlapping
-2. Include key entity names in descriptions
+2. Include key entity names without adding inventories or implementation details
 3. Add `routing_hints` for ambiguous terms
 4. Test with edge-case questions that could go either way
