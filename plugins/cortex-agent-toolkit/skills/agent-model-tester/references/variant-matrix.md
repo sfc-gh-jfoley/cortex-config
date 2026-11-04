@@ -4,7 +4,7 @@
 
 Always applicable — run for any agent regardless of features configured.
 
-> Pick concrete model names from the Valid Model Names table in `reference/agent_spec_syntax.md` before building variant specs.
+> Pick concrete model names from the Valid Model Names table in `../../agent-ddl/reference/agent_spec_syntax.md` before building variant specs.
 
 | Variant Suffix | Spec change | Description |
 |---|---|---|
@@ -41,11 +41,11 @@ All variants **must** be in the same schema as the eval dataset (co-location con
 
 For model comparison variants, clone the original agent spec and change `models.orchestration`.
 
-> **Resolve aliases first:** Read `reference/agent_spec_syntax.md` (Valid Model Names) to get the current value for
+> **Resolve aliases first:** Read `../../agent-ddl/reference/agent_spec_syntax.md` (Valid Model Names) to get the current value for
 > the model table before writing the literal model name into the SQL.
 
 ```sql
--- MODEL_A: balanced tier (see reference/agent_spec_syntax.md for current options)
+-- MODEL_A: balanced tier (see ../../agent-ddl/reference/agent_spec_syntax.md for current options)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_A
 FROM SPECIFICATION $$
 {
@@ -54,7 +54,7 @@ FROM SPECIFICATION $$
 }
 $$;
 
--- MODEL_B: OpenAI heavy tier (see reference/agent_spec_syntax.md)
+-- MODEL_B: OpenAI heavy tier (see ../../agent-ddl/reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_B
 FROM SPECIFICATION $$
 {
@@ -63,7 +63,7 @@ FROM SPECIFICATION $$
 }
 $$;
 
--- MODEL_C: fast tier (see reference/agent_spec_syntax.md)
+-- MODEL_C: fast tier (see ../../agent-ddl/reference/agent_spec_syntax.md)
 CREATE AGENT {DATABASE}.{SCHEMA}.{AGENT}_MODEL_C
 FROM SPECIFICATION $$
 {

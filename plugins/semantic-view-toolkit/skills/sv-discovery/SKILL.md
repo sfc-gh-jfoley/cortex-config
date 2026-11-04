@@ -110,11 +110,11 @@ All queries run on the **customer's own account**. No Snowhouse access required.
 | `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` | FK references between tables | Real-time |
 | `INFORMATION_SCHEMA.COLUMNS` | Column names for FK inference | Real-time |
 | `INFORMATION_SCHEMA.TABLES` | Base tables, views, materialized views | Real-time |
-| `INFORMATION_SCHEMA.DYNAMIC_TABLES` | Dynamic tables in scope | Real-time |
+| `SHOW DYNAMIC TABLES` | Dynamic tables in scope | Real-time |
 | `SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY` | Table co-occurrence (structured JSON) + column usage | Up to 3 hr lag |
 | `SHOW SEMANTIC VIEWS IN DATABASE` | Existing SVs for coverage detection | Real-time |
 
-**Key change from v1:** We use `ACCESS_HISTORY.base_objects_accessed` (structured JSON with LATERAL FLATTEN) instead of parsing `QUERY_TEXT` from QUERY_HISTORY. This is more reliable and doesn't require regex.
+Co-occurrence comes from `ACCESS_HISTORY.base_objects_accessed` (structured JSON, read with LATERAL FLATTEN), not from parsing `QUERY_TEXT`.
 
 ---
 

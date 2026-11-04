@@ -259,7 +259,7 @@ FROM SPECIFICATION $$
 $$;
 ```
 
-Use `CHR(39)` escaping if the spec contains literal `$$` in instruction text.
+If instruction text contains a literal `$$`, use a different dollar-quote tag, such as `$spec$ ... $spec$`.
 
 **Critical:** All variants MUST be in the same schema as the eval dataset. The eval task DAG resolves agent names relative to the task's schema, ignoring FQN.
 

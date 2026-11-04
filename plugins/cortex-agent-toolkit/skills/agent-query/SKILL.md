@@ -30,7 +30,7 @@ DESCRIBE AGENT <DATABASE>.<SCHEMA>.<AGENT_NAME>;
 
 **STOP**: Ask the user which agent to query and what question to ask.
 
-> **Version targeting**: If the user wants to query a specific version, append `!<version>` to the agent FQN: `DB.SCHEMA.AGENT_NAME!production`, `DB.SCHEMA.AGENT_NAME!VERSION$2`, or `DB.SCHEMA.AGENT_NAME!LIVE`. See `reference/agent-versioning.md` for the full shortcuts table.
+> **Version targeting**: If the user wants to query a specific version, append `!<version>` to the agent FQN: `DB.SCHEMA.AGENT_NAME!production`, `DB.SCHEMA.AGENT_NAME!VERSION$2`, or `DB.SCHEMA.AGENT_NAME!LIVE`. See `../agent-ddl/reference/agent-versioning.md` for the full shortcuts table.
 
 ### Step 2: Determine the Right SQL Function
 

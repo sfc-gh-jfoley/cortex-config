@@ -15,7 +15,7 @@ triggers:
   - composable semantic views
 ---
 
-# SV Composer Skill
+# SV Rearchitect Skill
 
 ## When to Use
 
@@ -113,7 +113,7 @@ Do you need Cortex Analyst / Cortex Agent text-to-sql?
 
 ```sql
 -- Find tables that appear in multiple SVs
--- INFORMATION_SCHEMA.SEMANTIC_TABLES does not exist; use SHOW + DESCRIBE pattern
+-- INFORMATION_SCHEMA.SEMANTIC_TABLES exists and can be used for metadata discovery.
 SHOW SEMANTIC VIEWS IN DATABASE <DB>;
 -- For each SV in the result, run: DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
 -- Then aggregate table references across all DESCRIBE outputs to find shared tables.
@@ -164,18 +164,18 @@ Verify that the importing SV correctly resolves entities from the imported SV:
 ```sql
 -- 1. Confirm the IMPORTS relationship is established
 DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV;
--- Look for rows with kind = 'IMPORT' — these show the imported SVs
+-- Look for IMPORT rows in DESCRIBE output (use "object_kind" — lowercase, double-quoted)
 
 -- 2. Verify imported entities are visible
 -- DESCRIBE output should list imported dimensions/facts/metrics
 -- with their source SV indicated
 
--- 3. Test a query that exercises imported entities
-SELECT * FROM TABLE(
-  SNOWFLAKE.CORTEX.RUN_SEMANTIC_VIEW_QUERY(
-    '<DB>.<SCHEMA>.ORDERS_SV',
-    'What is total revenue by region?'  -- 'region' comes from imported CORE_SV
-  )
+-- 3. Test a query that exercises imported entities using Semantic SQL
+-- (SNOWFLAKE.CORTEX.RUN_SEMANTIC_VIEW_QUERY does not exist)
+SELECT * FROM SEMANTIC_VIEW(
+  <DB>.<SCHEMA>.ORDERS_SV
+  DIMENSIONS customers.region
+  METRICS orders.total_revenue
 );
 
 -- 4. Validate privilege chain

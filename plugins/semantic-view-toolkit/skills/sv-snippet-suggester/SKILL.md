@@ -41,7 +41,7 @@ from the official `coco-skills` snippet library.
 
 When invoked from **sv-ddl**, it runs automatically during Phase 3 (classify),
 Phase 4 (relationships), and Phase 5 (generate DDL) — injecting pattern-specific
-DDL guidance at the point of use. See `../reference/sv-snippet-patterns.md` for
+DDL guidance at the point of use. See `../../references/sv-snippet-patterns.md` for
 the full pattern catalog that drives those phases.
 
 When invoked **directly**, run the detection flow below.
@@ -122,7 +122,7 @@ See full catalog: `../reference/sv-snippet-patterns.md`
 | `variables` | adjustable thresholds, weights | `VARIABLES (...) DEFAULT` |
 | `scoped_dataset` | LOB filter, pre-join ⚠️ Private Preview | `AS (SELECT ... WHERE ...)` in TABLES |
 | `inline_sv` | prototyping, dbt unit test ⚠️ Private Preview | `WITH ... AS SEMANTIC VIEW` |
-| `materialization` | pre-aggregate hot queries ⚠️ Private Preview | `ADD MATERIALIZATION ... AS DIMENSIONS ... METRICS` |
+| `materialization` | pre-aggregate hot queries | `ADD MATERIALIZATION ... AS DIMENSIONS ... METRICS` |
 | `caller_rights` | enforce base-table ACL through SV | owner-with-no-table-access pattern |
 | `row_access_policies` | region/tenant RAP + SV | apply RAP to FACT table, not dim |
 | `introspection` | discover SV structure, lineage | `SHOW SEMANTIC METRICS`, `SHOW SEMANTIC DIMENSIONS FOR METRIC`, `GET_LINEAGE` |

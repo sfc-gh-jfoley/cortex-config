@@ -247,15 +247,12 @@ For each candidate, write the mini-batch eval config to a file, upload to stage,
 # Write mini-batch eval config for this candidate
 cat > /tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml << 'EOF'
 evaluation:
-  analyst_params:
-    analyst_name: "<SV_NAME>_GEPA_CAND_<N>"
-    analyst_type: "SEMANTIC VIEW"
+  agent_params:
+    agent_name: "<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>"
+    agent_type: "SEMANTIC VIEW"
   source_metadata:
-    type: "verified_queries"
-    verified_queries:
-      - "<question_1>"
-      - "<question_2>"
-      # ... (selected mini-batch questions from Step 6)
+    type: "dataset"
+    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
 
 metrics:
   - "sql_correctness"
@@ -268,37 +265,26 @@ PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
   @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
--- Launch evaluation using ANALYST_PREVIEW (the working SV eval path).
--- EXECUTE_AI_EVALUATION is broken for analyst_type='SEMANTIC VIEW' (error 392700,
--- as of Jul 2026) — it passes the SV FQN as a string where the internal call needs
--- a JSON object. Use ANALYST_PREVIEW directly. See references/eval-polling.md
--- § "ANALYST_PREVIEW Eval Path". The payload MUST be a constant string literal,
--- not OBJECT_CONSTRUCT (error 001015 otherwise).
-SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
-  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question_from_yaml>"}]}],
-  "semantic_model_file": "@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gen<G>_cand<N>.yaml"
-}');
--- Repeat per question in the eval config; parse the JSON response to extract
--- generated SQL and verified_query_used, then score sql_correctness.
+-- Launch evaluation (async START/STATUS pattern; see references/eval-polling.md).
+CALL SYSTEM$EXECUTE_AI_EVALUATION(
+  'START',
+  '<SV_NAME>__gen<G>__cand_<N>',
+  OBJECT_CONSTRUCT(
+    'analyst_type', 'SEMANTIC VIEW',
+    'analyst_name', '<DB>.<SCHEMA>.<SV_CANDIDATE>',
+    'evaluation_dataset', '<DB>.<SCHEMA>.<EVAL_DATASET>',
+    'metrics', ARRAY_CONSTRUCT(
+      OBJECT_CONSTRUCT('name', 'sql_correctness')
+    )
+  )
+);
 ```
 
 **Naming convention:** `<SV_NAME>__gen<G>__cand_<N>` (double underscore separators)
 
 ### Step 8: Collect Scores
 
-There is no async STATUS call with `ANALYST_PREVIEW` (it is synchronous — each call returns the result inline). To evaluate a candidate across N questions, loop: call `ANALYST_PREVIEW` per question, parse the JSON response, accumulate `sql_correctness` scores. See `references/eval-polling.md § Parsing the ANALYST_PREVIEW Response` for the Python extraction pattern.
-
-```python
-# Per candidate: run each question through ANALYST_PREVIEW, parse, score
-for question in eval_questions:
-    payload = json.dumps({
-        "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
-        "semantic_model_file": f"@{db}.{schema}.SV_EVAL_CONFIGS/eval_gen{G}_cand{N}.yaml"
-    })
-    # call ANALYST_PREVIEW(payload) via snow sql -q or Python connector, parse JSON, score
-```
-
-If `EXECUTE_AI_EVALUATION` is fixed for SV type in the future, the async START/STATUS pattern (documented in `eval-polling.md § Evaluation Lifecycle`) can replace the synchronous loop. Until then, use ANALYST_PREVIEW.
+Poll `EXECUTE_AI_EVALUATION('STATUS', '<run_name>')` every 30 seconds until COMPLETED (max 15 minutes per candidate). See `references/eval-polling.md § Evaluation Lifecycle` for the polling pattern.
 
 Poll every 30 seconds (if batching via a wrapper), max 15 minutes per candidate.
 
@@ -455,14 +441,15 @@ CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
 Run a complete evaluation using ALL VQRs (not mini-batch):
 
 ```bash
-# Write final eval config (all VQRs — omit verified_queries list to evaluate all embedded VQRs)
+# Write final eval config
 cat > /tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml << 'EOF'
 evaluation:
-  analyst_params:
-    analyst_name: "<SV_NAME>"
-    analyst_type: "SEMANTIC VIEW"
+  agent_params:
+    agent_name: "<DB>.<SCHEMA>.<SV_NAME>"
+    agent_type: "SEMANTIC VIEW"
   source_metadata:
-    type: "verified_queries"
+    type: "dataset"
+    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
 
 metrics:
   - "sql_correctness"
@@ -474,13 +461,19 @@ PUT file:///tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml
   @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
   AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
 
--- Final eval: use ANALYST_PREVIEW (synchronous, per question) — see Step 7/8 and eval-polling.md.
--- (EXECUTE_AI_EVALUATION is broken for SV type, error 392700.)
-SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
-  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question>"}]}],
-  "semantic_model_file": "@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/eval_gepa_final.yaml"
-}');
--- Loop over all questions, parse responses, accumulate sql_correctness.
+-- Final eval (see references/eval-polling.md).
+CALL SYSTEM$EXECUTE_AI_EVALUATION(
+  'START',
+  '<SV_NAME>__gepa_final',
+  OBJECT_CONSTRUCT(
+    'analyst_type', 'SEMANTIC VIEW',
+    'analyst_name', '<DB>.<SCHEMA>.<WINNING_SV>',
+    'evaluation_dataset', '<DB>.<SCHEMA>.<EVAL_DATASET>',
+    'metrics', ARRAY_CONSTRUCT(
+      OBJECT_CONSTRUCT('name', 'sql_correctness')
+    )
+  )
+);
 ```
 
 Retrieve full results (use normalized CTE pattern — note: GET_ANALYST_AI_EVALUATION_DATA requires an eval run recorded under a run_name; with ANALYST_PREVIEW you aggregate scores in your driver script instead):
@@ -645,7 +638,7 @@ Cleaned up:
 |--------|-----------|----------------------|
 | Target | Agent instructions (YAML) | Semantic View DDL |
 | Deploy | `CREATE OR REPLACE CORTEX AGENT` | `CREATE OR ALTER SEMANTIC VIEW ..._GEPA_CAND_<N>` (CREATE OR ALTER preserves materializations) |
-| Eval Function | `EXECUTE_AI_EVALUATION` (agent type) | `SNOWFLAKE.CORTEX.ANALYST_PREVIEW` (SV type — `EXECUTE_AI_EVALUATION` is broken for SV, error 392700) |
+| Eval Function | `EXECUTE_AI_EVALUATION` (agent type) | `EXECUTE_AI_EVALUATION` (SV type — bug 392700 fixed 2026-08-07; fallback: `ANALYST_PREVIEW` synchronous loop) |
 | Results Function | `GET_AI_EVALUATION_DATA` | `GET_ANALYST_AI_EVALUATION_DATA` |
 | Metrics | 4 agent metrics | `sql_correctness` only |
 | Mutations | Agent instruction rewrites | SV DDL operators (synonym, description, metric, etc.) |

@@ -71,7 +71,7 @@ FROM SPECIFICATION $$
 $$;
 ```
 
-Use `CHR(39)` escaping if the spec contains literal `$$` in instruction text.
+If instruction text contains a literal `$$`, use a different dollar-quote tag, such as `$spec$ ... $spec$`.
 Name convention: `{BASE_AGENT}_{VARIANT_SUFFIX}` (e.g., MY_AGENT_BASE, MY_AGENT_AGENTIC).
 
 **STOP GATE (INTERACTIVE):** Show the deploy SQL for each variant and ask for confirmation. **AUTONOMOUS:** already covered by the rollback gate above — execute without a second wait.

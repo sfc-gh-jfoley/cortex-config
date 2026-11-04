@@ -38,7 +38,7 @@ Default flags for all new agents:
 }
 ```
 
-> **Note:** `EnableAgenticAnalyst` was removed — it is now the default behavior as of April 2026. Setting it has no documented effect. See `../reference/agent_spec_syntax.md` for current valid flags.
+> **Note:** Agentic analysis is the default behavior. Do not set `EnableAgenticAnalyst`; setting it has no documented effect. See `../reference/agent_spec_syntax.md` for current valid flags.
 
 > **Router agents**: If `AGENT_TYPE == "router"`, default `EnableVQRFastPath` to `false`. The fast path skips full orchestration, which defeats routing logic.
 
