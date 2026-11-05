@@ -57,7 +57,7 @@ existing partial DDL, or the user's plain-language description.
 
 ### Step 2 — Score against the pattern catalog
 
-Read `../reference/sv-snippet-patterns.md`. For each pattern, check its
+Read `../../references/sv-snippet-patterns.md`. For each pattern, check its
 **detection signals** against the collected signals. Score: MATCH / POSSIBLE / NO.
 
 Present only MATCH and POSSIBLE results.
@@ -101,7 +101,7 @@ Then generate the exact DDL additions for each selected pattern.
 
 ## Pattern Quick-Reference
 
-See full catalog: `../reference/sv-snippet-patterns.md`
+See full catalog: `../../references/sv-snippet-patterns.md`
 
 | Pattern | Key signals | Primary DDL construct |
 |---------|------------|----------------------|

@@ -11,6 +11,18 @@
 
 ---
 
+## Cookbook integration gates
+
+| ID | Classification | Contract |
+|---|---|---|
+| FEEDBACK-TRACE-REVIEW | OPERATOR_REQUIRED | Successful/ordinary answered trace review and existing-conversation dissatisfaction mining are opt-in; autonomous default is decline. |
+| GT-INDEPENDENT-EVIDENCE | TERMINATE | Missing independent source/SME evidence blocks that candidate before INSERT/UPDATE; operator approval cannot establish facts. |
+| GT-FINAL-APPROVAL | OPERATOR_REQUIRED | Approve independently validated rows and provenance before writes. |
+| RELEASE-EXACT-CANDIDATE | TERMINATE | Unknown/mismatched version, dependencies or evaluation identity block release claims. |
+| RELEASE-PROMOTION-APPROVAL | OPERATOR_REQUIRED | Explicit approval for promotion, grants, production mutation and rollback. |
+
+Routes: feedback analyzer → `../skills/agent-optimizer/references/feedback-pipeline.md`; eval-data and agent-evaluation use the same independent-evidence gate. Versioning and Phase 8 share the exact-candidate guard. Optional corroboration: `cookbook-index.md`.
+
 ## Mode Propagation
 
 Mode is declared once at the router level (this SKILL.md) and passed to every sub-skill.

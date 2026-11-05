@@ -186,6 +186,8 @@ Stage operations are **read-only** — useful for auditing, diffing versions, an
 
 ## CI/CD workflow patterns
 
+Both commit-based and Git-first flows must satisfy the exact-candidate release contract in `../phases/08_cicd_deploy.md`: record observed immutable identity, spec digest, resolved aliases, target dependencies, dataset/split snapshot, metric versions and evaluation run results. Unknown version remains unknown; mutable LIVE or an unresolved alias is not immutable evidence. Recheck candidate/dependency equality before explicit operator-approved promotion, verify the promoted target, and retain the prior target for authorized rollback. No automatic grants or production mutation. The syntax examples below require current account/documentation verification and are not runtime validation.
+
 ### Standard commit-based flow
 
 ```

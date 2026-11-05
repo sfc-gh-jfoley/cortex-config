@@ -76,11 +76,11 @@ Report:
 - Distinct users providing feedback
 - Feedback velocity (events per day, trending up or down)
 
-If zero feedback events: **STOP** — "No feedback found. The agent needs real user
-traffic in CoWork before this skill can help."
+If zero feedback events, report that negative-feedback triage is unavailable. Offer the same opt-in bounded review of ordinary answered turns without feedback; absent opt-in, STOP.
 
-If only positive feedback: **STOP** — "All feedback is positive ({N} thumbs-up from
-{M} users). No issues to triage."
+If only positive feedback, report that there are no negative clusters. Offer optional successful-answer trace review; do not treat thumbs-up as correctness evidence. Without explicit opt-in, stop here.
+
+For opt-in successful-answer review, sample at most five answered request traces, including ordinary turns with no feedback as well as positive-feedback turns. Missing feedback is not a success label. Use the request CTE from `references/feedback-queries.md`, retaining requests without a matching feedback event; verify current event fields and bound the operator-selected time range before querying. Separately, opt-in dissatisfaction mining may inspect at most five existing conversation families: original question, response, and subsequent user correction/rephrase linked by observed conversation/turn IDs. Do not fabricate linkage or substitute synthetic rephrases. Distinguish dissatisfaction from a genuinely new intent, preserve context and original IDs, and hand off only candidates under the independent validation, family split, deduplication and leakage rules in `../agent-optimizer/references/feedback-pipeline.md`. Inspect tool choice, inputs, SQL/results, and synthesis against independently checked source evidence. Record request/trace IDs, observed version (unknown stays unknown), source snapshot, reviewer/SME identity, supporting evidence, and verdict. Missing or redacted evidence leaves the candidate unvalidated; never grant access or mutate objects. Keep positive candidates separate from negative clusters and include their provenance in the Phase 5 handoff. Dataset insertion still requires the pipeline's independent validation and final approval.
 
 ### Step 3: Pull Full Negative Feedback Detail
 

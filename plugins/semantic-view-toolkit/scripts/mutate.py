@@ -41,7 +41,7 @@ OPERATORS = [
 PROMPT_TEMPLATES = {
     "add_synonym": """You are mutating a semantic view to improve natural language query matching.
 
-TASK: Add 2-3 natural language synonyms to columns in this semantic view.
+TASK: Add only evidence-backed natural language synonyms to columns in this semantic view; an empty addition is valid when user terminology or SME evidence is absent.
 
 SEMANTIC VIEW DDL:
 ```sql
@@ -51,7 +51,7 @@ SEMANTIC VIEW DDL:
 INSTRUCTIONS:
 1. Identify columns where users might use different terminology than the column name
 2. Add synonyms using the `synonyms` property (list of strings)
-3. Focus on business terminology variations (e.g., "revenue" → ["sales", "income", "earnings"])
+3. Do not equate revenue, income, earnings, or sales without evidence that definitions match; check other names and synonyms for ambiguity
 4. Only add synonyms that are genuinely used in business contexts
 5. Return the complete modified DDL
 

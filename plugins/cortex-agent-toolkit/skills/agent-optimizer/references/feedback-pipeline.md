@@ -140,11 +140,11 @@ Sort by priority score descending.
 | # | Input Query | Positive? | Message | Priority | Proposed Action |
 |---|---|---|---|---|---|
 | 1 | "..." | No | "Wrong numbers" | 5 | Write correct GT |
-| 2 | "..." | Yes | "Perfect" | 3 | Promote response as GT |
+| 2 | "..." | Yes | "Perfect" | 3 | Independently validate assertions |
 | ... | ... | ... | ... | ... | ... |
 
 For negative feedback: proposed action is "Write correct GT" (needs human/agent to determine correct answer).
-For positive feedback: proposed action is "Promote response as GT" (use the agent's actual output as ground truth).
+For positive feedback: proposed action is "Independently validate response assertions". Thumbs-up and operator selection are candidate signals, not factual validation. Follow candidate → independently validated → approved; never use agreement with the same agent as evidence of correctness.
 
 Ask user: Which candidates to promote? (Select by number, "all", or "none")
 
@@ -167,14 +167,22 @@ For each approved candidate:
 - If unclear: **ASK the user** what the correct answer should be
 - Format: `{"ground_truth_output": "<correct answer>"}`
 
-### Step 2: Assign Metadata
+### Step 2: Independently Validate Before Insertion (mandatory)
+
+No INSERT may be generated or executed until each candidate passes independent factual validation. Use authoritative source SQL/results or documented SME verification with supporting evidence, not the evaluated agent's response, a second replay, or operator approval alone. Check every assertion, units, grain, filters, date boundaries, completeness, and source snapshot. Missing evidence means candidate remains unvalidated; STOP that row.
+
+Record a local review manifest keyed by candidate/request ID: original question, source request and trace IDs, tool inputs/SQL/results, observed agent version (unknown stays unknown), independent validation query or SME evidence, source snapshot, validator identity, verdict, and final operator approval. Do not change the eval table schema automatically; retain the manifest alongside the dataset and map inserted TEST_IDs to it. Redact sensitive values before any report; do not grant access automatically.
+
+Optional rephrasing is off by default. With explicit opt-in, preserve the original request and family ID; anchor relative dates and multi-turn references to explicit context before validation. Independently check that each rephrase preserves metric, grain, filters, time scope, and expected answer; reject ambiguous or meaning-changing variants. Deduplicate normalized questions against candidates and the eval dataset and review semantic duplicates. Keep the entire family in one split; exclude evaluation-generated questions and held-out answers from training/optimization prompts. Rephrasing and SME approval do not replace source validation.
+
+### Step 3: Assign Metadata
 
 For each row:
 - `TEST_ID`: `(SELECT COALESCE(MAX(TEST_ID), 0) + 1 FROM <EVAL_TABLE>)` — auto-increment from next available
 - `TEST_CATEGORY`: Detect from tool used in the agent trace, or ask user
 - `SPLIT`: `NULL` — unassigned. User runs `eval-data` Workflow A to assign to DEV or TEST later.
 
-### Step 3: Generate INSERT SQL
+### Step 4: Generate INSERT SQL
 
 ```sql
 INSERT INTO <EVAL_TABLE> (TEST_ID, TEST_CATEGORY, INPUT_QUERY, GROUND_TRUTH, SPLIT)
@@ -187,7 +195,7 @@ SELECT
 -- Repeat for each promoted candidate
 ```
 
-### Step 4: Present and Execute
+### Step 5: Present and Execute
 
 **⚠️ STOP:** Present the full INSERT block with all rows. Show:
 - Number of new rows to add
@@ -204,7 +212,7 @@ After execution:
 > "Added {N} rows to {EVAL_TABLE} with SPLIT=NULL. Next steps:
 > 1. Run `eval-data` Workflow B (Validate Split) to check current balance
 > 2. Run `eval-data` Workflow A (Create Split) or C (Re-balance) to assign new rows to DEV/TEST
-> 3. Optionally run Workflow D below to validate the new ground truth quality"
+> 3. Preserve the mandatory pre-insert validation manifest; Workflow D rechecks legacy or changed-source rows"
 
 ---
 
@@ -223,19 +231,19 @@ ORDER BY TEST_ID DESC;
 
 These are rows added by the feedback pipeline that haven't been split-assigned yet.
 
-### Step 2: Spot-Check via Agent
+### Step 2: Recheck Independent Evidence
 
-For each unvalidated row, run the question against the agent and apply `factual_correctness_verdict` logic manually:
+For legacy rows lacking a review manifest, apply Workflow C Step 2 before split assignment. SPLIT=NULL does not prove a row is unvalidated or validated. Replays may expose disagreement but cannot establish ground truth.
 
-1. Call the agent with the `INPUT_QUERY`
-2. Compare agent output to the `ground_truth_output` you wrote
-3. Ask: Is the ground truth actually correct? Is it complete? Is it specific enough?
+1. Recover authoritative source SQL/results or documented SME evidence.
+2. Independently compare every ground-truth assertion with that evidence.
+3. Record correctness, completeness, specificity, source snapshot, and validator identity; withhold rows whose evidence is unavailable.
 
 ### Step 3: Quality Gate
 
 | Check | Condition | Action |
 |---|---|---|
-| GT is correct and complete | Agent output matches GT, or GT is clearly right and agent is wrong | PASS — ready for split assignment |
+| GT is correct and complete | Authoritative source evidence independently confirms every assertion | PASS — ready for split assignment |
 | GT is ambiguous | Multiple valid interpretations | REWRITE — make GT more specific |
 | GT is wrong | Agent is actually correct, GT was written from bad feedback | DELETE — remove the row |
 | GT is stale | Underlying data changed since feedback was given | UPDATE — refresh GT with current data |
@@ -281,5 +289,5 @@ After fixes, re-run Workflow D to confirm all rows pass.
 |---|---|---|
 | Negative + message | New eval row: write correct GT from message context | Medium — verify the correct answer |
 | Negative + categories only | New eval row: must determine correct answer independently | High — no guidance on what's right |
-| Positive + message | New eval row: promote agent response as GT | Low — user confirmed it's correct |
+| Positive + message | Candidate: independently validate response assertions | Mandatory before insertion — thumbs-up is not factual evidence |
 | Positive (no message) | Candidate only: user may not have validated numbers | High — run secondary correctness check before promoting |

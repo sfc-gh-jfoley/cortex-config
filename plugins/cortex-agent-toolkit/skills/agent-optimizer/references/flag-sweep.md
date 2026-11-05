@@ -217,7 +217,7 @@ WHERE METRIC_NAME IS NOT NULL;
 ```
 
 Also insert into cross-agent history if `opt_history_fqn` is set in `metadata.yaml`
-(load INSERT pattern from `../../../../references/pattern-mining.md`):
+(load INSERT pattern from `../../../references/pattern-mining.md`):
 ```sql
 INSERT INTO <META_DB>.<META_SCHEMA>.OPT_QUESTION_HISTORY
     (agent_fqn, sv_fqn, optimizer_type, run_id, generation, operator,

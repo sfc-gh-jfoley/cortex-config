@@ -278,7 +278,7 @@ Check output for:
 - Does the answer contain the expected facts?
 - Does the agent refuse or deflect?
 
-If a question doesn't trigger the expected tool, revise the question or update ground truth.
+If a question doesn't trigger the expected tool, investigate the routing discrepancy; do not update ground truth to match the evaluated agent. Initial answers and revisions must be independently supported by authoritative source results or documented SME evidence. Before dataset creation/insertion, apply `../agent-optimizer/references/feedback-pipeline.md` Workflow C Step 2 and preserve the validation/provenance manifest. Candidate selection and operator approval are not factual validation; unsupported assertions remain blocked.
 
 #### 3B.4 Present Full Dataset for Review
 

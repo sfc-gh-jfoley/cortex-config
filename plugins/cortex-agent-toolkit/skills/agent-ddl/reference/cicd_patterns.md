@@ -5,9 +5,11 @@ description: Reusable CI/CD workflow templates for Cortex Agent deployment — G
 
 # CI/CD Workflow Templates for Cortex Agents
 
+**Legacy provisioning only:** These examples are DEV-only, not evaluated production promotion. Set `PROVISIONING_ENV=DEV` explicitly only for an approved disposable development target. The shell guard must remain immediately before recreation in every provider. Existing production targets require the exact-candidate evaluated version lifecycle; do not bypass the guard.
+
 Reusable templates for deploying Cortex Agents from Git-tracked spec files. Each template covers:
 - OIDC authentication (no stored passwords/keys)
-- Environment promotion (DEV / TEST / PROD)
+- DEV-only disposable provisioning; TEST/PROD use the independently evaluated version lifecycle
 - Rollback via `GET_DDL` capture
 - Post-deploy profile restoration and grants
 
@@ -67,6 +69,7 @@ jobs:
 
       - name: Deploy
         run: |
+          [ "${PROVISIONING_ENV:-}" = DEV ] && [ "${TARGET_ENV:-}" = DEV ] && [ -n "${APPROVED_DISPOSABLE_AGENT_FQN:-}" ] && [ "${AGENT_FQN:-}" = "$APPROVED_DISPOSABLE_AGENT_FQN" ] || exit 1
           SPEC=$(cat agents/${AGENT_NAME}/spec.json)
           snow sql -q "CREATE OR REPLACE AGENT ${AGENT_FQN}
             FROM SPECIFICATION \$\$${SPEC}\$\$;" \
@@ -120,6 +123,7 @@ variables:
         -o json > rollback_ddl.json 2>/dev/null || true
     - |
       # Deploy agent
+      [ "${PROVISIONING_ENV:-}" = DEV ] && [ "${ENV:-}" = DEV ] && [ -n "${APPROVED_DISPOSABLE_AGENT_FQN:-}" ] && [ "$AGENT_FQN" = "$APPROVED_DISPOSABLE_AGENT_FQN" ] || exit 1
       SPEC=$(cat agents/${AGENT_NAME}/spec.json)
       snow sql -q "CREATE OR REPLACE AGENT ${AGENT_FQN}
         FROM SPECIFICATION \$\$${SPEC}\$\$;" \
@@ -143,6 +147,7 @@ deploy_dev:
   <<: *deploy_template
   stage: deploy
   variables:
+    ENV: DEV
     AGENT_FQN: AGENTS_DEV.AGENTS.${AGENT_NAME}
     AGENT_WH: DEV_WH
   rules:
@@ -154,6 +159,7 @@ deploy_test:
   <<: *deploy_template
   stage: deploy
   variables:
+    ENV: TEST
     AGENT_FQN: AGENTS_TEST.AGENTS.${AGENT_NAME}
     AGENT_WH: TEST_WH
   rules:
@@ -164,6 +170,7 @@ deploy_prod:
   <<: *deploy_template
   stage: deploy
   variables:
+    ENV: PROD
     AGENT_FQN: AGENTS_PROD.AGENTS.${AGENT_NAME}
     AGENT_WH: PROD_WH
   environment:
@@ -241,6 +248,7 @@ stages:
                       -o json > $(Build.ArtifactStagingDirectory)/rollback_ddl.json || true
 
                     # Deploy
+                    [ "${PROVISIONING_ENV:-}" = DEV ] && [ "${{ parameters.environment }}" = DEV ] && [ -n "${APPROVED_DISPOSABLE_AGENT_FQN:-}" ] && [ "$AGENT_FQN" = "$APPROVED_DISPOSABLE_AGENT_FQN" ] || exit 1
                     SPEC=$(cat agents/$(AGENT_NAME)/spec.json)
                     snow sql -q "CREATE OR REPLACE AGENT $AGENT_FQN
                       FROM SPECIFICATION \$\$${SPEC}\$\$;" --warehouse "$WH"

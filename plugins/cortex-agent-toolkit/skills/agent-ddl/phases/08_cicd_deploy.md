@@ -6,9 +6,13 @@ description: CI/CD deployment patterns for Cortex Agents — service user OIDC, 
 # Phase 8: CI/CD Deployment
 
 ## Purpose
-Automate agent deployment from a Git-tracked spec file using CI/CD pipelines. Covers service user creation with OIDC, `snow sql` execution of `CREATE AGENT FROM SPECIFICATION`, environment promotion (DEV → TEST → PROD), rollback via `GET_DDL`, and drift detection.
+Provision disposable DEV agents from Git-tracked specs using guarded CI examples. Existing agent releases follow independently evaluated named-version promotion, with recorded alias/default pointers for authorized rollback. OIDC setup and drift detection remain optional; DDL recovery examples are not production release commands.
 
 **Activation:** This phase is opt-in. It activates only when the user selects CI/CD deployment from the Phase 7 handoff menu.
+
+**Release contract (applies before running any template below):** Separate initial DDL provisioning from release promotion. CREATE OR REPLACE/GET_DDL templates are provisioning or recovery examples, not proof that an evaluated version was released. For an existing agent, follow `../reference/agent-versioning.md` for the version-based lifecycle, after verifying supported syntax and account capabilities. Do not silently replace version promotion with recreation.
+
+Capture the exact candidate version identity, resolved alias target, spec digest, environment-specific tool/SV dependencies, dataset snapshot and split, metric versions, evaluation run IDs/results, and previous release alias and default-version targets. Unknown identity stays unknown and blocks evaluated-release claims. Evaluate the exact immutable candidate in the target dependency context; changes after evaluation invalidate that evidence. Operator approval is separate from factual/evaluation validation. Require explicit approval before production mutation or grants, recheck the alias target immediately before promotion, and verify it afterwards. Roll back to the recorded prior target only with authorization; DDL recreation requires a separately reviewed recovery plan. Existing templates must not be executed as automatic production releases without these checks.
 
 **Prerequisites from Phase 7:**
 - `SPEC_EXPORT_PATH` — local path to the exported agent spec JSON file
@@ -171,6 +175,7 @@ jobs:
 
       - name: Deploy agent
         run: |
+          [ "${{ github.event.inputs.environment || 'DEV' }}" = DEV ] && [ -n "${APPROVED_DISPOSABLE_AGENT_FQN:-}" ] && [ "${{ env.AGENT_FQN }}" = "$APPROVED_DISPOSABLE_AGENT_FQN" ] || exit 1
           SPEC=$(cat agents/${{ env.AGENT_NAME }}/spec.json)
           snow sql -q "CREATE OR REPLACE AGENT ${{ env.AGENT_FQN }}
             FROM SPECIFICATION \$\$${SPEC}\$\$;" \
@@ -218,48 +223,33 @@ Present the workflow to the user for review. They should:
 
 ## Step 8.4: Environment promotion
 
-Environment promotion for agents uses `GET_DDL` from the source environment and `EXECUTE IMMEDIATE` in the target:
+Environment promotion follows the evaluated named-version lifecycle in `../reference/agent-versioning.md`. Resolve and record the immutable candidate, evaluate it against the target dependencies, obtain approval, then verify every changed alias and default-version pointer. DDL captured with `GET_DDL` is a recovery artifact, not an evaluated promotion command; do not copy, rename, and execute it in TEST or PROD as a substitute.
 
-```sql
--- Promote agent from DEV to TEST
--- Step 1: Capture DEV spec
-SELECT GET_DDL('AGENT', 'AGENTS_DEV.AGENTS.MY_AGENT');
-
--- Step 2: Modify FQN and deploy to TEST
--- Replace AGENTS_DEV with AGENTS_TEST in the captured DDL
--- Execute in TEST context
-
--- Step 3: Restore profile in TEST
-ALTER AGENT AGENTS_TEST.AGENTS.MY_AGENT SET PROFILE = '<profile_json>';
-```
-
-**Recommended promotion flow:**
+**Release flow (separate from DEV-only provisioning templates):**
 
 ```
-DEV (auto-deploy on push to main)
-  ↓ manual approval gate
-TEST (deploy via workflow_dispatch, environment: TEST)
-  ↓ manual approval gate + smoke test pass
-PROD (deploy via workflow_dispatch, environment: PROD)
+Approved disposable DEV target → guarded provisioning only
+Exact immutable candidate + target dependencies → independent evaluation
+Matching release evidence → explicit operator approval → version-target promotion
+Recorded previous target → separately approved version-target rollback
 ```
 
-GitHub Environments with required reviewers enforce the approval gates.
+GitHub required reviewers supply approval, not factual validation. TEST/PROD recreation through the legacy provisioning templates is blocked; use the reviewed version lifecycle and verify current account syntax.
 
 ---
 
 ## Step 8.5: Rollback
 
-If a deployment causes issues, rollback using the captured DDL:
+If a disposable DEV provisioning deployment causes issues, recover only the explicitly approved disposable target. Existing production rollback uses the recorded version target, not these recreation examples.
 
-**Method 1: From CI artifact**
+**Method 1: From CI artifact (DEV only)**
 ```bash
-# Download rollback artifact from the previous successful run
-# Execute the captured DDL
-snow sql -q "$(cat rollback_ddl.json | jq -r '.[0]."GET_DDL(''AGENT'', ...)"')" \
-  --database AGENTS_PROD --schema AGENTS
+[ "${ENV:-}" = DEV ] && [ -n "${APPROVED_DISPOSABLE_AGENT_FQN:-}" ] && [ "$AGENT_FQN" = "$APPROVED_DISPOSABLE_AGENT_FQN" ] || exit 1
+# Review the captured DDL and verify its target equals the approved FQN before execution.
+exit 1 # Fail closed until the reviewed recovery command is supplied.
 ```
 
-**Method 2: From Snowflake directly**
+**Method 2: Non-executable recovery illustration**
 ```sql
 -- If the previous version's DDL was logged
 -- Re-execute the CREATE OR REPLACE with the old spec
@@ -272,12 +262,9 @@ $$;
 ALTER AGENT <AGENT_FQN> SET PROFILE = '<profile_json>';
 ```
 
-**Method 3: Git revert**
-```bash
-# Revert the spec change in Git — CI/CD re-deploys the previous version
-git revert HEAD
-git push origin main
-```
+**Method 3: Source correction (not production rollback)**
+
+A reviewed Git revert changes the source for a future candidate; it does not restore production alias or default-version targets. Do not push or redeploy automatically. Production rollback requires explicit authorization to restore every recorded prior pointer, followed by verification. Any disposable DEV recreation remains subject to the target-bound provisioning guard.
 
 ---
 

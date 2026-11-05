@@ -628,8 +628,8 @@ def _check_fan_trap_warning(ctx: _DDLContext) -> CheckResult:
     for rel in ctx.relationships:
         lt = rel["left_table"].upper()
         rt = rel["right_table"].upper()
-        adj[lt].add(rt)
         adj[rt].add(lt)
+        # Reverse traversal can fan out; forward REFERENCES chains alone are safe.
 
     # For each metric, check if its table connects to other tables only through intermediaries
     metric_tables = set(m["table"].upper() for m in ctx.metrics)
@@ -653,7 +653,7 @@ def _check_fan_trap_warning(ctx: _DDLContext) -> CheckResult:
 
     if issues:
         return CheckResult("fan_trap_warning", False, "warning", "; ".join(issues))
-    return CheckResult("fan_trap_warning", True, "warning", "No fan trap patterns detected.")
+    return CheckResult("fan_trap_warning", True, "warning", "No two-hop reverse pattern detected; single-hop and mixed-direction paths are UNKNOWN and require aggregate reconciliation.")
 
 
 def _check_chasm_trap_warning(ctx: _DDLContext) -> CheckResult:
@@ -862,6 +862,48 @@ def _check_vqr_name_encoding(ctx: _DDLContext) -> CheckResult:
     )
 
 
+def validate_aggregate_evidence(expected: dict, observed: dict, rel_tol=0.0, abs_tol=0.0) -> CheckResult:
+    """Compare independently computed totals/counts/weighted AVG at matching scope."""
+    required = {"scope", "sum", "count", "avg"}
+    if not required.issubset(expected) or not required.issubset(observed):
+        return CheckResult("aggregate_evidence", False, "error", "Missing independent aggregate evidence.")
+    if expected["scope"] != observed["scope"]:
+        return CheckResult("aggregate_evidence", False, "error", "Aggregate scopes differ.")
+    import math
+    from numbers import Real
+    if not isinstance(expected["scope"], str) or not expected["scope"].strip():
+        return CheckResult("aggregate_evidence", False, "error", "Missing aggregate scope.")
+    for values in (expected, observed):
+        if type(values["count"]) is not int or values["count"] < 0:
+            return CheckResult("aggregate_evidence", False, "error", "Count must be an exact nonnegative integer.")
+        for key in ("sum", "avg"):
+            if isinstance(values[key], bool) or not isinstance(values[key], Real) or not math.isfinite(values[key]):
+                return CheckResult("aggregate_evidence", False, "error", "Missing or nonfinite numeric evidence.")
+    for tolerance in (rel_tol, abs_tol):
+        if isinstance(tolerance, bool) or not isinstance(tolerance, Real) or not math.isfinite(tolerance) or tolerance < 0:
+            return CheckResult("aggregate_evidence", False, "error", "Tolerance must be finite and nonnegative.")
+    for key in ("sum", "count", "avg"):
+        matches = expected[key] == observed[key] if key == "count" else math.isclose(expected[key], observed[key], rel_tol=rel_tol, abs_tol=abs_tol)
+        if not matches:
+            return CheckResult("aggregate_evidence", False, "error", f"Aggregate mismatch: {key}.")
+    return CheckResult("aggregate_evidence", True, "error", "Provided evidence matches; independence reviewed separately.")
+
+
+def _check_description_quality(ctx: _DDLContext) -> CheckResult:
+    issues = []
+    for entry in ctx.facts + ctx.dimensions + ctx.metrics:
+        comment = entry.get("comment", "").strip()
+        name = entry["col_name"].replace("_", " ").casefold()
+        expr = entry.get("expr", "").strip()
+        if re.fullmatch(r"AVG\s*\([^()]+\)", expr, re.IGNORECASE) and re.search(r"\btotal\b", comment, re.IGNORECASE):
+            issues.append(f"{entry['table']}.{entry['col_name']} AVG described as total")
+        if not comment or comment.casefold() in {name, entry["col_name"].casefold()}:
+            issues.append(f"{entry['table']}.{entry['col_name']}")
+    if issues:
+        return CheckResult("description_quality", False, "warning", "Missing or name-only descriptions: " + "; ".join(issues))
+    return CheckResult("description_quality", True, "warning", "No missing/name-only descriptions; owner evidence review still required.")
+
+
 def validate_ddl(ddl: str) -> List[CheckResult]:
     """Validate a CREATE SEMANTIC VIEW DDL string. Returns list of CheckResults."""
     ctx = _build_context(ddl)
@@ -884,6 +926,7 @@ def validate_ddl(ddl: str) -> List[CheckResult]:
         _check_chasm_trap_warning,
         _check_cardinality_lie_warning,
         _check_synonym_overlap,
+        _check_description_quality,
         _check_semi_additive_audit,
         _check_vqr_table_ref_prefix,
         _check_vqr_name_encoding,
@@ -960,6 +1003,12 @@ def _cli_main() -> int:
 
     path = sys.argv[1]
     results = validate_file(path)
+
+    if len(sys.argv) == 3:
+        import json
+        with open(sys.argv[2], encoding="utf-8") as evidence_file:
+            evidence = json.load(evidence_file)
+        results.append(validate_aggregate_evidence(evidence.get("expected", {}), evidence.get("observed", {}), evidence.get("rel_tol", 0.0), evidence.get("abs_tol", 0.0)))
 
     any_fail = False
     for r in results:

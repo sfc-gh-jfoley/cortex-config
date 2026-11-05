@@ -230,10 +230,10 @@ ORDER BY SPLIT, TEST_ID;
 ### Step 3: Remediate
 
 For each question missing GT:
-1. Run the question against the agent (or query the underlying data directly) to determine the correct answer
+1. Independently query authoritative underlying data or obtain documented SME evidence to determine the correct answer; the evaluated agent's output is not correctness evidence
 2. Write ground truth as: `{"ground_truth_output": "<accurate answer text>"}`
-3. Optionally add `ground_truth_invocations` for tool-sequence validation
-4. UPDATE the eval table row
-5. Re-run Step 1 to confirm all gaps are filled
+3. Apply `feedback-pipeline.md` Workflow C Step 2: validate assertions against source evidence and record provenance before any UPDATE; operator approval alone is insufficient
+4. Optionally add `ground_truth_invocations` for tool-sequence validation
+5. Present the validated row and obtain explicit operator approval before UPDATE; re-run Step 1 afterwards
 
 **⚠️ STOP**: Do not proceed to eval execution until Step 1 shows VALID_GT = TOTAL_QUESTIONS for ALL splits.

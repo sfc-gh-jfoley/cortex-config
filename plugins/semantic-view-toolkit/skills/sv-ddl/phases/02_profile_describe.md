@@ -8,7 +8,11 @@ description: Profile source objects and use CORTEX.COMPLETE to auto-generate col
 ## Purpose
 Profile each source object's data and use `SNOWFLAKE.CORTEX.COMPLETE` to generate:
 - Column descriptions (1-2 sentences, business-readable)
-- Synonyms (2-3 natural language aliases)
+- Synonyms (only evidence-backed aliases; zero is valid)
+
+**Metadata quality gate:** Review every generated description, not only the 3-5 preview examples. Require a distinct business meaning with documented units, grain/time scope, and exclusions where applicable; flag name-only boilerplate, unsupported definitions, ambiguous aliases, and missing evidence. Route sensitive columns and inferred definitions to the data owner for review before use. Record evidence and approval separately. Generated descriptions are candidates, not source facts.
+
+Synonyms require actual user-question terminology, a source dictionary, or SME evidence that meanings match. Do not fill a quota or equate revenue with earnings/income automatically. Empty synonym lists are valid. Apply this rule to the AI_COMPLETE prompt below and reuse the existing validator's synonym-overlap check rather than introducing another overlap checker.
 - Sample values (5 representative values for categorical columns)
 
 This is the programmatic equivalent of what Snowsight does manually when you describe a semantic view column.
@@ -261,7 +265,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
   CONCAT(
     'Generate JSON metadata for these ', <N>, ' columns from table <table_name>.\n',
     'Business context: <BUSINESS_CONTEXT>\n',
-    'Return a JSON array, one object per column with keys: column_name, description, synonyms, sample_values.\n\n',
+    'Return a JSON array, one object per column with keys: column_name, description, synonyms, sample_values. Only include synonyms supported by supplied user terminology, dictionary, or SME evidence; otherwise return an empty list. Do not invent equivalence between distinct metrics.\n\n',
     'Columns:\n',
     '1. <col1> (<type1>) sample values: <samples1>\n',
     '2. <col2> (<type2>) sample values: <samples2>\n',

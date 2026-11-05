@@ -80,7 +80,7 @@ Runs to completion. Resolves judgment and courtesy gates using documented defaul
 - Enablement of experimental flags not present in an explicit requested configuration (see `AGENT-FLAG-ENABLE`)
 - Any action explicitly listed as OPERATOR_REQUIRED in the gate inventory
 
-**Gate categories and full inventory:** See `references/gate-inventory.md`
+**Gate categories and full inventory:** See `references/gate-inventory.md`. Trace review/dissatisfaction mining use `FEEDBACK-TRACE-REVIEW`; ground-truth intake uses `GT-INDEPENDENT-EVIDENCE` then `GT-FINAL-APPROVAL`; release uses `RELEASE-EXACT-CANDIDATE` then `RELEASE-PROMOTION-APPROVAL`. These apply to delegated routes too. Load `references/cookbook-index.md` only on demand for optional pinned corroboration, never as deployment authority.
 
 ---
 

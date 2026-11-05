@@ -11,7 +11,7 @@ Load project context:
 - Ask the user for the iteration name (`<ITER_NAME>`, e.g., `iter7`) or auto-increment from the last iteration in the log.
 - **Check for unassigned feedback rows:** If `SELECT COUNT(*) FROM <EVAL_TABLE> WHERE SPLIT IS NULL` returns > 0, inform the user that promoted feedback rows exist but haven't been split-assigned yet. Suggest running `eval-data` Workflow A or C before proceeding, or acknowledge and continue.
 
-**Open Snowflake run record** (load DDL from `../../../../references/pattern-mining.md`):
+**Open Snowflake run record** (load DDL from `../../../references/pattern-mining.md`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS <DATABASE>.<SCHEMA>.<AGENT_NAME>_OPT_RUNS ( ... );
@@ -154,7 +154,7 @@ Distinguish failure confidence:
 
 INSERT DEV results per run using the pattern from `references/question-manifest.md` with `SOURCE='optimize_dev'`, `ITERATION='<ITER_NAME>'`, `VARIANT=NULL`. **Mandatory — create the table first if it does not exist.**
 
-Also insert into the shared cross-agent history if `opt_history_fqn` is set in `metadata.yaml` (load INSERT pattern from `../../../../references/pattern-mining.md`):
+Also insert into the shared cross-agent history if `opt_history_fqn` is set in `metadata.yaml` (load INSERT pattern from `../../../references/pattern-mining.md`):
 
 ```sql
 INSERT INTO <META_DB>.<META_SCHEMA>.OPT_QUESTION_HISTORY
@@ -283,10 +283,9 @@ its budget finding no improvement. This gate prevents that.
 
 **Optional: Deep-dive debugging**
 
-For complex failures requiring detailed trace analysis, consider using bundled `debug-single-query-for-cortex-agent` skill:
-- Provides GET_AI_RECORD_TRACE queries with span-level detail
-- Analyzes observability logs for errors and warnings
-- Useful when classification is ambiguous or when investigating tool execution issues
+For complex failures requiring detailed trace analysis, first discover whether `debug-single-query-for-cortex-agent` exists in the installed skill catalog and read its current instructions. This dependency was not present in the locally inspected bundled skills; do not claim it is available or duplicate it automatically.
+
+If unavailable, offer a bounded read-only fallback: inspect one operator-selected request using the existing feedback analyzer observability queries and load-tester span interpretation, with explicit event/time scope and at most 100 events. Verify the current trace schema before constructing queries. Report tool inputs/results, span errors/timing, and synthesis discrepancies with evidence; unknown version stays unknown. Redacted or missing events are a limitation, not permission to grant privileges. No replay, dataset insertion, or production mutation without separate authorization.
 
 Example handoff: "I've identified 3 routing failures. Would you like me to deep-dive into request_id X using the debug skill?"
 

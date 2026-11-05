@@ -95,7 +95,7 @@ Run these SQL checks immediately after the DESCRIBE in Step 6.3, using RESULT_SC
 > quoted lowercase names that don't match the actual uppercase column names will silently return
 > 0 rows, making every topology look clean.
 
-**Check 1: Fan trap** — metric reachable to dimension only via bridge table (inflates results)
+**Check 1: Reverse fanout risk** — topology is a warning, not measured inflation. Forward many-to-one REFERENCES chains preserve fact grain when declared keys are actually unique. Check reverse or sibling traversal with independently computed aggregates.
 
 > ⚠️ **Star-topology fan trap** (not auto-detected): if two tables W and C are both children of a
 > shared parent A (W→A and C→A), queries crossing W↔C via A are a theoretical fan trap. The check
@@ -108,9 +108,9 @@ metric_tbl AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind 
 dim_tbl    AS (SELECT DISTINCT object_table AS t FROM sv_meta WHERE object_kind = 'DIMENSION'),
 rels       AS (SELECT left_table AS lt, right_table AS rt FROM sv_meta WHERE object_kind = 'RELATIONSHIP')
 SELECT 'FAN_TRAP' AS issue_type, m.t AS metric_table, d.t AS dim_table, r1.rt AS bridge_table,
-       'SUM/COUNT on ' || m.t || ' inflated when grouped by ' || d.t || ' dims (bridge: ' || r1.rt || ')' AS detail
-FROM metric_tbl m JOIN rels r1 ON r1.lt = m.t JOIN rels r2 ON r2.lt = r1.rt
-JOIN dim_tbl d ON d.t = r2.rt WHERE d.t != m.t;
+       'Potential reverse fanout on ' || m.t || ' grouped by ' || d.t || ' through ' || r1.lt AS detail
+FROM metric_tbl m JOIN rels r1 ON r1.rt = m.t JOIN rels r2 ON r2.rt = r1.lt
+JOIN dim_tbl d ON d.t = r2.lt WHERE d.t != m.t;
 ```
 
 **Check 2: Chasm trap** — two fact tables converging on shared dimension (double counting)
@@ -208,6 +208,10 @@ For each question, capture:
 ---
 
 ## Step 6.4.1: Direct semantic view query validation (mandatory)
+
+For mixed detail/rollup sources, identify row-level markers and documented grains before selecting a filter; never guess that NULL means total. Compute independent base-detail SUM, COUNT, and AVG (SUM/count of non-null values, not average of group averages), then compare SV results at identical filters, null policy, date boundaries, units and snapshot. Repeat grouped and ungrouped tests; inspect referenced-key uniqueness and each join's row multiplicity. Do not use generated Analyst SQL as the reference answer.
+
+Persist expected/observed JSON objects with `scope`, `sum`, `count`, `avg` plus source queries and snapshot evidence. Run `python scripts/sv_validator.py <ddl.sql> <aggregate-evidence.json>` from the toolkit root; the existing validator calls `validate_aggregate_evidence`. Missing evidence, scope differences, or numeric mismatches block acceptance. Exact comparison requires normalized numeric values; record any approved rounding before comparison. Topology warnings alone neither prove nor disprove inflation.
 
 **Mandatory semantic validation** — before marking Phase 6 complete, run at least one query
 through the semantic view for each entity that has metrics defined:
