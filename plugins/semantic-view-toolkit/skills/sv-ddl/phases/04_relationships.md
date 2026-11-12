@@ -34,18 +34,22 @@ for col_a in table_a.columns:
 
 Also check for existing foreign key constraints:
 ```sql
-SELECT
-    fk.TABLE_NAME,
-    fk.COLUMN_NAME,
-    pk.TABLE_NAME AS REF_TABLE,
-    pk.COLUMN_NAME AS REF_COLUMN
-FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE fk ON rc.CONSTRAINT_NAME = fk.CONSTRAINT_NAME
-JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE pk ON rc.UNIQUE_CONSTRAINT_NAME = pk.CONSTRAINT_NAME
-WHERE fk.TABLE_SCHEMA = '<schema>';
+-- Discover declared FK relationships using SHOW IMPORTED KEYS.
+-- INFORMATION_SCHEMA.KEY_COLUMN_USAGE does not exist in Snowflake.
+-- FK constraints on standard tables are informational (RELY/NOVALIDATE).
+SHOW IMPORTED KEYS IN DATABASE <SV_DB>
+  ->> SELECT
+        "pk_table_name" AS parent_table,
+        "pk_column_name" AS parent_column,
+        "fk_table_name" AS child_table,
+        "fk_column_name" AS child_column,
+        "key_sequence" AS key_sequence,
+        "fk_name" AS fk_constraint_name
+      FROM $1
+      WHERE "fk_schema_name" IN (<SV_SCHEMAS>);
 ```
 
-(This often returns nothing in Snowflake since FK constraints are not enforced, but worth checking.)
+FK constraints on standard Snowflake tables are informational (RELY/NOVALIDATE) — they appear in SHOW IMPORTED KEYS even though they are not enforced. This query often returns results for schemas with declared constraints.
 
 ---
 

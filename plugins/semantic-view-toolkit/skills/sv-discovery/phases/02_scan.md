@@ -43,45 +43,53 @@ Follow the detection method in `../../references/relationship-detection.md`, Sec
 
 For each schema in `DISCOVERY_SCHEMAS`:
 
+> **Empty schema list guard:** If `DISCOVERY_SCHEMAS` is empty (meaning "all non-system schemas"),
+> omit the `WHERE ... IN (...)` filter entirely from the queries below. An empty `IN ()` is a
+> SQL syntax error. Resolve the schema list before running these queries.
+
 ```sql
--- Find all foreign key relationships in this schema
-SELECT
-    tc.table_name AS child_table,
-    tc.table_schema AS child_schema,
-    kcu.column_name AS child_column,
-    rc.unique_constraint_name,
-    kcu2.table_name AS parent_table,
-    kcu2.table_schema AS parent_schema,
-    kcu2.column_name AS parent_column
-FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-JOIN <DISCOVERY_DB>.INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
-    ON tc.constraint_name = rc.constraint_name
-    AND tc.constraint_schema = rc.constraint_schema
-JOIN <DISCOVERY_DB>.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-    ON tc.constraint_name = kcu.constraint_name
-    AND tc.constraint_schema = kcu.constraint_schema
-JOIN <DISCOVERY_DB>.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu2
-    ON rc.unique_constraint_name = kcu2.constraint_name
-    AND rc.unique_constraint_schema = kcu2.constraint_schema
-WHERE tc.constraint_type = 'FOREIGN KEY'
-    AND tc.table_schema IN (<DISCOVERY_SCHEMAS>);
+-- Discover declared FK relationships using SHOW IMPORTED KEYS.
+-- INFORMATION_SCHEMA.KEY_COLUMN_USAGE does not exist in Snowflake.
+SHOW IMPORTED KEYS IN DATABASE <DISCOVERY_DB>
+  ->> SELECT
+        "pk_database_name" AS parent_database,
+        "pk_schema_name" AS parent_schema,
+        "pk_table_name" AS parent_table,
+        "pk_column_name" AS parent_column,
+        "fk_database_name" AS child_database,
+        "fk_schema_name" AS child_schema,
+        "fk_table_name" AS child_table,
+        "fk_column_name" AS child_column,
+        "key_sequence" AS key_sequence,
+        "fk_name" AS fk_constraint_name
+      FROM $1
+      WHERE UPPER("fk_schema_name") IN (<DISCOVERY_SCHEMAS>);
 ```
 
 Also get PK/UNIQUE constraints for reference:
 
 ```sql
-SELECT
-    tc.table_name,
-    tc.table_schema,
-    kcu.column_name,
-    tc.constraint_type
-FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-JOIN <DISCOVERY_DB>.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-    ON tc.constraint_name = kcu.constraint_name
-    AND tc.constraint_schema = kcu.constraint_schema
-WHERE tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
-    AND tc.table_schema IN (<DISCOVERY_SCHEMAS>)
-ORDER BY tc.table_name, kcu.ordinal_position;
+-- Discover PK and UNIQUE constraints using SHOW PRIMARY KEYS / SHOW UNIQUE KEYS.
+-- TABLE_CONSTRAINTS exists but does not expose column-level key mappings.
+SHOW PRIMARY KEYS IN DATABASE <DISCOVERY_DB>
+  ->> SELECT
+        "schema_name",
+        "table_name",
+        "column_name",
+        "key_sequence",
+        "constraint_name"
+      FROM $1
+      WHERE "schema_name" IN (<DISCOVERY_SCHEMAS>);
+
+SHOW UNIQUE KEYS IN DATABASE <DISCOVERY_DB>
+  ->> SELECT
+        "schema_name",
+        "table_name",
+        "column_name",
+        "key_sequence",
+        "constraint_name"
+      FROM $1
+      WHERE "schema_name" IN (<DISCOVERY_SCHEMAS>);
 ```
 
 **Output:** Store each FK relationship as an edge:
@@ -152,7 +160,7 @@ WITH query_tables AS (
         LATERAL FLATTEN(input => ah.BASE_OBJECTS_ACCESSED) obj
     WHERE ah.QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
         AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
-        AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
+        AND SPLIT_PART(obj.value:objectName::STRING, '.', 1) = '<DISCOVERY_DB>'
 )
 SELECT
     a.table_fqn AS table_a,
@@ -167,6 +175,12 @@ HAVING co_query_count >= 3  -- minimum threshold to reduce noise
 ORDER BY co_query_count DESC
 LIMIT 2000;  -- cap for large accounts
 ```
+
+> **⚠️ LIMIT before scope filter:** The LIMIT above caps results globally, not within the
+> discovery scope. On large accounts, in-scope table pairs may be pushed out by high-volume
+> out-of-scope pairs. If the co-occurrence query returns exactly 2000 rows and the scope
+> filter removes most of them, re-run with the scope filter inside the query (add
+> `AND SPLIT_PART(table_fqn, '.', 2) IN (<DISCOVERY_SCHEMAS>)` to the CTE's WHERE clause).
 
 **Filter to scope:** Remove pairs where either table is NOT in `DISCOVERY_SCHEMAS`.
 
@@ -198,7 +212,7 @@ FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY,
     LATERAL FLATTEN(input => obj.value:columns) col
 WHERE QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
     AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
-    AND obj.value:objectName::STRING LIKE '<DISCOVERY_DB>.%'
+    AND SPLIT_PART(obj.value:objectName::STRING, '.', 1) = '<DISCOVERY_DB>'
 GROUP BY 1, 2
 ORDER BY access_count DESC
 LIMIT 5000;

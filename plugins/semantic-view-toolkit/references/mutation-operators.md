@@ -43,12 +43,10 @@ Canonical catalog of 13 semantic view mutation operators with LLM prompt templat
 
 **DDL Section Modified:**
 ```sql
--- Within a TABLE definition, column SYNONYM list
-COLUMN customer_number
-  SYNONYM 'customer number'
-  SYNONYM 'account number'
-  SYNONYM 'cust id'
-  DESCRIPTION '...'
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.customer_number AS customers.customer_number
+  WITH SYNONYMS = ('customer number', 'account number', 'cust id')
+  COMMENT = '...'
 ```
 
 **LLM Prompt Template:**
@@ -77,15 +75,15 @@ OUTPUT FORMAT (JSON only, no explanation):
 **Example Before/After:**
 ```sql
 -- BEFORE
-COLUMN cust_nbr
-  DESCRIPTION 'Unique customer identifier'
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.cust_nbr AS customers.cust_nbr
+  COMMENT = 'Unique customer identifier'
 
 -- AFTER
-COLUMN cust_nbr
-  SYNONYM 'customer number'
-  SYNONYM 'account number'
-  SYNONYM 'customer id'
-  DESCRIPTION 'Unique customer identifier'
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.cust_nbr AS customers.cust_nbr
+  WITH SYNONYMS = ('customer number', 'account number', 'customer id')
+  COMMENT = 'Unique customer identifier'
 ```
 
 **Validation Rules:**
@@ -113,8 +111,9 @@ COLUMN cust_nbr
 
 **DDL Section Modified:**
 ```sql
-COLUMN revenue
-  DESCRIPTION 'Net revenue after all discounts, refunds, and credits. Represents final P&L amount in USD. Differs from GROSS_REVENUE which is pre-discount.'
+-- Within the FACTS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.revenue AS orders.revenue
+  COMMENT = 'Net revenue after all discounts, refunds, and credits. Represents final P&L amount in USD. Differs from GROSS_REVENUE which is pre-discount.'
 ```
 
 **LLM Prompt Template:**
@@ -147,12 +146,14 @@ OUTPUT FORMAT (JSON only, no explanation):
 **Example Before/After:**
 ```sql
 -- BEFORE
-COLUMN revenue
-  DESCRIPTION 'Revenue amount'
+-- Within the FACTS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.revenue AS orders.revenue
+  COMMENT = 'Revenue amount'
 
 -- AFTER
-COLUMN revenue
-  DESCRIPTION 'Net revenue in USD after discounts and refunds are applied. Use for P&L and margin calculations. For pre-discount amounts, use GROSS_REVENUE instead.'
+-- Within the FACTS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.revenue AS orders.revenue
+  COMMENT = 'Net revenue in USD after discounts and refunds are applied. Use for P&L and margin calculations. For pre-discount amounts, use GROSS_REVENUE instead.'
 ```
 
 **Validation Rules:**
@@ -181,10 +182,13 @@ COLUMN revenue
 
 **DDL Section Modified:**
 ```sql
-FILTER active_customers AS (
-  customers.status = 'ACTIVE'
-  DESCRIPTION 'Only include customers with active status. Use when question mentions active, current, or existing customers.'
-)
+-- Within the FACTS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.is_active_customer AS customers.status = 'ACTIVE'
+  COMMENT = 'True for customers with active status. Use when questions ask about active, current, or existing customers.'
+  LABELS = (FILTER)
+
+-- Within the AI_SQL_GENERATION clause of CREATE OR ALTER SEMANTIC VIEW:
+INSTRUCTIONS = 'Use customers.is_active_customer when a question asks for active, current, or existing customers.'
 ```
 
 **LLM Prompt Template:**
@@ -216,14 +220,17 @@ OUTPUT FORMAT (JSON only, no explanation):
 
 **Example Before/After:**
 ```sql
--- BEFORE (no filter defined)
--- Users ask "show active customers" → Analyst doesn't filter
+-- BEFORE (no reusable filter hint defined)
+-- Users ask "show active customers" -> Analyst doesn't filter
 
 -- AFTER
-FILTER active_customers AS (
-  customers.status = 'ACTIVE'
-  DESCRIPTION 'Apply when user asks about active, current, or live customers. Excludes churned, suspended, and deleted accounts.'
-)
+-- Within the FACTS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.is_active_customer AS customers.status = 'ACTIVE'
+  COMMENT = 'Apply when user asks about active, current, or live customers. Excludes churned, suspended, and deleted accounts.'
+  LABELS = (FILTER)
+
+-- Within the AI_SQL_GENERATION clause of CREATE OR ALTER SEMANTIC VIEW:
+INSTRUCTIONS = 'Use customers.is_active_customer when a question asks about active, current, or live customers.'
 ```
 
 **Validation Rules:**
@@ -252,11 +259,10 @@ FILTER active_customers AS (
 
 **DDL Section Modified:**
 ```sql
-VERIFIED_QUERIES (
-  VERIFIED_QUERY vqr_monthly_revenue (
-    QUESTION 'What is the monthly revenue trend for the past year?'
-    VERIFIED_QUERY_SQL 'SELECT DATE_TRUNC(''month'', o.order_date) AS month, SUM(o.amount) AS revenue FROM orders o WHERE o.order_date >= DATEADD(''year'', -1, CURRENT_DATE()) GROUP BY 1 ORDER BY 1'
-  )
+-- Within the VERIFIED_QUERIES clause of CREATE OR ALTER SEMANTIC VIEW:
+vqr_monthly_revenue AS (
+  QUESTION 'What is the monthly revenue trend for the past year?'
+  SQL 'SELECT DATE_TRUNC(''month'', o.order_date) AS month, SUM(o.amount) AS revenue FROM orders o WHERE o.order_date >= DATEADD(''year'', -1, CURRENT_DATE()) GROUP BY 1 ORDER BY 1'
 )
 ```
 
@@ -296,9 +302,10 @@ OUTPUT FORMAT (JSON only, no explanation):
 -- BEFORE: No VQRs test multi-table aggregation with date filter
 
 -- AFTER
-VERIFIED_QUERY vqr_quarterly_revenue_by_region (
+-- Within the VERIFIED_QUERIES clause of CREATE OR ALTER SEMANTIC VIEW:
+vqr_quarterly_revenue_by_region AS (
   QUESTION 'What is the total revenue by region for the last quarter?'
-  VERIFIED_QUERY_SQL 'SELECT r.region_name, SUM(o.amount) AS total_revenue FROM orders o JOIN customers c ON o.customer_id = c.id JOIN regions r ON c.region_id = r.id WHERE o.order_date >= DATEADD(''quarter'', -1, DATE_TRUNC(''quarter'', CURRENT_DATE())) AND o.order_date < DATE_TRUNC(''quarter'', CURRENT_DATE()) GROUP BY 1 ORDER BY 2 DESC'
+  SQL 'SELECT r.region_name, SUM(o.amount) AS total_revenue FROM orders o JOIN customers c ON o.customer_id = c.id JOIN regions r ON c.region_id = r.id WHERE o.order_date >= DATEADD(''quarter'', -1, DATE_TRUNC(''quarter'', CURRENT_DATE())) AND o.order_date < DATE_TRUNC(''quarter'', CURRENT_DATE()) GROUP BY 1 ORDER BY 2 DESC'
 )
 ```
 
@@ -330,12 +337,10 @@ VERIFIED_QUERY vqr_quarterly_revenue_by_region (
 
 **DDL Section Modified:**
 ```sql
-METRIC avg_order_value AS (
-  SUM(order_amount) / NULLIF(COUNT(DISTINCT order_id), 0)
-  DESCRIPTION 'Average dollar value per order. Calculated as total revenue divided by number of distinct orders.'
-  DEFAULT_AGGREGATION AVG
-  SYNONYMS ('AOV', 'average order size', 'mean order value')
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.avg_order_value AS SUM(orders.order_amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0)
+  WITH SYNONYMS = ('AOV', 'average order size', 'mean order value')
+  COMMENT = 'Average dollar value per order. Calculated as total revenue divided by number of distinct orders.'
 ```
 
 **LLM Prompt Template:**
@@ -374,13 +379,10 @@ OUTPUT FORMAT (JSON only, no explanation):
 -- BEFORE: User asks "average order value" → Analyst does AVG(amount) instead of SUM/COUNT
 
 -- AFTER
-METRIC avg_order_value AS (
-  SUM(orders.amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0)
-  DESCRIPTION 'Average revenue per order. Total revenue divided by distinct order count.'
-  DEFAULT_AGGREGATION AVG
-  SYNONYM 'AOV'
-  SYNONYM 'average order size'
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.avg_order_value AS SUM(orders.amount) / NULLIF(COUNT(DISTINCT orders.order_id), 0)
+  WITH SYNONYMS = ('AOV', 'average order size')
+  COMMENT = 'Average revenue per order. Total revenue divided by distinct order count.'
 ```
 
 **Validation Rules:**
@@ -410,11 +412,9 @@ METRIC avg_order_value AS (
 
 **DDL Section Modified:**
 ```sql
--- Change the expression and/or default_aggregation of an existing metric
-METRIC total_customers AS (
-  COUNT(DISTINCT customers.customer_id)  -- was COUNT(*) before (double-counting from joins)
-  ...
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+customers.total_customers AS COUNT(DISTINCT customers.customer_id)  -- was COUNT(*) before (double-counting from joins)
+  COMMENT = '...'
 ```
 
 **LLM Prompt Template:**
@@ -455,16 +455,14 @@ OUTPUT FORMAT (JSON only, no explanation):
 **Example Before/After:**
 ```sql
 -- BEFORE (double-counts due to one-to-many join)
-METRIC total_revenue AS (
-  SUM(orders.amount)
-  DEFAULT_AGGREGATION SUM
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.total_revenue AS SUM(orders.amount)
+  COMMENT = '...'
 
 -- AFTER
-METRIC total_revenue AS (
-  SUM(DISTINCT orders.amount)  -- or restructure query to pre-aggregate
-  DEFAULT_AGGREGATION SUM
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.total_revenue AS SUM(DISTINCT orders.amount)  -- or restructure query to pre-aggregate
+  COMMENT = '...'
 ```
 
 **Validation Rules:**
@@ -492,13 +490,10 @@ METRIC total_revenue AS (
 
 **DDL Section Modified:**
 ```sql
-METRIC gmv AS (
-  SUM(orders.gross_amount)
-  DESCRIPTION 'Gross Merchandise Value - total dollar value of all merchandise sold before returns and discounts. Primary top-line revenue metric for marketplace reporting.'
-  SYNONYM 'gross merchandise value'
-  SYNONYM 'total sales volume'
-  SYNONYM 'gross sales'
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.gmv AS SUM(orders.gross_amount)
+  WITH SYNONYMS = ('gross merchandise value', 'total sales volume', 'gross sales')
+  COMMENT = 'Gross Merchandise Value - total dollar value of all merchandise sold before returns and discounts. Primary top-line revenue metric for marketplace reporting.'
 ```
 
 **LLM Prompt Template:**
@@ -534,19 +529,15 @@ OUTPUT FORMAT (JSON only, no explanation):
 **Example Before/After:**
 ```sql
 -- BEFORE
-METRIC nrr AS (
-  ... expression ...
-  DESCRIPTION 'NRR'
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.nrr AS ... expression ...
+  COMMENT = 'NRR'
 
 -- AFTER
-METRIC nrr AS (
-  ... expression ...
-  DESCRIPTION 'Net Revenue Retention rate as a percentage. Measures revenue kept from existing customers including expansions and contractions, excluding new customers. Values > 100% indicate net expansion.'
-  SYNONYM 'net revenue retention'
-  SYNONYM 'dollar retention rate'
-  SYNONYM 'revenue retention'
-)
+-- Within the METRICS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.nrr AS ... expression ...
+  WITH SYNONYMS = ('net revenue retention', 'dollar retention rate', 'revenue retention')
+  COMMENT = 'Net Revenue Retention rate as a percentage. Measures revenue kept from existing customers including expansions and contractions, excluding new customers. Values > 100% indicate net expansion.'
 ```
 
 **Validation Rules:**
@@ -575,13 +566,8 @@ METRIC nrr AS (
 
 **DDL Section Modified:**
 ```sql
-RELATIONSHIPS (
-  orders_to_customers AS (
-    orders REFERENCES customers (customer_id REFERENCES id)
-    RELATIONSHIP_TYPE MANY_TO_ONE
-    JOIN_TYPE LEFT OUTER
-  )
-)
+-- Within the RELATIONSHIPS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders (customer_id) REFERENCES customers
 ```
 
 **LLM Prompt Template:**
@@ -628,25 +614,13 @@ For bridge (two relationships):
 **Example Before/After:**
 ```sql
 -- BEFORE: Direct orders→products (wrong, needs line_items bridge)
-RELATIONSHIPS (
-  orders_to_products AS (
-    orders REFERENCES products (product_id REFERENCES id)
-  )
-)
+-- Within the RELATIONSHIPS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders (product_id) REFERENCES products
 
 -- AFTER: Correct bridge through line_items
-RELATIONSHIPS (
-  orders_to_line_items AS (
-    line_items REFERENCES orders (order_id REFERENCES id)
-    RELATIONSHIP_TYPE MANY_TO_ONE
-    JOIN_TYPE LEFT OUTER
-  ),
-  line_items_to_products AS (
-    line_items REFERENCES products (product_id REFERENCES id)
-    RELATIONSHIP_TYPE MANY_TO_ONE
-    JOIN_TYPE LEFT OUTER
-  )
-)
+-- Within the RELATIONSHIPS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders (order_id) REFERENCES line_items
+line_items (product_id) REFERENCES products
 ```
 
 **Validation Rules:**
@@ -677,10 +651,9 @@ RELATIONSHIPS (
 
 **DDL Section Modified:**
 ```sql
-COLUMN order_date
-  DATA_TYPE DATE
-  IS_TIME_DIMENSION TRUE
-  DESCRIPTION 'Primary date for order timing. The canonical time axis for all revenue and order trend analysis.'
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.order_date AS orders.order_date
+  COMMENT = 'Primary date for order timing. The canonical time axis for all revenue and order trend analysis.'
 ```
 
 **LLM Prompt Template:**
@@ -716,20 +689,18 @@ or
 
 **Example Before/After:**
 ```sql
--- BEFORE: No time dimension, Analyst doesn't know which date to use for trends
-COLUMN created_at
-  DATA_TYPE TIMESTAMP_NTZ
-  DESCRIPTION 'Record creation timestamp'
+-- BEFORE: No time-focused description on the primary analytical date column
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.created_at AS orders.created_at
+  COMMENT = 'Record creation timestamp'
 
-COLUMN order_date
-  DATA_TYPE DATE
-  DESCRIPTION 'Date the order was placed'
+orders.order_date AS orders.order_date
+  COMMENT = 'Date the order was placed'
 
--- AFTER: order_date promoted to time dimension
-COLUMN order_date
-  DATA_TYPE DATE
-  IS_TIME_DIMENSION TRUE
-  DESCRIPTION 'Date the order was placed. Primary time axis for order trends, revenue over time, and seasonal analysis.'
+-- AFTER: order_date clarified as the primary time axis
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.order_date AS orders.order_date
+  COMMENT = 'Date the order was placed. Primary time axis for order trends, revenue over time, and seasonal analysis.'
 ```
 
 **Validation Rules:**
@@ -803,16 +774,18 @@ or
 
 **Example Before/After:**
 ```sql
--- BEFORE: Two status columns causing confusion
-COLUMN order_status
-  DESCRIPTION 'Current order fulfillment status'
+-- BEFORE: Two status dimensions causing confusion
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.order_status AS orders.order_status
+  COMMENT = 'Current order fulfillment status'
 
-COLUMN order_state    -- rarely used, overlaps with order_status
-  DESCRIPTION 'Order state'
+orders.order_state AS orders.order_state
+  COMMENT = 'Order state'
 
 -- AFTER: order_state removed (order_status is canonical)
-COLUMN order_status
-  DESCRIPTION 'Current order fulfillment status (PENDING, SHIPPED, DELIVERED, CANCELLED)'
+-- Within the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+orders.order_status AS orders.order_status
+  COMMENT = 'Current order fulfillment status (PENDING, SHIPPED, DELIVERED, CANCELLED)'
 ```
 
 **Validation Rules:**

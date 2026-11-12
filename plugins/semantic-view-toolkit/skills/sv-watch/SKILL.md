@@ -89,7 +89,9 @@ queried_tables AS (
 )
 SELECT qt.table_fqn
 FROM queried_tables qt
-WHERE qt.table_fqn NOT IN (SELECT fqn FROM sv_tables)
+WHERE qt.table_fqn NOT IN (SELECT fqn FROM sv_source_tables)
+-- Note: sv_source_tables must be populated from DESCRIBE SEMANTIC VIEW output
+-- (filter for "object_kind" = 'TABLE', extract "property_value" where "property" = 'BASE_TABLE_*')
   AND SPLIT_PART(qt.table_fqn, '.', 2) IN (SELECT schema_name FROM sv_schemas);
 ```
 
@@ -105,10 +107,11 @@ Detect VQRs with time-relative references that may have drifted:
 - Views: check if underlying tables still exist
 
 ```sql
--- DT health check
-SELECT NAME, SCHEDULING_STATE, TARGET_LAG
-FROM INFORMATION_SCHEMA.DYNAMIC_TABLES
-WHERE NAME IN (-- DT names from SV sources);
+-- DT health check (INFORMATION_SCHEMA.DYNAMIC_TABLES does not exist)
+SHOW DYNAMIC TABLES IN DATABASE <SV_DB>
+  ->> SELECT "name" AS NAME, "scheduling_state" AS SCHEDULING_STATE, "target_lag" AS TARGET_LAG
+      FROM $1
+      WHERE "name" IN (-- DT names from SV sources);
 ```
 
 ### Check 5: Usage Pattern Shift
@@ -176,7 +179,7 @@ LIMIT 5;
 ## CRITICAL (Immediate Action Required)
 - [DROPPED_COLUMN] Column ORDERS.STATUS no longer exists in source table
   → SV will fail on queries referencing this column
-  → Fix: ALTER SEMANTIC VIEW to remove or remap
+  → Fix: Use `CREATE OR ALTER SEMANTIC VIEW` to remove or remap the affected columns/relationships
 
 ## WARNING (Review Recommended)
 - [NEW_COLUMNS] 3 new columns in ORDERS table not in SV:

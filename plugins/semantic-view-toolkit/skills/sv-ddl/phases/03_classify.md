@@ -69,12 +69,12 @@ If the semantic view definition includes a top-level `VARIABLES` clause, resolve
 **Example**:
 ```sql
 VARIABLES (
-  region_filter AS VARCHAR = 'US_EAST'
-)
-FACTS (
-  orders.revenue AS SUM(amount) WHERE region = $region_filter
+  region_filter VARCHAR DEFAULT 'US_EAST'
 )
 ```
+> **No `AS` keyword in VARIABLES.** The correct syntax is `var_name TYPE DEFAULT value`,
+> not `var_name AS TYPE = value`. The `AS` form causes `unexpected 'AS'` syntax error.
+
 When classifying, confirm `$region_filter` is defined in VARIABLES block.
 
 **Best-practice**: Variables can only be used in WHERE filters and aggregations. Referencing variables in relationship join conditions will produce an error at CREATE time.
@@ -91,6 +91,12 @@ Apply these rules to every column in `TABLE_PROFILES`. Start with the heuristic 
 |----------|-----------|---------------|
 | 0 | Column is in `PII_FLAGGED` (from Step 3.0-B) | **⚠️ PII — flag for governance check** (default: SKIP; keep as DIMENSION only with user approval; NEVER reclassify as FACT to use PRIVATE modifier) |
 | 1 | `DATE`, `TIMESTAMP`, `DATETIME`, `TIMESTAMP_NTZ`, `TIMESTAMP_LTZ` | **TIME_DIMENSION** |
+
+> **`TIME_DIMENSION` is an internal classification label, not a DDL keyword.** In the generated
+> DDL (Phase 5), time dimensions are emitted as regular entries in the `DIMENSIONS` clause —
+> there is no `TIME DIMENSIONS` clause, no `IS TIME` modifier, and no `IS_TIME_DIMENSION`
+> property in DDL. Snowflake automatically infers time semantics from the DATE/TIMESTAMP data
+> type. Use the description/comment to indicate the column is the primary time axis.
 | 2 | Column name ends with `_ID`, `_KEY`, `_CODE`, `_NBR`, `_NUM`, `_SK` | **DIMENSION** (even if numeric — it's an identifier, not a measure) |
 | 3 | Column name starts with or contains `IS_`, `HAS_`, `FLAG` | **DIMENSION** (boolean/flag) — also tag `filter_candidate: true` |
 | 4 | `BOOLEAN` type | **DIMENSION** — also tag `filter_candidate: true` |

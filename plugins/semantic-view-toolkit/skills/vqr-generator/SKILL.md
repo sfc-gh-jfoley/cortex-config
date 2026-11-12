@@ -155,7 +155,7 @@ WHERE O_ORDERDATE >= '2024-01-01' AND O_ORDERDATE < '2025-01-01';
 3. **Use absolute dates**: Never `CURRENT_DATE` or relative dates — always fixed dates for reproducibility
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
 5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
-6. **Alias output to metric name, aggregate the physical column**: If the SV defines `total_revenue = SUM(amount)`, write `SUM(amount) AS total_revenue` in the VQR — NOT `SUM(total_revenue)`. Metric names are not columns; referencing them inside an aggregate creates SQL that the engine expands into a broken CTE (`TOTAL_REVENUE` invalid identifier). The pattern is always `SUM(<physical_col>) AS <metric_name>`. See the code example above.
+6. **Alias output to metric name, aggregate the row-level fact column**: If the SV defines `total_revenue = SUM(amount)`, write `SUM(amount) AS total_revenue` in the VQR — NOT `SUM(total_revenue)`. Metric names are not columns; referencing them inside an aggregate creates SQL that the engine expands into a broken CTE. The pattern is always `SUM(<fact_column>) AS <metric_name>`, where `<fact_column>` is the logical fact name exposed by the SV (matching the `AS` alias in the FACTS clause). See the code example above.
 7. **Validate filter alignment**: If VQR SQL aggregates a raw column (e.g., `SUM(sales_exc_tax_usd)`) rather than a logical metric name, verify the SQL applies the same `CASE WHEN` or `WHERE` filter used in the metric definition. If `TOTAL_NET_REVENUE_USD` is defined as `SUM(CASE WHEN REFUNDED_IND = 0 THEN SALES_EXC_TAX_USD ELSE 0 END)`, the VQR SQL must include the same filter.
 8. **Cross-VQR filter consistency**: If any existing VQR for the same metric already applies a filter (e.g., `refunded_ind = 0`), all new VQRs targeting that metric must apply the same filter. Inconsistent filter coverage creates contradictory ground truth.
 9. **No subquery SQL**: Cortex Analyst cannot generate subquery-based semantic queries (`WHERE col IN (SELECT ...)`, `WHERE EXISTS (SELECT ...)`, DIMENSIONS ad-hoc subquery expressions). VQR SQL containing subqueries creates a benchmark Analyst can structurally never match, permanently poisoning the eval baseline. If cross-filtering against another table is needed, add that table as an SV relationship and express the filter as a JOIN-based dimension condition instead.
@@ -211,9 +211,9 @@ For approved candidates, add VQRs to the SV:
 -- ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY is not supported — returns syntax error.
 -- The only working path is CREATE OR REPLACE with the full DDL + new VQRs appended.
 
--- Step 1: Get current DDL
-DESCRIBE SEMANTIC VIEW <SV_FQN>;
--- Copy the DDL from the DESCRIBE output (or use the file saved during sv-ddl Phase 7)
+-- Step 1: Get current DDL (DESCRIBE returns property rows, not DDL text — use GET_DDL)
+SELECT GET_DDL('semantic_view', '<SV_FQN>');
+-- Or use CREATE OR ALTER SEMANTIC VIEW to add VQRs without replacing the full DDL.
 
 -- Step 2: Add new VQRs to the AI_VERIFIED_QUERIES block and rebuild:
 CREATE OR REPLACE SEMANTIC VIEW <SV_FQN>

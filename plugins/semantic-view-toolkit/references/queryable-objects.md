@@ -83,18 +83,19 @@ WHERE REFERENCING_OBJECT_NAME = :view_name
 
 ```sql
 -- Dynamic tables have their own metadata view
-SELECT
-    NAME AS TABLE_NAME,
-    DATABASE_NAME,
-    SCHEMA_NAME,
-    TARGET_LAG,
-    REFRESH_MODE,
-    REFRESH_MODE_REASON,
-    DATA_TIMESTAMP,
-    SCHEDULING_STATE
-FROM INFORMATION_SCHEMA.DYNAMIC_TABLES
-WHERE SCHEMA_NAME = :schema_name
-ORDER BY NAME;
+-- INFORMATION_SCHEMA.DYNAMIC_TABLES does not exist. Use SHOW DYNAMIC TABLES.
+SHOW DYNAMIC TABLES IN SCHEMA <database>.<schema_name>
+  ->> SELECT
+        "name" AS TABLE_NAME,
+        "database_name" AS DATABASE_NAME,
+        "schema_name" AS SCHEMA_NAME,
+        "target_lag" AS TARGET_LAG,
+        "refresh_mode" AS REFRESH_MODE,
+        "refresh_mode_reason" AS REFRESH_MODE_REASON,
+        "data_timestamp" AS DATA_TIMESTAMP,
+        "scheduling_state" AS SCHEDULING_STATE
+      FROM $1
+      ORDER BY "name";
 ```
 
 ### SV Design Notes
@@ -112,13 +113,13 @@ ORDER BY NAME;
 
 ```sql
 -- Get actual freshness of dynamic tables
-SELECT
-    NAME,
-    TARGET_LAG,
-    DATA_TIMESTAMP,
-    TIMESTAMPDIFF('minute', DATA_TIMESTAMP, CURRENT_TIMESTAMP()) AS minutes_stale
-FROM INFORMATION_SCHEMA.DYNAMIC_TABLES
-WHERE SCHEMA_NAME = :schema_name;
+SHOW DYNAMIC TABLES IN SCHEMA <database>.<schema_name>
+  ->> SELECT
+        "name" AS NAME,
+        "target_lag" AS TARGET_LAG,
+        "data_timestamp" AS DATA_TIMESTAMP,
+        TIMESTAMPDIFF('minute', "data_timestamp", CURRENT_TIMESTAMP()) AS minutes_stale
+      FROM $1;
 ```
 
 ## External Tables
@@ -236,10 +237,10 @@ A single semantic view can mix source types:
 ```sql
 CREATE OR REPLACE SEMANTIC VIEW sales_analytics
 TABLES (
-    DB.SCHEMA.ORDERS AS orders,           -- Base table (transactions)
-    DB.SCHEMA.ACTIVE_CUSTOMERS AS cust,   -- View (business logic)
-    DB.SCHEMA.DAILY_METRICS AS metrics,   -- Dynamic table (near-real-time)
-    DB.SCHEMA.PRODUCT_CATALOG AS products -- External table (data lake)
+    orders AS DB.SCHEMA.ORDERS,                  -- Base table (transactions)
+    cust AS DB.SCHEMA.ACTIVE_CUSTOMERS,          -- View (business logic)
+    metrics AS DB.SCHEMA.DAILY_METRICS,          -- Dynamic table (near-real-time)
+    products AS DB.SCHEMA.PRODUCT_CATALOG        -- External table (data lake)
 )
 ...
 ```

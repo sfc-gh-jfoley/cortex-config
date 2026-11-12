@@ -1,12 +1,12 @@
 ---
 name: sv-ddl-phase2-profile-describe
-description: Profile source objects and use CORTEX.COMPLETE to auto-generate column descriptions, synonyms, and sample values
+description: Profile source objects and use AI_COMPLETE to auto-generate column descriptions, synonyms, and sample values
 ---
 
 # Phase 2: Profile & Auto-Describe
 
 ## Purpose
-Profile each source object's data and use `SNOWFLAKE.CORTEX.COMPLETE` to generate:
+Profile each source object's data and use `AI_COMPLETE` to generate:
 - Column descriptions (1-2 sentences, business-readable)
 - Synonyms (only evidence-backed aliases; zero is valid)
 
@@ -21,7 +21,7 @@ This is the programmatic equivalent of what Snowsight does manually when you des
 
 ## Step 2.0: Source system and doc context classification
 
-Before profiling, classify `DOC_CONTEXT` so Phase 2 can inject the right context into CORTEX.COMPLETE.
+Before profiling, classify `DOC_CONTEXT` so Phase 2 can inject the right context into AI_COMPLETE.
 
 **Known source systems** (case-insensitive match against `DOC_CONTEXT`):
 
@@ -200,11 +200,11 @@ They will be quoted automatically in the generated semantic view.
 
 ---
 
-## Step 2.2: Auto-describe with CORTEX.COMPLETE
+## Step 2.2: Auto-describe with AI_COMPLETE
 
-For each column, build and execute a CORTEX.COMPLETE prompt.
+For each column, build and execute a AI_COMPLETE prompt.
 
-**Model selection.** This step calls `SNOWFLAKE.CORTEX.COMPLETE`, which needs a
+**Model selection.** This step calls `AI_COMPLETE`, which needs a
 literal model name — a capability description cannot be passed to a SQL function.
 Resolve one at runtime rather than hardcoding a version:
 
@@ -217,7 +217,7 @@ Resolve one at runtime rather than hardcoding a version:
 ```sql
 -- Substitute each candidate in turn; stop at the first that returns without
 -- a "model unavailable" error. Store the winner as COMPLETE_MODEL.
-SELECT SNOWFLAKE.CORTEX.COMPLETE('<candidate-model>', 'ping') AS probe;
+SELECT AI_COMPLETE('<candidate-model>', 'ping') AS probe;
 ```
 
 Ask the operator which models their account has enabled if the probe is
@@ -227,11 +227,12 @@ which models are enabled, and model availability changes over time.
 **Prompt template** (uses the resolved `COMPLETE_MODEL` from above):
 
 ```sql
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
+SELECT AI_COMPLETE(
   '<COMPLETE_MODEL>',  -- resolved at runtime by the probe above
   CONCAT(
     'You are a data documentation expert. Generate metadata for a database column.\n',
-    'Respond ONLY with a JSON object — no explanation, no markdown fences.\n\n',
+    'Respond ONLY with a JSON object — no explanation, no markdown fences.\n',
+    'Use ONLY the table and column names provided below. Do NOT invent table names (e.g. do not say STORE_DIM if the table is STORE).\n\n',
     'Table: ', '<table_name>', '\n',
     'Column: ', '<col_name>', '\n',
     'Data type: ', '<data_type>', '\n',
@@ -257,13 +258,14 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 ) AS col_metadata;
 ```
 
-**Batch strategy**: For tables with many columns (>20), batch 5 columns per CORTEX.COMPLETE call to reduce latency:
+**Batch strategy**: For tables with many columns (>20), batch 5 columns per AI_COMPLETE call to reduce latency:
 
 ```sql
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
+SELECT AI_COMPLETE(
   '<COMPLETE_MODEL>',  -- resolved at runtime by the probe in Step 2.2
   CONCAT(
     'Generate JSON metadata for these ', <N>, ' columns from table <table_name>.\n',
+    'Use ONLY the table name provided above. Do NOT invent or rename tables.\n',
     'Business context: <BUSINESS_CONTEXT>\n',
     'Return a JSON array, one object per column with keys: column_name, description, synonyms, sample_values. Only include synonyms supported by supplied user terminology, dictionary, or SME evidence; otherwise return an empty list. Do not invent equivalence between distinct metrics.\n\n',
     'Columns:\n',

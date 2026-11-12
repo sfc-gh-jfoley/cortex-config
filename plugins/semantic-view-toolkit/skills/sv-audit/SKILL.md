@@ -39,7 +39,9 @@ Detect or ask whether to run **INTERACTIVE** or **AUTONOMOUS**:
   `IMPORTED PRIVILEGES` are present, otherwise this becomes a genuine blocker and the
   skill degrades to structural-only audit as already documented). Phase 12 applies only
   deterministic, reversible recommendations (relationship additions, clearly safe column
-  additions with `ALTER SEMANTIC VIEW … ADD`) after a DDL snapshot; recommendations that
+  additions with `CREATE OR ALTER SEMANTIC VIEW` to preserve materializations, or
+  `CREATE OR REPLACE SEMANTIC VIEW` for structural changes) after a DDL snapshot;
+  recommendations that
   require judgment (e.g., removing columns, changing relationship types, restructuring
   metrics) are logged and deferred for explicit operator review. Do not equate AUTONOMOUS
   with "apply all audit recommendations" — only changes whose validation makes them

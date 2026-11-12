@@ -138,12 +138,13 @@ GROUP BY TABLE_SCHEMA;
 ```
 
 ```sql
--- Dynamic tables
-SELECT
-    SCHEMA_NAME,
-    COUNT(*) AS DT_COUNT
-FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.DYNAMIC_TABLES
-GROUP BY SCHEMA_NAME;
+-- Dynamic tables (INFORMATION_SCHEMA.DYNAMIC_TABLES does not exist)
+SHOW DYNAMIC TABLES IN DATABASE <DISCOVERY_DB>
+  ->> SELECT
+        "schema_name" AS SCHEMA_NAME,
+        COUNT(*) AS DT_COUNT
+      FROM $1
+      GROUP BY "schema_name";
 ```
 
 Present comprehensive summary:

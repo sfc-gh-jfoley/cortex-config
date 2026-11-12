@@ -498,8 +498,16 @@ def _check_string_literal_escaping(ctx: _DDLContext) -> CheckResult:
 
 
 def _check_non_standard_column_quoting(ctx: _DDLContext) -> CheckResult:
-    """9. Non-standard column names must be double-quoted."""
-    standard_re = re.compile(r"^[A-Z][A-Z0-9_]*$")
+    """9. Non-standard column names must be double-quoted.
+
+    Snowflake normalizes unquoted identifiers to uppercase, so lowercase
+    names (e.g. ``total_net_sales``) are safe without quotes — they become
+    ``TOTAL_NET_SALES`` at creation time.  Only names containing characters
+    outside ``[A-Za-z0-9_]`` or starting with a digit truly need quoting.
+    Metric names are typically logical aliases that benefit from this
+    normalisation, so we use a case-insensitive check for all sections.
+    """
+    needs_quoting_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
     issues = []
     for section_name, entries in [
         ("FACTS", ctx.facts), ("DIMENSIONS", ctx.dimensions), ("METRICS", ctx.metrics)
@@ -509,7 +517,7 @@ def _check_non_standard_column_quoting(ctx: _DDLContext) -> CheckResult:
             # If already quoted in the raw entry, skip
             if f'"{name}"' in col["full_entry"]:
                 continue
-            if not standard_re.match(name):
+            if not needs_quoting_re.match(name):
                 issues.append(f"{section_name}: {col['table']}.{name} needs quoting.")
     if issues:
         return CheckResult("non_standard_column_quoting", False, "warning", "; ".join(issues))

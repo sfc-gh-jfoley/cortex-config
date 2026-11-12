@@ -247,12 +247,14 @@ RELATIONSHIPS (
     REFERENCES weather(city_code, BETWEEN start_date AND end_date EXCLUSIVE)
 )
 METRICS (
-  flights.m_late_departure_count AS COUNT_IF(is_late)
+  flights.m_late_departure_count
     USING (flight_departure_weather)
-    WITH SYNONYMS ('late flights by departure weather'),
-  flights.m_late_arrival_count AS COUNT_IF(is_late)
+    AS COUNT_IF(is_late)
+    WITH SYNONYMS = ('late flights by departure weather'),
+  flights.m_late_arrival_count
     USING (flight_arrival_weather)
-    WITH SYNONYMS ('late flights by arrival weather')
+    AS COUNT_IF(is_late)
+    WITH SYNONYMS = ('late flights by arrival weather')
 )
 ```
 
@@ -282,15 +284,15 @@ TABLES (
   sales_lm AS DB.SCHEMA.FACT_SALES PRIMARY KEY (ROW_ID),  -- same table, LM alias
   calendar AS DB.SCHEMA.DIM_CALENDAR PRIMARY KEY (MONTH)
 )
-FACTS (
-  -- Computed shift keys for joining LY/LM aliases to current calendar periods
-  sales_ly.sale_month_shifted_ly AS DATEADD('year',  1, SALE_MONTH),
-  sales_lm.sale_month_shifted_lm AS DATEADD('month', 1, SALE_MONTH)
-)
 RELATIONSHIPS (
   sales_to_calendar    AS sales(SALE_MONTH)                   REFERENCES calendar(MONTH),
   sales_ly_to_calendar AS sales_ly(sale_month_shifted_ly)     REFERENCES calendar(MONTH),
   sales_lm_to_calendar AS sales_lm(sale_month_shifted_lm)     REFERENCES calendar(MONTH)
+)
+FACTS (
+  -- Computed shift keys for joining LY/LM aliases to current calendar periods
+  sales_ly.sale_month_shifted_ly AS DATEADD('year',  1, SALE_MONTH),
+  sales_lm.sale_month_shifted_lm AS DATEADD('month', 1, SALE_MONTH)
 )
 METRICS (
   sales.revenue          AS SUM(AMOUNT),
@@ -434,12 +436,12 @@ derived (e.g., fiscal quarter from sale_date).
 
 **DDL key:**
 ```sql
+RELATIONSHIPS (
+  sales_to_quarters AS sales(fiscal_qtr_key) REFERENCES fiscal_quarters
+)
 FACTS (
   -- Computed key — scalar (row-level) expression only, NOT an aggregate
   sales.fiscal_qtr_key AS CONCAT(TO_VARCHAR(YEAR(sale_date)), '-Q', TO_VARCHAR(QUARTER(sale_date)))
-)
-RELATIONSHIPS (
-  sales_to_quarters AS sales(sales.fiscal_qtr_key) REFERENCES fiscal_quarters
 )
 ```
 
@@ -644,7 +646,7 @@ SELECT * FROM SEMANTIC_VIEW(adhoc_sv DIMENSIONS ... METRICS ...);
 
 ---
 
-## 18. materialization  ⚠️ Private Preview
+## 18. materialization
 
 **Problem:** SV queries scan large base tables on every request. Pre-aggregate
 selected dimension/metric combinations.

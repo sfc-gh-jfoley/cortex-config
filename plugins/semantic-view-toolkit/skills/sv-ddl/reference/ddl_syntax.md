@@ -43,6 +43,94 @@ CREATE OR ALTER SEMANTIC VIEW <db>.<schema>.<name>
 
 ---
 
+## Complete Working Example
+
+This example uses TPC-H sample data (available in every Snowflake account). It demonstrates all major clauses and correct syntax. Copy and modify for your own tables.
+
+```sql
+CREATE OR REPLACE SEMANTIC VIEW MY_DB.MY_SCHEMA.TPCH_REVENUE_ANALYSIS
+  TABLES (
+    orders AS SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
+      PRIMARY KEY (O_ORDERKEY)
+      COMMENT = 'All orders in the TPC-H dataset',
+    customers AS SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER
+      PRIMARY KEY (C_CUSTKEY)
+      COMMENT = 'Customer master data',
+    line_items AS SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.LINEITEM
+      PRIMARY KEY (L_ORDERKEY, L_LINENUMBER)
+      COMMENT = 'Line items within orders'
+  )
+  RELATIONSHIPS (
+    orders (O_CUSTKEY) REFERENCES customers,
+    line_items (L_ORDERKEY) REFERENCES orders
+  )
+  FACTS (
+    orders.O_TOTALPRICE AS O_TOTALPRICE
+      WITH SYNONYMS = ('order total', 'order value')
+      COMMENT = 'Total price of the order in dollars',
+    line_items.L_EXTENDEDPRICE AS L_EXTENDEDPRICE
+      COMMENT = 'Extended price for the line item',
+    line_items.L_DISCOUNT AS L_DISCOUNT
+      COMMENT = 'Discount percentage applied',
+    line_items.L_QUANTITY AS L_QUANTITY
+      WITH SYNONYMS = ('quantity', 'units')
+      COMMENT = 'Quantity ordered'
+  )
+  DIMENSIONS (
+    customers.CUSTOMER_NAME AS C_NAME
+      WITH SYNONYMS = ('customer name', 'buyer')
+      COMMENT = 'Name of the customer',
+    orders.ORDER_DATE AS O_ORDERDATE
+      WITH SYNONYMS = ('order date', 'date')
+      COMMENT = 'Date when the order was placed',
+    orders.ORDER_YEAR AS YEAR(O_ORDERDATE)
+      COMMENT = 'Year the order was placed'
+      IS_ENUM,
+    orders.ORDER_STATUS AS O_ORDERSTATUS
+      COMMENT = 'Order status code (F=fulfilled, O=open, P=pending)'
+      IS_ENUM
+  )
+  METRICS (
+    orders.total_revenue AS SUM(orders.O_TOTALPRICE)
+      WITH SYNONYMS = ('total revenue', 'total sales', 'revenue')
+      COMMENT = 'Sum of all order totals',
+    orders.order_count AS COUNT(orders.O_ORDERKEY)
+      WITH SYNONYMS = ('number of orders', 'order count')
+      COMMENT = 'Count of orders',
+    orders.avg_order_value AS AVG(orders.O_TOTALPRICE)
+      WITH SYNONYMS = ('average order value', 'AOV')
+      COMMENT = 'Average order total'
+  )
+  COMMENT = 'Revenue analysis semantic view over TPC-H sample data'
+  AI_SQL_GENERATION 'When asked about revenue, use the total_revenue metric. For time-based trends, group by ORDER_YEAR or ORDER_DATE.'
+  AI_VERIFIED_QUERIES (
+    vqr_revenue_by_year AS (
+      QUESTION 'What is total revenue by year?'
+      SQL 'SELECT __orders.ORDER_YEAR, SUM(__orders.O_TOTALPRICE) AS total_revenue FROM __orders GROUP BY 1 ORDER BY 1'
+    ),
+    vqr_top_customers AS (
+      QUESTION 'Who are the top 10 customers by revenue?'
+      SQL 'SELECT __customers.CUSTOMER_NAME, SUM(__orders.O_TOTALPRICE) AS total_revenue FROM __orders JOIN __customers ON __orders.O_CUSTKEY = __customers.C_CUSTKEY GROUP BY 1 ORDER BY 2 DESC LIMIT 10'
+    )
+  )
+```
+
+> **Key patterns to note:**
+> - `alias AS FQN` in TABLES (not `FQN AS alias`)
+> - Every FACT and DIMENSION has `AS <expr>` even for direct column pass-through
+> - `COMMENT = '...'` (equals sign required) must come before `IS_ENUM`
+> - `WITH SYNONYMS = (...)` uses `WITH` prefix; `SAMPLE_VALUES (...)` does not
+> - VQR SQL uses `__` prefixed logical table names
+> - AI_SQL_GENERATION is a string, not a key-value block
+>
+> **DDL vs YAML feature parity:** Some features are YAML-only and have no DDL equivalent:
+> `time_dimensions` (DDL uses regular DIMENSIONS with DATE/TIMESTAMP types), standalone `filters`
+> (DDL uses `LABELS = (FILTER)` on a boolean fact/dimension), and `data_type` declarations
+> (DDL infers types). See the Snowflake docs "YAML vs DDL authoring for semantic views" for the
+> complete feature mapping.
+
+---
+
 ## Clause grammar
 
 ### logicalTable
@@ -170,6 +258,8 @@ FACTS (
   [ SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
 ```
 
+> **⚠️ `AS` is required even for direct column pass-through.** Write `ss.SS_NET_PAID AS SS_NET_PAID`, not just `ss.SS_NET_PAID`. Omitting `AS` causes "unexpected 'WITH'" or "unexpected 'COMMENT'" errors on the next modifier.
+
 `LABELS = ( FILTER )` marks a fact as usable in WHERE clauses. The `AS` expression **must** resolve to BOOLEAN. Cannot be used on metrics.
 
 `SAMPLE_VALUES` also applies to facts — provide representative values to guide AI query generation.
@@ -183,10 +273,12 @@ FACTS (
   [ WITH SYNONYMS [ = ] ( '<synonym>' [ , ... ] ) ]
   [ SAMPLE_VALUES ( '<value>' [ , ... ] ) ]
   [ COMMENT = '<description>' ]
-  [ IS_ENUM ]                                         ← IS_ENUM must be last — nothing follows it
+  [ IS_ENUM ]                                         ← IS_ENUM must follow SYNONYMS, SAMPLE_VALUES, and COMMENT — `IS_ENUM COMMENT` is a hard error. TAG and CORTEX SEARCH SERVICE may appear after IS_ENUM.
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name> [ USING <col_name> ] ]
 ```
+
+> **⚠️ `AS` is required even for direct column pass-through.** Write `d.D_YEAR AS D_YEAR`, not just `d.D_YEAR`. Omitting `AS` causes syntax errors on subsequent modifiers.
 
 > ⚠️ **IS_ENUM is terminal.** `IS_ENUM COMMENT = '...'` is a hard syntax error ("unexpected 'COMMENT'"). COMMENT must appear **before** IS_ENUM. Confirmed by test: `SAMPLE_VALUES → IS_ENUM → COMMENT` fails; `COMMENT → SAMPLE_VALUES → IS_ENUM` and `SAMPLE_VALUES → COMMENT → IS_ENUM` both work.
 
@@ -378,9 +470,38 @@ See `references/composable-sv-patterns.md` for full patterns, selective imports 
 | 15 | `SAMPLE_VALUES (...)` uses **no `WITH` prefix** — `WITH SAMPLE_VALUES` is a syntax error; also valid on facts, not just dimensions | Writing `WITH SAMPLE_VALUES (...)` causes a DDL parse error |
 | 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |
 | 17 | Metric `AS` expressions can only reference columns that physically belong to the metric's own table — cross-table references (e.g. `a.col` inside a metric on `w`) are not resolved even through a defined relationship | Writing `SUM(CASE WHEN a.eligible THEN w.amount END)` on a metric on `w` — fails; workaround: `LABELS = (FILTER)` on the parent-table dimension + `AI_SQL_GENERATION` instructions, or denormalize the column into `w` |
-| 18 | `ALTER SEMANTIC VIEW` supports only `RENAME`, `SET/UNSET COMMENT`, and `SET/UNSET TAG` — all structural sub-commands do not exist; use `CREATE OR ALTER SEMANTIC VIEW` for structural changes | Using `ALTER METRIC ... SET EXPR` — it fails; use `CREATE OR ALTER SEMANTIC VIEW` or `CREATE OR REPLACE SEMANTIC VIEW` |
+| 18 | `ALTER SEMANTIC VIEW` supports: RENAME, SET/UNSET COMMENT, SET/UNSET TAG, SET/UNSET MAX_STALENESS, and materialization operations (ADD/DROP/SUSPEND/RESUME/REFRESH MATERIALIZATION). It does NOT support `ALTER COLUMN`, `ALTER DIMENSION`, `ADD METRIC`, `ALTER METRIC SET EXPR`, or `DROP METRIC`. For structural changes to dimensions, facts, metrics, or relationships, use `CREATE OR ALTER SEMANTIC VIEW` (preserves materializations) or `CREATE OR REPLACE SEMANTIC VIEW` (drops materializations). `IS_TIME_DIMENSION` is a YAML-only concept — DDL time dimensions are regular dimensions with DATE/TIMESTAMP types. | Using `ALTER METRIC ... SET EXPR` or `ALTER COLUMN ... SET IS_TIME_DIMENSION` — neither exists; use `CREATE OR ALTER` for structural changes |
 | 19 | TAG clause must appear **after** `AI_VERIFIED_QUERIES` in the CREATE statement — not before `AI_SQL_GENERATION` | Placing TAG between COMMENT and AI_SQL_GENERATION causes a syntax error |
 | 20 | Derived metrics (view-scoped, combining multiple tables) omit `<table_alias>.` from the name and cannot use USING, window functions, or non-aggregated references | Adding a table prefix to a derived metric or trying to use it in a regular metric expression |
+
+---
+
+## DESCRIBE SEMANTIC VIEW — output format
+
+```sql
+DESCRIBE SEMANTIC VIEW <db>.<schema>.<sv_name>;
+```
+
+Returns a property-row result set (NOT DDL text). To get DDL, use `SELECT GET_DDL('semantic_view', '<FQN>')`.
+
+**Output columns** (verified Sep 2026 — lowercase, require double-quoting in RESULT_SCAN):
+
+| Column | Description |
+|--------|-------------|
+| `"object_kind"` | TABLE, FACT, DIMENSION, METRIC, RELATIONSHIP, AI_VERIFIED_QUERY |
+| `"object_name"` | Name of the object |
+| `"parent_entity"` | Logical table the object belongs to (NULL for view-level properties) |
+| `"property"` | Property name (e.g. EXPRESSION, DATA_TYPE, COMMENT, TABLE, REF_TABLE, FOREIGN_KEY) |
+| `"property_value"` | Property value |
+
+> **⚠️ Column names are lowercase.** When querying via `RESULT_SCAN`, you MUST use double-quoted
+> lowercase identifiers: `"object_kind"`, `"object_name"`, etc. Unquoted identifiers resolve to
+> uppercase and silently return 0 rows — making every check appear clean.
+>
+> **⚠️ Capture the query ID.** Always use `SET describe_qid = LAST_QUERY_ID()` immediately after
+> DESCRIBE, then reference `RESULT_SCAN($describe_qid)` in all downstream queries. Chaining
+> `RESULT_SCAN(LAST_QUERY_ID())` across multiple queries reads each previous query's result
+> instead of the DESCRIBE output.
 
 ---
 
@@ -638,93 +759,25 @@ DROP SEMANTIC VIEW IF EXISTS <db>.<schema>.__FILTER_PROBE;
 
 ---
 
-## ALTER SEMANTIC VIEW — sub-command reference
+## ALTER SEMANTIC VIEW — Supported Operations
 
-> ⚠️ **Confirmed-working ALTER operations are limited.** `ALTER SEMANTIC VIEW` supports object-level
-> metadata operations only: `RENAME TO`, `SET/UNSET COMMENT`, and `SET/UNSET TAG`. All structural
-> sub-commands below (ADD/ALTER RELATIONSHIP, ALTER COLUMN, ADD/ALTER METRIC, ADD FILTER) are
-> **unverified — most produce syntax errors in practice**. For structural changes, use
-> `CREATE OR ALTER SEMANTIC VIEW` (Preview — Open) or `CREATE OR REPLACE SEMANTIC VIEW`.
-> `ALTER METRIC ... SET EXPR` does not exist and will always fail.
+`ALTER SEMANTIC VIEW` supports only these operations (per official Snowflake docs, Sep 2026):
 
-**Confirmed working:**
-```sql
--- Rename the semantic view
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> RENAME TO <db>.<schema>.<new_name>;
+- `RENAME TO <new_name>`
+- `SET COMMENT = '...'` / `UNSET COMMENT`
+- `SET TAG <name> = '<value>'` / `UNSET TAG <name>`
+- `SET MAX_STALENESS = '<N> <unit>'` / `UNSET MAX_STALENESS`
+- `ADD MATERIALIZATION <name> WAREHOUSE = <wh> AS DIMENSIONS ... METRICS ...`
+- `DROP MATERIALIZATION <name>`
+- `SUSPEND MATERIALIZATION <name>` / `RESUME MATERIALIZATION <name>`
+- `REFRESH MATERIALIZATION <name>`
 
--- Update the top-level comment
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> SET COMMENT = '<new description>';
+**For all structural changes** (dimensions, facts, metrics, relationships, VQRs, AI instructions):
+use `CREATE OR ALTER SEMANTIC VIEW` (preserves materializations) or `CREATE OR REPLACE SEMANTIC VIEW`.
 
--- Remove the comment
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> UNSET COMMENT;
-
--- Set a tag on the semantic view
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> SET TAG <tag_name> = '<tag_value>' [, ...];
-
--- Remove a tag from the semantic view
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name> UNSET TAG <tag_name> [, ...];
-```
-
-**For any structural change (metrics, relationships, columns, facts, dimensions):**
-```sql
--- The only reliable path — replace the entire DDL
-CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ... -- full updated DDL
-```
-
----
-
-### Relationship sub-commands *(unverified — may not work)*
-
-```sql
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ADD RELATIONSHIP <rel_name>
-    FROM <left_table> (<fk_col>) REFERENCES <right_table> (<pk_col>)
-    RELATIONSHIP_TYPE = MANY_TO_ONE;
-
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ALTER RELATIONSHIP <rel_name>
-    SET RELATIONSHIP_TYPE = MANY_TO_ONE;
-```
-
-### Column sub-commands *(unverified — may not work)*
-
-```sql
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ALTER COLUMN <table_alias>.<column_name>
-    SET COMMENT = '<new description>';
-
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ALTER COLUMN <table_alias>.<column_name>
-    SET SYNONYMS = ('<syn1>', '<syn2>');
-
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ALTER COLUMN <table_alias>.<column_name>
-    SET IS_TIME_DIMENSION = TRUE;
-
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  DROP COLUMN <table_alias>.<column_name>;
-```
-
-### Metric sub-commands *(confirmed NOT supported — use CREATE OR REPLACE)*
-
-`ADD METRIC` and `ALTER METRIC SET EXPR` do not exist. There is no in-place way to add or
-modify a metric's expression. The only path is `CREATE OR REPLACE SEMANTIC VIEW` with the
-updated `METRICS` clause.
-
-### Filter sub-commands *(unverified — may not work)*
-
-```sql
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
-  ADD FILTER <filter_name>
-    ON <table_alias>
-    EXPR = '<boolean_sql_expr>'
-    DESCRIPTION = '<description>';
-```
-
-> **Note on ADD VERIFIED QUERY:** `ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY` is **not
-> supported** (syntax error). To add verified queries, use `CREATE OR REPLACE SEMANTIC VIEW`
-> with the updated `AI_VERIFIED_QUERIES` clause. See `vqr-generator/SKILL.md` Phase 5.
+`ALTER COLUMN`, `ALTER DIMENSION`, `ADD METRIC`, `ALTER METRIC`, `ADD RELATIONSHIP`,
+`ALTER RELATIONSHIP`, `DROP COLUMN`, and `ADD FILTER` are NOT supported.
+`IS_TIME_DIMENSION` is a YAML-only concept with no DDL equivalent.
 
 ---
 

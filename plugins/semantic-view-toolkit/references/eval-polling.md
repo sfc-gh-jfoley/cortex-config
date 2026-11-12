@@ -24,11 +24,15 @@ CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_P
 This is more robust than inline strings for large configs and keeps GEPA generation history auditable.
 
 ```sql
--- Step 1: Create stage (idempotent, with FILE_FORMAT)
+-- Step 1: Create stage (idempotent)
 CREATE OR REPLACE STAGE <DB>.<SCHEMA>.SV_EVAL_CONFIGS
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
-  FILE_FORMAT = (TYPE = 'YAML');
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
 ```
+
+> **Do NOT specify `FILE_FORMAT = (TYPE = 'YAML')` inline on CREATE STAGE** — this is invalid
+> syntax. If you need explicit YAML format handling, create a separate FILE FORMAT object
+> (`CREATE FILE FORMAT ... TYPE = YAML`) and reference it on the stage. For evaluation configs,
+> the simple stage above with `PUT ... AUTO_COMPRESS = FALSE` works without any FILE_FORMAT.
 
 Write config YAML to a local temp file, upload it, then call:
 
@@ -46,14 +50,13 @@ CALL EXECUTE_AI_EVALUATION(
 );
 ```
 
-## ANALYST_PREVIEW Eval Path (Primary — use when EXECUTE_AI_EVALUATION returns 392700)
+## ANALYST_PREVIEW Eval Path (Fallback)
 
-> **⚠ EXECUTE_AI_EVALUATION BROKEN FOR SV TYPE (error 392700)**
+> **Bug 392700 was fixed 2026-08-07.** `EXECUTE_AI_EVALUATION` with `analyst_type="SEMANTIC VIEW"`
+> now works correctly. Use the START/STATUS pattern above as the primary path.
 >
-> `EXECUTE_AI_EVALUATION` with `analyst_type="SEMANTIC VIEW"` currently returns error 392700
-> on all accounts. Root cause: the procedure passes the SV FQN as a plain string to the
-> internal `ANALYST_PREVIEW` call; the CA API requires a JSON object. **Use `ANALYST_PREVIEW`
-> directly until Snowflake fixes the procedure.** Verified broken as of 2026-07-23.
+> The ANALYST_PREVIEW synchronous loop below is preserved as a fallback for accounts where the
+> fix has not yet rolled out.
 
 ### Working Call Pattern
 

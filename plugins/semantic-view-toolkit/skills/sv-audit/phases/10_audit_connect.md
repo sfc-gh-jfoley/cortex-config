@@ -36,6 +36,7 @@ Run DESCRIBE to verify access and extract the full definition:
 
 ```sql
 DESCRIBE SEMANTIC VIEW <SV_FQN>;
+SET describe_qid = LAST_QUERY_ID();
 ```
 
 If this fails with an access error, **stop and report**:
@@ -143,13 +144,13 @@ Add to the scope summary line in Step 10.5:
 >
 > For **relationships**: there is no `left_table` or `right_table` column. Each relationship has multiple rows — use `"property" = 'TABLE'` for the left/source table and `"property" = 'REF_TABLE'` for the right/referenced table.
 >
-> ⚠️ **Column-name pre-flight**: Run `SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) LIMIT 0;` immediately after DESCRIBE to confirm the actual column names returned by your account version before running the queries below.
+> ⚠️ **Column-name pre-flight**: Run `SELECT * FROM TABLE(RESULT_SCAN($describe_qid)) LIMIT 0;` immediately after DESCRIBE to confirm the actual column names returned by your account version before running the queries below.
 
-Using the DESCRIBE result from Step 10.2 (re-run if needed so `LAST_QUERY_ID()` is current):
+Using the DESCRIBE result from Step 10.2 (re-run DESCRIBE and refresh `describe_qid` if needed):
 
 **Check 1 — Fan trap** (metric at coarser grain than a dimension only reachable via bridge table → inflated numbers)
 ```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 metric_tbl AS (
   SELECT DISTINCT "parent_entity" AS t
   FROM sv_meta WHERE "object_kind" = 'METRIC'
@@ -176,7 +177,7 @@ WHERE d.t != m.t;
 
 **Check 2 — Chasm trap** (two metric tables converging on shared dimension table → double counting)
 ```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 metric_tbl AS (
   SELECT DISTINCT "parent_entity" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'
 ),
@@ -196,7 +197,7 @@ JOIN rels r2 ON r2.lt = m2.t AND r2.rt = r1.rt;
 
 **Check 3 — Orphan tables** (table in SV with no RELATIONSHIP entry → queries against its columns will error at runtime)
 ```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 all_tbl AS (
   SELECT DISTINCT "object_name" AS t
   FROM sv_meta WHERE "object_kind" = 'TABLE'
@@ -240,7 +241,7 @@ Add to scope summary line in Step 10.5:
 From the DESCRIBE RESULT_SCAN, extract all METRIC rows and their EXPRESSION values:
 ```sql
 SELECT "object_name" AS metric_name, "parent_entity" AS table_name, "property_value" AS expression
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'METRIC' AND "property" = 'EXPRESSION';
 ```
 For each metric whose expression starts with `SUM(` or `COUNT(`, also retrieve the parent table's COMMENT. If any of these keywords appear in the metric name, expression, or table COMMENT: `snapshot`, `balance`, `headcount`, `inventory`, `pipeline`, `open`, `active`, `subscriber` — flag as a potential semi-additive metric missing `NON ADDITIVE BY`. Confirm with the SV owner whether the underlying data is a snapshot or a flow.
@@ -249,7 +250,7 @@ For each metric whose expression starts with `SUM(` or `COUNT(`, also retrieve t
 From DESCRIBE, extract all FACT rows with their EXPRESSION and DATA_TYPE:
 ```sql
 SELECT "object_name", "parent_entity", "property", "property_value"
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'FACT' AND "property" IN ('EXPRESSION', 'DATA_TYPE');
 ```
 DESCRIBE does not expose the LABELS=(FILTER) flag directly. Infer filter facts by DATA_TYPE: facts with `DATA_TYPE = 'BOOLEAN'` are likely FILTER-labeled. Verify the expression looks like a boolean predicate (comparison, IN list, IS NULL). For definitive confirmation of which facts carry `LABELS=(FILTER)`, inspect the full DDL:
@@ -260,7 +261,7 @@ SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
 **Check 3 — PK cardinality (the cardinality lie)**
 From DESCRIBE, extract PRIMARY_KEY and FOREIGN_KEY values to find PK columns that also appear as FK columns. `"parent_entity"` is NULL for RELATIONSHIP rows — use the pivot pattern to extract the source table from the `TABLE` property:
 ```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 pks AS (
   SELECT "object_name" AS table_name, "property_value" AS pk_col
   FROM sv_meta WHERE "object_kind" = 'TABLE' AND "property" = 'PRIMARY_KEY'
@@ -279,6 +280,10 @@ FROM pks p JOIN fks f ON CONTAINS(f.fk_col, TRIM(REPLACE(REPLACE(p.pk_col, '[', 
 WHERE f.source_table != p.table_name;
 ```
 > Note: PRIMARY_KEY and FOREIGN_KEY values are JSON arrays (e.g. `["C_CUSTKEY"]`). The CONTAINS check handles single-column keys. For composite keys, inspect manually.
+>
+> ⚠️ This overlap check compares key column name substrings across different tables, which can
+> produce false positives. It also excludes same-table overlaps that may be intentional.
+> Verify each flagged overlap manually before acting on it.
 
 Any match means the declared PK column is used as a FK in another table — it may not be unique in the parent table. Present actionable verification SQL:
 ```sql
@@ -309,7 +314,7 @@ Add to scope summary line in Step 10.5:
 Verify the SV has SQL generation instructions defined. Per Snowflake docs, DESCRIBE returns `object_kind = 'CUSTOM_INSTRUCTIONS'` rows for these. Query:
 ```sql
 SELECT "property", "property_value"
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'CUSTOM_INSTRUCTIONS';
 ```
 The `property` column will contain `AI_SQL_GENERATION` and/or `AI_QUESTION_CATEGORIZATION`. If no `CUSTOM_INSTRUCTIONS` rows exist, or none have `property = 'AI_SQL_GENERATION'` with a non-empty `property_value`, flag as HIGH — missing `AI_SQL_GENERATION`.
@@ -321,20 +326,23 @@ From DESCRIBE, count tables and columns missing COMMENT. COMMENTs appear as rows
 
 ```sql
 -- Count objects missing COMMENT by kind
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))),
+WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 has_comment AS (
-  SELECT "object_kind", "object_name"
+  SELECT "object_kind", "object_name", "parent_entity"
   FROM sv_meta WHERE "property" = 'COMMENT' AND "property_value" IS NOT NULL
 ),
 all_objects AS (
-  SELECT DISTINCT "object_kind", "object_name"
+  SELECT DISTINCT "object_kind", "object_name", "parent_entity"
   FROM sv_meta WHERE "object_kind" IN ('TABLE','FACT','DIMENSION','METRIC')
 )
-SELECT a."object_kind", COUNT(*) AS missing_comment_count
+SELECT a."object_kind", a."parent_entity", COUNT(*) AS missing_comment_count
 FROM all_objects a
-LEFT JOIN has_comment h ON a."object_kind" = h."object_kind" AND a."object_name" = h."object_name"
+LEFT JOIN has_comment h
+  ON a."object_kind" = h."object_kind"
+ AND a."object_name" = h."object_name"
+ AND COALESCE(a."parent_entity", '') = COALESCE(h."parent_entity", '')
 WHERE h."object_name" IS NULL
-GROUP BY a."object_kind";
+GROUP BY a."object_kind", a."parent_entity";
 ```
 
 | Threshold | Severity |
@@ -427,6 +435,9 @@ WHERE TABLE_SCHEMA = '<schema>'
 ```
 
 > If the SV spans multiple databases, run one query per database using that database's `INFORMATION_SCHEMA`.
+>
+> ⚠️ When relationship endpoints span different schemas, query each endpoint's schema separately.
+> The current query assumes both sides are in the same schema.
 
 **Severity rules:**
 

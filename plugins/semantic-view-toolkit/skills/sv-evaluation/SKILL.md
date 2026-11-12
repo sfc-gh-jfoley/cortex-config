@@ -62,7 +62,7 @@ If this fails with permission error → report missing grants and stop.
 
 **Step 3: Check VQRs Exist**
 
-Parse the DDL output from DESCRIBE to count `verified_queries` entries. If 0 VQRs:
+Count VQRs from the DESCRIBE output by filtering for `"object_kind" = 'AI_VERIFIED_QUERY'` rows. If 0 VQRs:
 - Report: "No verified queries found. Evaluation requires VQRs as ground truth."
 - Offer: "Route to vqr-generator to create VQRs first?"
 - STOP (cannot evaluate without VQRs)
@@ -111,10 +111,10 @@ B) Exclude contaminated VQRs from this eval run
 > `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG`
 > → VQR SQL uses `DELETED_FLAG` (right side), not `IS_DELETED` (left side)
 >
-> DESCRIBE SEMANTIC VIEW shows property `PHYSICAL_EXPR` per dimension.
-> Always cross-check VQR SQL column references against PHYSICAL_EXPR, not the logical name.
+> DESCRIBE SEMANTIC VIEW shows property `EXPRESSION` per dimension.
+> Always cross-check VQR SQL column references against EXPRESSION, not the logical name.
 
-Run all pre-flight checks from `references/vqr-eval-health.md` (Checks 1–8). This catches
+Run all pre-flight checks from `../../references/vqr-eval-health.md` (Checks 1–8). This catches
 every known category of silent eval failure before any compute is spent.
 
 ```
@@ -133,14 +133,14 @@ Checks to run:
   `LOGICAL_TABLE.logical_column_name AS physical_expr`. VQR SQL must reference the
   **physical_expr** (right side of AS), not the logical name (left side).
   Example: `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG` → VQR SQL must use `DELETED_FLAG`.
-  `DESCRIBE SEMANTIC VIEW` exposes a `PHYSICAL_EXPR` property per dimension — cross-check
-  all VQR SQL column references against `PHYSICAL_EXPR` values, not the logical names.
+`DESCRIBE SEMANTIC VIEW` exposes an `EXPRESSION` property per dimension — cross-check
+all VQR SQL column references against `EXPRESSION` values, not the logical names.
 
 **STOP Gate — Check 3 CRITICAL:**
 When `with extension (CA='...')` is found in GET_DDL output:
 
   A) Create a DDL-only eval copy (recommended):
-     Follow the inline procedure in `references/vqr-eval-health.md` Check 3,
+     Follow the inline procedure in `../../references/vqr-eval-health.md` Check 3,
      "Remediation — create a DDL-only eval copy". It starts with `validate_fqn()`
      and covers: bound-parameter GET_DDL, CA block strip with a post-strip guard,
      and validated/quoted identifiers for the eval copy name.
@@ -169,11 +169,9 @@ it compiles and returns rows without error. Failures here will silently inflate
 eval scores downward — the eval framework counts execution errors as score 0.
 
 ```sql
--- For each VQR:
-SELECT COUNT(*) FROM (
-    <vqr_sql>
-) LIMIT 0;
--- LIMIT 0: only checks compilation, no data scan cost
+-- Compile-check: wrap VQR SQL in a CTE and select nothing — validates syntax without data scan
+WITH vqr_check AS (<vqr_sql>)
+SELECT 1 FROM vqr_check WHERE FALSE;
 ```
 
 Classify each VQR:
@@ -236,6 +234,11 @@ SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
 -- Must include MONITOR for current role
 ```
 
+> Note: This check only verifies direct grants to the current role. Inherited grants from
+> parent roles and PUBLIC grants are not detected. A false negative here does not necessarily
+> mean the privilege is missing — verify with `SHOW GRANTS TO ROLE` if a direct grant check
+> returns empty.
+
 **⚠️ Primary Role Warning:** EXECUTE_AI_EVALUATION can only be called from a primary role. If your current role is not primary (e.g., a secondary role or a role in a role hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
 
 Report any missing grants with remediation DDL:
@@ -281,21 +284,38 @@ Build the evaluation configuration:
 
 ```yaml
 evaluation:
-  analyst_params:
-    analyst_name: "<SV_NAME>"
-    analyst_type: "SEMANTIC VIEW"
+  agent_params:
+    agent_name: "<DB>.<SCHEMA>.<SV_NAME>"
+    agent_type: "SEMANTIC VIEW"
   source_metadata:
-    type: "verified_queries"
-    # If subset selected, include explicit list:
-    verified_queries:
-      - "What is the total revenue by region for Q4?"
-      - "Show me the top 10 customers by order count"
+    type: "dataset"
+    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
 
 metrics:
   - "sql_correctness"
 ```
 
-If ALL VQRs selected, omit the `verified_queries` list (evaluates all embedded VQRs).
+### Ground Truth Format
+
+The `ground_truth_output` value in your evaluation dataset determines answer_correctness scoring.
+The v3 judge compares the agent's full streamed response against this value.
+
+**Use actual expected values, not prose descriptions:**
+- GOOD: `"Music ($925.79B), Shoes ($924.22B), Sports ($923.09B)... Total across 10 categories is ~$9.19T"`
+- BAD: `"Returns net sales broken down by the 10 item categories"`
+
+**Include:**
+- Specific numbers, names, and counts the response must contain
+- Tolerance guidance when exact values may vary ("within ±2%", "rounding to nearest billion acceptable")
+- Expected row count and column structure for tabular answers
+- Scoping ("for year 2001 only", "California stores only")
+
+**For out-of-scope questions:**
+- `"The response should state this is outside the agent's scope and suggest what it can help with"`
+
+Prose rubrics that describe what the answer *should look like* without stating actual values
+will score 0.0 on answer_correctness because the judge cannot match the agent's data tables
+against a structural description.
 
 **Step 7a: SV Eval Target Check**
 
@@ -305,23 +325,22 @@ Confirm which SV you are evaluating against:
 - **Original SV (has CA extension / Snowsight-built):** Step 3d should have routed you to a
   DDL-only eval copy. If you chose to proceed anyway, note results may be unreliable.
 - **Variant / test SV (created for A/B comparison):** Confirm it was created using the strip
-  procedure from `references/vqr-eval-health.md` Check 3. A variant SV that retains a CA
+  procedure from `../../references/vqr-eval-health.md` Check 3. A variant SV that retains a CA
   extension from the original will have the same column-drop bug.
 
 > If the variant SV was created by hand (not from the strip procedure), run the CA extension
 > detection check now before proceeding:
 > ```sql
-> SELECT CASE WHEN REGEXP_INSTR(GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>'),
+> SELECT CASE WHEN REGEXP_INSTR(LOWER(GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')),
 >   'with extension') > 0 THEN 'CA_EXTENSION_PRESENT' ELSE 'CLEAN' END AS ca_status;
 > ```
 
 **Step 8: Create Stage and Upload Config**
 
 ```sql
--- Create eval config stage (idempotent, with FILE_FORMAT)
-CREATE OR REPLACE STAGE <DB>.<SCHEMA>.SV_EVAL_CONFIGS
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
-  FILE_FORMAT = (TYPE = 'YAML');
+-- Create eval config stage (idempotent — does not destroy existing configs)
+CREATE STAGE IF NOT EXISTS <DB>.<SCHEMA>.SV_EVAL_CONFIGS
+  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
 ```
 
 Write config to local temp file, then upload:
@@ -350,10 +369,14 @@ physical FQNs (from DESCRIBE `BASE_TABLE_*` properties) and run EXPLAIN:
 
 ```sql
 -- Substitute __LOGICAL_ALIAS → DB.SCHEMA.TABLE, then:
+-- ⚠️ This substitution only replaces table aliases, not logical column names. If a VQR uses
+-- renamed/derived columns (e.g., `order_year` which maps to `YEAR(o_orderdate)`), the simple
+-- alias replacement won't expand the expression. For full validation, use the SV's own query
+-- engine rather than manual substitution.
 EXPLAIN USING TABULAR <vqr_sql_with_fqn_substituted>;
 ```
 
-Also validate CA extension JSON if present (from `references/vqr-eval-health.md` Check 3 strip
+Also validate CA extension JSON if present (from `../../references/vqr-eval-health.md` Check 3 strip
 procedure):
 ```sql
 SELECT PARSE_JSON('<ca_json_here>') IS NOT NULL AS ca_json_valid;
@@ -483,9 +506,9 @@ SELECT * FROM (
 WHERE change_type != 'UNCHANGED';
 ```
 
-> `change_type` is a SELECT alias, so it is not visible to `WHERE` in the same
-> query block — Snowflake evaluates `WHERE` before `SELECT` and would raise
-> `invalid identifier 'CHANGE_TYPE'`. Wrap and filter in the outer block as above.
+> `change_type` is a SELECT alias, and Snowflake supports SELECT aliases in WHERE for scalar
+> expressions, but complex expressions may need wrapping. Keep the outer filter pattern above
+> when you want to avoid alias-resolution edge cases.
 
 **Step 15: Categorize Failures**
 
@@ -636,7 +659,7 @@ FROM raw;
 | Eval CANCELLED | System issue or manual cancel | Retry once |
 | Permission denied on EXECUTE_AI_EVALUATION | Missing CORTEX_USER or EXECUTE TASK | Run grant remediation |
 | Timeout (>15min) | Too many VQRs or system load | Use subset, retry later |
-| Near-zero mean score across all VQRs | CA extension column-drop bug, FQN table refs, or wrong SV target | Run failure diagnosis — see `references/vqr-eval-health.md` Patterns A–C |
+| Near-zero mean score across all VQRs | CA extension column-drop bug, FQN table refs, or wrong SV target | Run failure diagnosis — see `../../references/vqr-eval-health.md` Patterns A–C |
 | `invalid identifier` in ground-truth errors | CA extension drops columns from CTE construction | Check 3 in vqr-eval-health.md — create DDL-only eval copy |
 | Score asymmetry between VQR styles (e.g. 34% vs 6% pre-scoring failure rate) | CA extension column-drop, not a naming-style signal | Do not interpret as model accuracy difference — see Pattern A in vqr-eval-health.md |
 

@@ -85,3 +85,4 @@ def test_cli_evidence_dispatch(monkeypatch):
         payload = json.dumps({"expected": expected, "observed": observed})
         monkeypatch.setattr(builtins, "open", lambda *args, **kwargs: io.StringIO(payload))
         assert validator._cli_main() == status
+

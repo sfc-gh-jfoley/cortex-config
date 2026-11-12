@@ -15,16 +15,12 @@ description: Polling patterns, config format, and result extraction for EXECUTE_
 
 ```yaml
 evaluation:
-  analyst_params:
-    analyst_name: "<DB>.<SCHEMA>.<SV_NAME>"   # MUST be 3-part FQN
-    analyst_type: "SEMANTIC VIEW"
+  agent_params:
+    agent_name: "<DB>.<SCHEMA>.<SV_NAME>"   # MUST be 3-part FQN
+    agent_type: "SEMANTIC VIEW"
   source_metadata:
-    type: "verified_queries"
-    # Omit verified_queries list to evaluate ALL embedded VQRs.
-    # To evaluate a subset, add:
-    # verified_queries:
-    #   - "Question text 1"
-    #   - "Question text 2"
+    type: "dataset"
+    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
 
 metrics:
   - "sql_correctness"
@@ -39,8 +35,13 @@ metrics:
 ```sql
 CREATE OR REPLACE STAGE <DB>.<SCHEMA>.SV_EVAL_CONFIGS
   ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
--- Note: do NOT specify FILE_FORMAT = (TYPE = 'YAML') — that parameter is invalid.
 ```
+
+> **FILE_FORMAT note:** Do NOT specify `FILE_FORMAT = (TYPE = 'YAML')` inline on CREATE STAGE —
+> this is invalid syntax. If you need explicit YAML format handling, create a separate FILE FORMAT
+> object: `CREATE FILE FORMAT ... TYPE = YAML`, then reference it on the stage. For evaluation
+> configs, the simple stage above (with `PUT ... AUTO_COMPRESS = FALSE`) works without any
+> FILE_FORMAT.
 
 Upload config (requires SnowSQL or `snow sql` CLI — PUT is not supported in sql_execute):
 

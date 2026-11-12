@@ -16,6 +16,7 @@ Detailed guide for diagnosing semantic view evaluation failures by category. Use
 | Empty result set | Filter too restrictive or wrong table | `change_relationship`, `add_filter` |
 | Analyst refuses | Question out of SV scope | `add_vqr` (teach by example) |
 | Reference contaminated | Model applies metric filter; reference SQL does not | **Read-only analysis** (do not modify VQR) |
+| **TIMEOUT** | Agent output contains "time limit" or "incomplete" | **Infrastructure fix** — increase `orchestration.budget.seconds` or upsize warehouse. Do NOT apply mutation operators. |
 
 | FAN_TRAP | Generated SQL applies additive aggregate above many-to-one join; reference pre-aggregates | Move metric to bridge-table grain; see Section 9 |
 | CHASM_TRAP | Generated SQL joins two fact tables on shared dim without per-fact CTEs | Pre-aggregate each fact to shared dimension grain; see Section 10 |
@@ -42,7 +43,7 @@ WITH failures AS (
         '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<eval_name>'
     ))
     WHERE METRIC_NAME = 'sql_correctness'
-      AND EVAL_AGG_SCORE < 1.0
+      AND (EVAL_AGG_SCORE < 1.0 OR ERROR IS NOT NULL)
 )
 SELECT * FROM failures;
 ```
@@ -57,10 +58,15 @@ EXPLAIN USING TABULAR <reference_sql>;
 
 ### Step C: Classify by structural diff
 
+> **Check for TIMEOUT first.** Before running EXPLAIN-based classification, check if the agent
+> output contains "time limit" or "incomplete". If so, classify as **TIMEOUT** immediately —
+> do not waste cycles on structural analysis of a response that never produced SQL.
+
 | EXPLAIN signal | Category |
 |---|---|
+| Agent output contains "time limit" or "incomplete" | **TIMEOUT** — infrastructure fix, not a mutation target |
 | Different `objects` in TableScan rows | **WRONG_TABLE** |
-| Fewer or different join keys (joinkey column) | **JOIN_HALLUCINATION** |
+| Join predicates differ between generated and reference plans | **JOIN_HALLUCINATION** |
 | SUM/COUNT aggregate above a Join node not in reference plan | **FAN_TRAP** |
 | Two separate Aggregate→TableScan paths converge at a Join; reference uses CTEs | **CHASM_TRAP** |
 | Same tables/joins but GROUP BY columns differ | **GRANULARITY_MISMATCH** |
@@ -77,7 +83,7 @@ Compare `generated_sql` and `reference_sql` columns from eval results:
 WITH raw AS (
   SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
   FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<eval_name>'
   ))
   WHERE METRIC_NAME = 'sql_correctness'
 )
@@ -86,7 +92,7 @@ SELECT
     OUTPUT AS generated_sql,
     GROUND_TRUTH AS reference_sql
 FROM raw
-WHERE EVAL_AGG_SCORE < 1.0;
+WHERE EVAL_AGG_SCORE < 1.0 OR ERROR IS NOT NULL;
 ```
 
 **Signals:**
@@ -125,17 +131,20 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 
 **Add missing relationship:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ADD RELATIONSHIP orders_to_customers
-    FROM orders (customer_id) REFERENCES customers (id)
-    RELATIONSHIP_TYPE = MANY_TO_ONE;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the RELATIONSHIPS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders (customer_id) REFERENCES customers
 ```
 
 **Modify wrong join type:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER RELATIONSHIP orders_to_products
-    SET RELATIONSHIP_TYPE = MANY_TO_ONE;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the RELATIONSHIPS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders (product_id) REFERENCES products
 ```
 
 ---
@@ -179,22 +188,29 @@ Compare the failed question's phrasing against column names and synonyms. If the
 
 **If column description is vague or missing:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER COLUMN orders.created_date
-    SET COMMENT = 'Internal record creation timestamp. NOT the business order date. Use ORDER_DATE for when the customer placed the order.';
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the DIMENSIONS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.created_date AS created_date WITH SYNONYMS = ('record creation timestamp') COMMENT = 'Internal record creation timestamp. NOT the business order date. Use ORDER_DATE for when the customer placed the order.'
 ```
 
 **If user phrasing doesn't match column name:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER COLUMN orders.order_placed_at
-    SET SYNONYMS = ('order date', 'date ordered', 'purchase date');
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the DIMENSIONS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.order_placed_at AS order_placed_at WITH SYNONYMS = ('order date', 'date ordered', 'purchase date') COMMENT = 'Business date when the customer placed the order.'
 ```
 
 **If too many confusing columns → consider `remove_column`:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  DROP COLUMN orders.internal_audit_timestamp;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then remove the column from the DIMENSIONS or FACTS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+-- Remove `orders.internal_audit_timestamp AS internal_audit_timestamp ...` from the clause list.
 ```
 
 ---
@@ -242,19 +258,20 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 
 **Missing metric → `add_metric`:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ADD METRIC average_order_value
-    EXPR = 'AVG(orders.amount)'
-    DESCRIPTION = 'Average order value across all orders'
-    DEFAULT_AGGREGATION = AVG;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the METRICS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.average_order_value AS AVG(orders.amount) COMMENT = 'Average order value across all orders'
 ```
 
 **Wrong aggregation → `refine_metric_expr`:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER METRIC total_unique_customers
-    SET EXPR = 'COUNT(DISTINCT orders.customer_id)'
-    SET DEFAULT_AGGREGATION = COUNT;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the METRICS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.total_unique_customers AS COUNT(DISTINCT orders.customer_id) COMMENT = 'Count of unique customers who placed an order'
 ```
 
 ---
@@ -297,22 +314,22 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 ### Fix: `add_time_dimension`
 
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER COLUMN orders.order_date
-    SET IS_TIME_DIMENSION = TRUE
-    SET COMMENT = 'Primary time axis for order analysis. Use for all time-based trending, filtering, and aggregation.';
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the DIMENSIONS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.order_date AS order_date WITH SYNONYMS = ('order date', 'sales date', 'transaction date') COMMENT = 'Primary business date for order analysis. Use for time-based trending, filtering, and aggregation.'
 ```
 
 If multiple tables each have their own time dimension, mark the primary one per table:
 
 ```sql
--- orders table: order_date
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER COLUMN orders.order_date SET IS_TIME_DIMENSION = TRUE;
-
--- customers table: signup_date
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER COLUMN customers.signup_date SET IS_TIME_DIMENSION = TRUE;
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the DIMENSIONS section for each table and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragments:
+orders.order_date AS order_date WITH SYNONYMS = ('order date', 'sales date', 'transaction date') COMMENT = 'Primary business date for order analysis on orders.'
+customers.signup_date AS signup_date WITH SYNONYMS = ('signup date', 'registration date', 'customer created date') COMMENT = 'Primary business date for customer lifecycle analysis.'
 ```
 
 ---
@@ -354,10 +371,11 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 This category requires direct SV editing — no single mutation operator handles it cleanly:
 
 ```sql
--- Fix typo in metric expression
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER METRIC total_revenue
-    SET EXPR = 'SUM(orders.revenue)';  -- was 'orders.revnue' (typo)
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the METRICS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+orders.total_revenue AS SUM(orders.revenue) COMMENT = 'Total revenue across all orders'
 ```
 
 ---
@@ -402,19 +420,20 @@ SELECT COUNT(*) FROM table_a JOIN table_b ON ...;
 
 **Wrong join keys → `change_relationship`:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ALTER RELATIONSHIP cust_to_region
-    SET FROM_COLUMN = 'region_code'  -- was 'region_id'
-    SET TO_COLUMN = 'code';
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then edit the RELATIONSHIPS section and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+customers (region_code) REFERENCES regions
 ```
 
 **Need named filter with correct values → `add_filter`:**
 ```sql
-ALTER SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  ADD FILTER active_apac_customers
-    ON customers
-    EXPR = "status = 'ACTIVE' AND region = 'APAC'"
-    DESCRIPTION = 'Active customers in the APAC region';
+-- Fix: Obtain current DDL with GET_DDL, modify the relevant clause, deploy with CREATE OR ALTER:
+-- SELECT GET_DDL('semantic_view', '<DB>.<SCHEMA>.<SV_NAME>');
+-- Then add or update a FILTER-labeled boolean field plus AI_SQL_GENERATION guidance, and run CREATE OR ALTER SEMANTIC VIEW.
+-- Example of the corrected clause fragment:
+customers.is_active_apac AS IFF(status = 'ACTIVE' AND region = 'APAC', TRUE, FALSE) COMMENT = 'True when the customer is active and in the APAC region' LABELS = (FILTER)
 ```
 
 ---
@@ -495,7 +514,7 @@ SELECT
   SUM(sales_exc_tax_usd)                                             AS reference_result,
   SUM(CASE WHEN refunded_ind = 0 THEN sales_exc_tax_usd ELSE 0 END) AS metric_result,
   reference_result - metric_result                                   AS gap,
-  ROUND((gap / reference_result) * 100, 2)                          AS gap_pct
+  ROUND((gap / NULLIF(reference_result, 0)) * 100, 2)                 AS gap_pct
 FROM <fact_table>
 JOIN <date_dim> ON ...
 WHERE relative_month_num = -1;
@@ -571,7 +590,7 @@ When analyzing multiple failures, group by category to identify systemic issues:
 WITH raw AS (
   SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR, EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
   FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_FQN>', 'SEMANTIC VIEW', '<eval_name>'
+    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<eval_name>'
   ))
   WHERE METRIC_NAME = 'sql_correctness'
 ),
@@ -589,7 +608,7 @@ failures AS (
             ELSE 'logic_error'
         END AS failure_type
     FROM raw
-    WHERE sql_correctness < 1.0
+    WHERE sql_correctness < 1.0 OR ERROR IS NOT NULL
 )
 SELECT
     failure_type,

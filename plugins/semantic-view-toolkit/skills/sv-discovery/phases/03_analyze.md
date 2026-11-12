@@ -142,10 +142,11 @@ For each table in each domain, annotate its source type:
 
 For dynamic tables, query the lag:
 ```sql
-SELECT NAME, TARGET_LAG
-FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.DYNAMIC_TABLES
-WHERE NAME IN (<domain_tables>)
-    AND SCHEMA_NAME IN (<DISCOVERY_SCHEMAS>);
+SHOW DYNAMIC TABLES IN DATABASE <DISCOVERY_DB>
+  ->> SELECT "name" AS NAME, "target_lag" AS TARGET_LAG
+      FROM $1
+      WHERE "name" IN (<domain_tables>)
+        AND "schema_name" IN (<DISCOVERY_SCHEMAS>);
 ```
 
 ---

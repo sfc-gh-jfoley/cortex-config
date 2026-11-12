@@ -96,7 +96,7 @@ Replace every `DB.SCHEMA.table_name` or bare `table_name` table reference in VQR
 
 ## 4b. Snippet Pattern Gaps
 
-Run the snippet pattern scorer against the current SV DDL (from `DESCRIBE SEMANTIC VIEW`)
+Run the snippet pattern scorer against the current SV DDL (from `SELECT GET_DDL('semantic_view', '<SV_FQN>')`)
 and the source table schemas. Read `../../../references/sv-snippet-patterns.md`.
 
 For each pattern that is MATCH or POSSIBLE but NOT already implemented in the SV, surface it here.

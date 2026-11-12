@@ -135,7 +135,7 @@ SELECT
     AVG(TOTAL_ELAPSED_TIME) / 1000.0 AS avg_seconds,
     COUNT(DISTINCT USER_NAME) AS distinct_users
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-WHERE QUERY_START_TIME >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+WHERE START_TIME >= DATEADD('day', -30, CURRENT_TIMESTAMP())
   AND QUERY_TYPE = 'SELECT'
   AND (
       QUERY_TEXT ILIKE '%SEMANTIC_VIEW(%'
@@ -321,8 +321,8 @@ Subsequent refreshes show `REFRESH` or `NO_DATA` (no new data since last refresh
 SELECT query_text, total_elapsed_time, bytes_scanned
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
 WHERE query_text ILIKE '%SEMANTIC_VIEW(<sv_name>%'
-  AND query_start_time >= DATEADD('hour', -2, CURRENT_TIMESTAMP())
-ORDER BY query_start_time DESC;
+  AND START_TIME >= DATEADD('hour', -2, CURRENT_TIMESTAMP())
+ORDER BY START_TIME DESC;
 ```
 
 ---

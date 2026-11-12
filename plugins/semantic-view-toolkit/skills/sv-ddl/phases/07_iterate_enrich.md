@@ -73,13 +73,17 @@ CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
 
 For each question that failed or warned in Phase 6, improve the relevant column descriptions:
 
-### Option A: Patch individual column descriptions
+### Option A: Rebuild with CREATE OR ALTER
+
+> `ALTER SEMANTIC VIEW ... ALTER DIMENSION` is not a supported sub-command.
+> Use `CREATE OR ALTER SEMANTIC VIEW` to modify column descriptions — this preserves
+> materializations and avoids the ownership/grant reset of `CREATE OR REPLACE`.
 
 ```sql
--- Improve a dimension description to help Cortex Analyst understand it
-ALTER SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
-  ALTER DIMENSION <table_alias>.<dim_name>
-  SET COMMENT = '<improved description with explicit values and usage guidance>';
+-- Get current DDL, edit the COMMENT on the target dimension, then redeploy:
+-- SELECT GET_DDL('semantic_view', '<SV_DB>.<SV_SCHEMA>.<SV_NAME>');
+-- Edit the DIMENSIONS clause, changing the COMMENT for the target dimension.
+-- Then run CREATE OR ALTER SEMANTIC VIEW with the full updated definition.
 ```
 
 ### Option B: Rebuild with CREATE OR REPLACE
@@ -104,10 +108,16 @@ Common additions:
 - Date handling: `Use DATE_TRUNC('month', ACQUISITION_DATE) for monthly grouping`
 - Aggregation preferences: `Use COUNT(DISTINCT DEALER_ID) for unique dealer counts, not COUNT(*)`
 
-Update via:
+Update via `CREATE OR ALTER SEMANTIC VIEW` (include the AI_SQL_GENERATION clause in the full definition):
+
+> `ALTER SEMANTIC VIEW ... SET AI_SQL_GENERATION` is not a supported sub-command.
+> Include the AI_SQL_GENERATION clause in a `CREATE OR ALTER SEMANTIC VIEW` statement.
+
 ```sql
-ALTER SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
-  SET AI_SQL_GENERATION = '<updated instructions>';
+-- Get current DDL, add/update the AI_SQL_GENERATION clause, then redeploy:
+-- SELECT GET_DDL('semantic_view', '<SV_DB>.<SV_SCHEMA>.<SV_NAME>');
+-- Add or edit the AI_SQL_GENERATION '<instructions>' clause after COMMENT.
+-- Then run CREATE OR ALTER SEMANTIC VIEW with the full updated definition.
 ```
 
 ---
@@ -137,11 +147,16 @@ For each CSS found, check if any text DIMENSION in the semantic view maps to the
 - `USING <source_col>` is only needed if the CSS source column name differs from the dimension's physical column
 - Present each CSS linking suggestion as optional — user can accept or skip
 
-Update via `ALTER SEMANTIC VIEW` or include in `CREATE OR REPLACE`:
+Update via `CREATE OR ALTER SEMANTIC VIEW` (add `WITH CORTEX SEARCH SERVICE` to the dimension in the full definition):
+
+> `ALTER SEMANTIC VIEW ... ALTER DIMENSION ... SET CORTEX SEARCH SERVICE` is not supported.
+> Include the CSS linkage in the dimension's definition within `CREATE OR ALTER SEMANTIC VIEW`.
+
 ```sql
-ALTER SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
-  ALTER DIMENSION <table_alias>.<dim_name>
-  SET CORTEX SEARCH SERVICE = <db>.<schema>.<css_name>;
+-- In the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+<table_alias>.<dim_name> AS <col>
+  COMMENT = '...'
+  WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name>
 ```
 
 ---

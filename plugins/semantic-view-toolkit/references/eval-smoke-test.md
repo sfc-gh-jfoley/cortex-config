@@ -4,7 +4,7 @@
 
 This 10-step SQL script confirms:
 - Permissions and prerequisites
-- Stage DDL with FILE_FORMAT
+- Stage DDL
 - YAML config upload
 - Evaluation launch and polling
 - Result retrieval via new 5-arg function
@@ -39,7 +39,7 @@ causing ground-truth SQL failures before any model comparison happens.
 SELECT
     CASE
         WHEN REGEXP_INSTR(
-            GET_DDL('SEMANTIC VIEW', 'MY_DB.MY_SCHEMA.MY_SV'),
+            LOWER(GET_DDL('SEMANTIC VIEW', 'MY_DB.MY_SCHEMA.MY_SV')),
             'with extension'
         ) > 0 THEN 'CA_EXTENSION_PRESENT — eval results may be unreliable (see vqr-eval-health.md Check 3)'
         ELSE 'CLEAN — no CA extension, eval will run reliably'
@@ -62,15 +62,18 @@ Confirm the semantic view has at least 5 VQRs registered.
 
 ```sql
 -- Replace MY_DB, MY_SCHEMA, MY_SV with your values
+-- Count VQRs from DESCRIBE output
+DESCRIBE SEMANTIC VIEW MY_DB.MY_SCHEMA.MY_SV;
+
+-- Then count AI_VERIFIED_QUERY rows:
 SELECT
-    COUNT(*) AS vqr_count,
+    COUNT(DISTINCT "object_name") AS vqr_count,
     CASE
-        WHEN COUNT(*) >= 5 THEN 'PASS: Sufficient VQRs'
+        WHEN COUNT(DISTINCT "object_name") >= 5 THEN 'PASS: Sufficient VQRs'
         ELSE 'FAIL: Need at least 5 VQRs'
     END AS gate_status
-FROM SNOWFLAKE.LOCAL.GET_VERIFIED_QUERIES(
-    'MY_DB', 'MY_SCHEMA', 'MY_SV', 'SEMANTIC VIEW'
-);
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "object_kind" = 'AI_VERIFIED_QUERY';
 ```
 
 **Expected:** VQR count >= 5, status = 'PASS'
@@ -82,96 +85,46 @@ FROM SNOWFLAKE.LOCAL.GET_VERIFIED_QUERIES(
 Check that the executing role has all required privileges:
 
 ```sql
--- Grant verification (all must return privilege_granted = TRUE)
-SELECT
-    'USAGE on warehouse' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.ROLE_USAGE_GRANTS
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND GRANTED_ON = 'WAREHOUSE'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'USAGE on database (MY_DB)' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.DATABASE_PRIVILEGES
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND PRIVILEGE = 'USAGE'
-            AND TABLE_CATALOG = 'MY_DB'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'USAGE on schema (MY_SCHEMA)' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.SCHEMA_PRIVILEGES
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND PRIVILEGE = 'USAGE'
-            AND TABLE_SCHEMA = 'MY_DB.MY_SCHEMA'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'SELECT on semantic view (MY_SV)' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND PRIVILEGE = 'SELECT'
-            AND TABLE_NAME = 'MY_SV'
-            AND TABLE_SCHEMA = 'MY_DB.MY_SCHEMA'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'USE AI FUNCTIONS' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.USAGE_PRIVILEGES
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND PRIVILEGE = 'USE'
-            AND OBJECT_NAME = 'CORTEX'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'MONITOR on database (MY_DB)' AS grant_name,
-    CASE
-        WHEN EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.DATABASE_PRIVILEGES
-            WHERE GRANTEE_NAME = CURRENT_ROLE()
-            AND PRIVILEGE = 'MONITOR'
-            AND TABLE_CATALOG = 'MY_DB'
-        ) THEN TRUE ELSE FALSE END AS privilege_granted
-UNION ALL
-SELECT
-    'SELECT on underlying tables' AS grant_name,
-    TRUE AS privilege_granted  -- Simplified; ideally check each table
-UNION ALL
-SELECT
-    'SELECT on data dictionary' AS grant_name,
-    TRUE AS privilege_granted  -- Simplified; check INFORMATION_SCHEMA access
-ORDER BY grant_name;
+-- Grant verification using SHOW GRANTS (the only reliable way in Snowflake).
+-- INFORMATION_SCHEMA.DATABASE_PRIVILEGES, SCHEMA_PRIVILEGES, and ROLE_USAGE_GRANTS
+-- do not exist. Use SHOW GRANTS TO ROLE and filter the results.
+
+-- Check all privileges granted to the current role:
+SHOW GRANTS TO ROLE IDENTIFIER(CURRENT_ROLE())
+  ->> SELECT "privilege", "granted_on", "name"
+      FROM $1
+      WHERE ("privilege" = 'USAGE' AND "granted_on" = 'WAREHOUSE')
+         OR ("privilege" = 'USAGE' AND "granted_on" = 'DATABASE' AND "name" = 'MY_DB')
+         OR ("privilege" = 'USAGE' AND "granted_on" = 'SCHEMA' AND "name" = 'MY_DB.MY_SCHEMA')
+         OR ("privilege" = 'SELECT' AND "name" LIKE '%MY_SV%')
+         OR ("privilege" = 'MONITOR' AND "granted_on" = 'DATABASE')
+      ORDER BY "granted_on", "privilege";
+
+-- For TABLE_PRIVILEGES (this view DOES exist) — check SELECT on SV:
+SELECT GRANTEE, PRIVILEGE_TYPE, TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLE_PRIVILEGES
+WHERE TABLE_NAME = 'MY_SV'
+  AND TABLE_SCHEMA = 'MY_SCHEMA';
 ```
 
 **Expected:** All rows show `privilege_granted = TRUE`
 
 ---
 
-### Step 3: Create Stage with FILE_FORMAT
+### Step 3: Create Stage
 
-Create (or replace) the stage for evaluation configs with proper FILE_FORMAT.
+Create (or replace) the stage for evaluation configs.
 
 ```sql
--- Create stage with FILE_FORMAT and encryption
+-- Create stage with encryption (do NOT specify FILE_FORMAT — 'YAML' is not a valid type)
 CREATE OR REPLACE STAGE MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS
-    ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
-    FILE_FORMAT = (TYPE = 'YAML');
+    ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
 
 -- Verify stage creation
 SHOW STAGES LIKE 'SV_EVAL_CONFIGS' IN SCHEMA MY_DB.MY_SCHEMA;
 ```
 
-**Expected:** Stage exists, FILE_FORMAT shows 'YAML'
+**Expected:** Stage exists
 
 ---
 
@@ -183,11 +136,12 @@ Upload a config YAML file to the stage without compression.
 -- First, create the YAML config locally (pseudo-code; use actual temp file)
 -- Content of /tmp/eval_config.yaml:
 -- evaluation:
---   analyst_params:
---     analyst_name: "MY_SV"
---     analyst_type: "SEMANTIC VIEW"
+--   agent_params:
+--     agent_name: "MY_DB.MY_SCHEMA.MY_SV"
+--     agent_type: "SEMANTIC VIEW"
 --   source_metadata:
---     type: "verified_queries"
+--     type: "dataset"
+--     dataset_name: "MY_DB.MY_SCHEMA.MY_EVAL_DATASET"
 --
 -- metrics:
 --   - "sql_correctness"
@@ -207,49 +161,36 @@ LIST @MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/;
 
 ### Step 5: Launch Evaluation with New START Pattern
 
-Start the evaluation using `SNOWFLAKE.CORTEX.ANALYST_PREVIEW` — the working eval path for `analyst_type='SEMANTIC VIEW'`.
-
-> **Why ANALYST_PREVIEW, not EXECUTE_AI_EVALUATION.** `EXECUTE_AI_EVALUATION` is broken for `analyst_type='SEMANTIC VIEW'` (error 392700, as of Jul 2026): it passes the SV FQN as a plain string where the internal `ANALYST_PREVIEW` call requires a JSON object. Use `ANALYST_PREVIEW` directly. The payload MUST be a constant string literal (not `OBJECT_CONSTRUCT` — error 001015 otherwise). See `references/eval-polling.md § "ANALYST_PREVIEW Eval Path"` for the full pattern.
+Launch evaluation using native `EXECUTE_AI_EVALUATION` (bug 392700 fixed 2026-08-07).
 
 ```sql
--- Launch a smoke-test eval for ONE question against the staged YAML.
--- Repeat per question in eval_config.yaml; ANALYST_PREVIEW is synchronous (no STATUS polling).
-SELECT SNOWFLAKE.CORTEX.ANALYST_PREVIEW('{
-  "messages": [{"role": "user", "content": [{"type": "text", "text": "<question>"}]}],
-  "semantic_model_file": "@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml"
-}');
+-- Launch evaluation using native EXECUTE_AI_EVALUATION (bug 392700 fixed 2026-08-07)
+CALL EXECUTE_AI_EVALUATION(
+    'START',
+    OBJECT_CONSTRUCT('run_name', 'smoke_test_run_1'),
+    '@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml'
+);
 ```
 
-**Expected:** Each call returns a JSON string containing `generated_sql` and `verified_query_used`. Parse it (see `eval-polling.md § Parsing the ANALYST_PREVIEW Response`) and score `sql_correctness` against the VQR's expected SQL.
+**Expected:** START call returns successfully
 
 ---
 
-### Step 6: Aggregate Smoke-Test Results
+### Step 6: Poll Evaluation Status
 
-Because `ANALYST_PREVIEW` is synchronous and returns per-question, there is no async STATUS poll. Instead, loop over the smoke-test questions, call `ANALYST_PREVIEW` for each, and aggregate:
+Use the native async STATUS polling pattern until the evaluation completes.
 
-```python
-# Python smoke-test loop (synchronous — no STATUS polling)
-import json
-
-questions = [...]  # from eval_config.yaml
-scores = []
-for question in questions:
-    payload = json.dumps({
-        "messages": [{"role": "user", "content": [{"type": "text", "text": question}]}],
-        "semantic_model_file": "@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml"
-    })
-    # call via `snow sql -q` or the Python connector; parse the JSON response
-    resp = call_analyst_preview(payload)  # your wrapper
-    generated_sql = resp["message"]["content"][0]["text"]  # adjust to actual shape
-    verified_query_used = resp.get("verified_query_used")
-    score = score_sql_correctness(generated_sql, expected_sql)  # your comparator
-    scores.append((question, score))
-
-print(f"Smoke test: {sum(s for _, s in scores)}/{len(scores)} correct")
+```sql
+-- Poll evaluation status
+CALL EXECUTE_AI_EVALUATION(
+    'STATUS',
+    OBJECT_CONSTRUCT('run_name', 'smoke_test_run_1'),
+    '@MY_DB.MY_SCHEMA.SV_EVAL_CONFIGS/eval_config.yaml'
+);
+-- Repeat every 30 seconds until status = 'COMPLETED' (max 15 minutes)
 ```
 
-If `EXECUTE_AI_EVALUATION` is fixed for SV type in the future, the async START/STATUS pattern in `eval-polling.md § Evaluation Lifecycle` can replace the synchronous loop. Until then, use `ANALYST_PREVIEW`.
+**Expected:** STATUS eventually returns `COMPLETED`
 
 ---
 
@@ -400,7 +341,7 @@ The smoke test is **PASS** if all 10 steps complete without errors and:
 
 1. ✅ VQR count >= 5
 2. ✅ All 8 grants present
-3. ✅ Stage created with FILE_FORMAT = 'YAML'
+3. ✅ Stage created
 4. ✅ Config file uploaded
 5. ✅ START call returned successfully
 6. ✅ STATUS poll reached COMPLETED
@@ -422,7 +363,7 @@ The smoke test is **PASS** if all 10 steps complete without errors and:
 | Step 6 times out (STATUS poll) | Evaluation taking too long | Check SV complexity; may require > 15 minutes for large VQR sets |
 | Step 7 fails (function not found) | Using old 1-arg version | Ensure using 5-arg `SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA` |
 | Step 8 fails (CTE projection) | Column name mismatch | Verify raw column names from Step 7 match new schema |
-| Step 9 returns all rows | No failures in evaluation | This is expected if all VQRs passed (PASS) |
+| Step 9 returns all rows | Failure filter matched all rows | If Step 9 returns 0 rows, all VQRs passed. If it returns rows, those are the failures. |
 | Step 10 fails (insert) | EVAL_RESULTS schema mismatch | Create table with exact schema shown; adjust if needed |
 
 ---
@@ -453,9 +394,12 @@ def run_smoke_test(conn, db, schema, sv_name, run_name):
     # Step 1: VQR count gate
     print("Step 1: VQR count gate...")
     cursor.execute(f"""
-        SELECT COUNT(*) FROM SNOWFLAKE.LOCAL.GET_VERIFIED_QUERIES(
-            '{db}', '{schema}', '{sv_name}', 'SEMANTIC VIEW'
-        )
+        DESCRIBE SEMANTIC VIEW {db}.{schema}.{sv_name}
+    """)
+    cursor.execute("""
+        SELECT COUNT(DISTINCT "object_name")
+        FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+        WHERE "object_kind" = 'AI_VERIFIED_QUERY'
     """)
     vqr_count = cursor.fetchone()[0]
     if vqr_count >= 5:
@@ -470,7 +414,6 @@ def run_smoke_test(conn, db, schema, sv_name, run_name):
     cursor.execute(f"""
         CREATE OR REPLACE STAGE {db}.{schema}.SV_EVAL_CONFIGS
             ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
-            FILE_FORMAT = (TYPE = 'YAML')
     """)
     print("✓ PASS: Stage created")
     steps_passed += 1

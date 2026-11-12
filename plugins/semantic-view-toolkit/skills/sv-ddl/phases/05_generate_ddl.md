@@ -42,13 +42,13 @@ key for each matched pattern in `../reference/../../../references/sv-snippet-pat
 | `fact_as_relationship_key` | FACTS (computed scalar expression), RELATIONSHIPS (REFERENCES using fact) |
 | `shared_degenerate_dimension` | TABLES (UNION view alias with UNIQUE), RELATIONSHIPS (from each fact) |
 | `derived_metrics` | METRICS (no-prefix derived metric, right-hand entity refs) |
-| `variables` | VARIABLES clause before TABLES |
+| `variables` | VARIABLES clause after TABLES (before RELATIONSHIPS) |
 | `ai_metadata` | AI_SQL_GENERATION + AI_QUESTION_CATEGORIZATION + AI_VERIFIED_QUERIES |
 | `tags` | WITH TAG on relevant metrics |
 | `row_access_policies` | Warning: apply RAP to fact table, not dim — add note to user |
 | `caller_rights` | Warning: note the owner-with-no-table-access RBAC pattern needed |
 | `scoped_dataset` | TABLES AS (SELECT ... WHERE ...) — add Private Preview guard |
-| `materialization` | Note: MAX_STALENESS + GRANT + ADD MATERIALIZATION — add Private Preview guard |
+| `materialization` | Note: MAX_STALENESS + GRANT + ADD MATERIALIZATION |
 
 For each MATCH, add a brief annotation in the DDL comment:
 ```sql
@@ -172,10 +172,19 @@ For each column with `class = "DIMENSION"` or `class = "TIME_DIMENSION"`:
 ```sql
 <table_alias>.<dim_name> AS <physical_col_name>
   WITH SYNONYMS = ( '<syn1>', '<syn2>' )
+  SAMPLE_VALUES ( '<val1>', '<val2>', '<val3>' )
   COMMENT = '<description>'
+  IS_ENUM
 ```
 
 Same alias rule applies: alias must match the source column name for direct references.
+
+> **Modifier ordering is strict.** The correct order is:
+> `WITH SYNONYMS` → `SAMPLE_VALUES` → `COMMENT` → `IS_ENUM`
+>
+> `IS_ENUM` must be the **last** modifier — nothing can follow it. `IS_ENUM COMMENT = '...'`
+> is a hard syntax error. `SAMPLE_VALUES` has **no** `WITH` prefix (unlike `WITH SYNONYMS`).
+> Omit any modifier that doesn't apply; the order of what remains must still follow this sequence.
 
 If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOLEAN type, emit the FILTER label:
 ```sql

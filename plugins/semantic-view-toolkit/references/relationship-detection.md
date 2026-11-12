@@ -9,41 +9,43 @@ Shared logic for detecting table relationships from multiple sources. Used by `s
 Snowflake does not enforce FK constraints, but declared constraints are strong evidence of intentional relationships.
 
 ```sql
--- Find all foreign key relationships in a schema
-SELECT
-    tc.table_name AS child_table,
-    kcu.column_name AS child_column,
-    rc.unique_constraint_name,
-    kcu2.table_name AS parent_table,
-    kcu2.column_name AS parent_column
-FROM information_schema.table_constraints tc
-JOIN information_schema.referential_constraints rc
-    ON tc.constraint_name = rc.constraint_name
-    AND tc.constraint_schema = rc.constraint_schema
-JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name
-    AND tc.constraint_schema = kcu.constraint_schema
-JOIN information_schema.key_column_usage kcu2
-    ON rc.unique_constraint_name = kcu2.constraint_name
-    AND rc.unique_constraint_schema = kcu2.constraint_schema
-WHERE tc.constraint_type = 'FOREIGN KEY'
-    AND tc.table_schema = :schema_name;
+-- Discover declared FK relationships using SHOW IMPORTED KEYS.
+-- INFORMATION_SCHEMA.KEY_COLUMN_USAGE does not exist in Snowflake.
+-- FK constraints on standard tables are informational (RELY/NOVALIDATE).
+SHOW IMPORTED KEYS IN DATABASE <DB>
+  ->> SELECT
+        "pk_table_name" AS parent_table,
+        "pk_column_name" AS parent_column,
+        "fk_table_name" AS child_table,
+        "fk_column_name" AS child_column,
+        "key_sequence" AS key_sequence,
+        "fk_name" AS fk_constraint_name
+      FROM $1
+      WHERE "fk_schema_name" = :schema_name;
 ```
 
 ```sql
--- Find primary keys and unique constraints (for relationship targets)
-SELECT
-    tc.table_name,
-    kcu.column_name,
-    tc.constraint_type
-FROM information_schema.table_constraints tc
-JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name
-    AND tc.constraint_schema = kcu.constraint_schema
-WHERE tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
-    AND tc.table_schema = :schema_name
-ORDER BY tc.table_name, kcu.ordinal_position;
+-- Discover PK and UNIQUE constraints.
+SHOW PRIMARY KEYS IN DATABASE <DB>
+  ->> SELECT
+        "table_name",
+        "column_name",
+        "key_sequence",
+        "constraint_name"
+      FROM $1
+      WHERE "schema_name" = :schema_name;
+
+SHOW UNIQUE KEYS IN DATABASE <DB>
+  ->> SELECT
+        "table_name",
+        "column_name",
+        "key_sequence",
+        "constraint_name"
+      FROM $1
+      WHERE "schema_name" = :schema_name;
 ```
+
+`SHOW IMPORTED KEYS` supplies the column-level FK mapping, while `SHOW PRIMARY KEYS` and `SHOW UNIQUE KEYS` supply the target-key metadata. `TABLE_CONSTRAINTS` and `REFERENTIAL_CONSTRAINTS` do not expose key columns. On standard Snowflake tables, FK constraints are informational metadata and may be declared with `RELY`/`NOVALIDATE`.
 
 ### 2. Column Name Pattern Inference (Confidence: 0.70–0.95)
 

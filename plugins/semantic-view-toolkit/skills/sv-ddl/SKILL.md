@@ -64,7 +64,7 @@ This skill handles ALL queryable objects as SV sources:
 |---|---|---|
 | Base Tables | `TABLE_TYPE = 'BASE TABLE'` | Primary source type |
 | Views | `TABLE_TYPE = 'VIEW'` | May reference other databases |
-| Dynamic Tables | `INFORMATION_SCHEMA.DYNAMIC_TABLES` | Note TARGET_LAG in metadata |
+| Dynamic Tables | `SHOW DYNAMIC TABLES` (no INFORMATION_SCHEMA view) | Note TARGET_LAG in metadata |
 | External Tables | `TABLE_TYPE = 'EXTERNAL TABLE'` | Iceberg or non-Iceberg |
 | Materialized Views | `TABLE_TYPE = 'MATERIALIZED VIEW'` | Pre-aggregated |
 

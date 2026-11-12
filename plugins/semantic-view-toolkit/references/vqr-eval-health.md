@@ -59,8 +59,14 @@ def check_vqr_table_refs(vqr_sql, sv_table_map):
 
 **What it catches:** VQR SQL referencing column names that don't exist in the SV schema. Common
 when the SV uses a different logical name than the physical column (`TABLE.logical AS physical`).
-The left side of `AS` is the logical name used in model logic; the right side is the physical
-column or expression. VQR SQL must use the **right-side** physical expression.
+The left side of `AS` is the logical name exposed by the semantic view; the right side is the
+physical column or expression.
+
+> ⚠️ **Do NOT blanket-replace logical column names with physical expressions.** VQR SQL should
+> reference the logical names exposed by the semantic view (the names defined in DIMENSIONS,
+> FACTS, and METRICS clauses). Physical column names may not match logical names when aliases
+> or computed expressions are used. Validate VQR identifiers against the SV's DESCRIBE output
+> (`"object_name"` values), not against the underlying table's physical columns.
 
 **Dimension syntax reminder:**
 ```sql
@@ -71,16 +77,18 @@ KPI_DEFINITIONS.IS_ACTIVE AS ACTIVE_FLAG         -- use ACTIVE_FLAG in VQR SQL
 
 **Detection:**
 ```sql
--- Get all physical expressions from DESCRIBE:
+-- Capture the DESCRIBE query ID with `SET describe_qid = LAST_QUERY_ID();` immediately after
+-- DESCRIBE, then use `$describe_qid` in all subsequent RESULT_SCAN calls.
+-- Get all logical identifiers and their backing expressions from DESCRIBE:
 SELECT "object_name" AS logical_name, "property_value" AS physical_expr
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" IN ('DIMENSION', 'FACT', 'METRIC')
   AND "property" = 'EXPRESSION';
--- Then check each VQR's column references against this list
+-- Then check each VQR's column references against the logical_name list
 ```
 
-**Fix:** Replace logical-name references in VQR SQL with the physical expression shown in DESCRIBE.
-Verify physical column existence: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '...'`
+**Fix:** Keep VQR SQL aligned to the semantic view's logical names, and use the DESCRIBE
+EXPRESSION rows only to understand what each logical field maps to underneath.
 
 ---
 
@@ -107,7 +115,7 @@ has_ca_extension = 'with extension' in ddl.lower()
 SELECT
     CASE
         WHEN REGEXP_INSTR(
-            GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>'),
+            LOWER(GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')),
             'with extension'
         ) > 0 THEN 'CA_EXTENSION_PRESENT'
         ELSE 'CLEAN'
@@ -255,10 +263,12 @@ def check_group_by_alias(sql):
 ```sql
 -- BAD:
 SELECT DATE_TRUNC('month', O_ORDERDATE) AS order_month, SUM(amount) AS rev
+FROM __orders
 GROUP BY order_month
 
 -- GOOD:
 SELECT DATE_TRUNC('month', O_ORDERDATE) AS order_month, SUM(amount) AS rev
+FROM __orders
 GROUP BY DATE_TRUNC('month', O_ORDERDATE)
 ```
 
@@ -273,7 +283,7 @@ if the model generates wrong SQL for it, you'll never know.
 ```sql
 -- Get all metrics from DESCRIBE
 SELECT DISTINCT "object_name" AS metric_name, "parent_entity" AS table_name
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'METRIC' AND "property" = 'EXPRESSION';
 ```
 
@@ -291,7 +301,7 @@ coverage means the SV may have structural gaps that only appear in production.
 **Detection:**
 ```sql
 SELECT DISTINCT "object_name" AS table_name
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'TABLE';
 -- Cross-reference against VQR SQL to find tables not referenced in any VQR
 ```
@@ -310,7 +320,7 @@ of model quality.
 ```sql
 -- Get metric expressions from DESCRIBE
 SELECT "object_name" AS metric_name, "property_value" AS metric_expr
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+FROM TABLE(RESULT_SCAN($describe_qid))
 WHERE "object_kind" = 'METRIC' AND "property" = 'EXPRESSION';
 ```
 
@@ -401,19 +411,15 @@ across all VQRs. SV has CA extension (Check 3 would have flagged this pre-flight
 **Confirm:**
 ```sql
 -- Check error messages from eval results
-WITH raw AS (
-  SELECT "object_name" AS vqr_name, "property_value" AS error_msg
-  FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-  WHERE "object_kind" = 'AI_VERIFIED_QUERY' AND "property" = 'ERROR'
-    AND "property_value" IS NOT NULL
-)
-SELECT error_msg, COUNT(*) AS count
-FROM raw
-GROUP BY error_msg ORDER BY count DESC;
+-- `GET_ANALYST_AI_EVALUATION_DATA` is the source of runtime errors for each VQR in a named eval run.
 ```
+
+> ⚠️ VQR runtime errors are not visible in DESCRIBE output. Use the evaluation result function
+> `GET_ANALYST_AI_EVALUATION_DATA` to retrieve the ERROR column for each VQR in a named eval run.
 
 If errors cluster on `invalid identifier`, and the SV has a CA extension: this is the CA
 extension column-drop bug. See Check 3 remediation — create DDL-only eval copy and rerun.
+
 
 **Note:** The failure rate asymmetry between VQR styles (e.g. 34/50 vs 6/50 failing before scoring)
 is not a signal about VQR style quality — it reflects which columns each VQR happened to reference
