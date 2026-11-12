@@ -77,7 +77,7 @@ GEPA works only on candidate copies (see `references/candidate-promotion.md`). I
 
 | Gate ID | Description | Classification | Default (AUTONOMOUS) |
 |---|---|---|---|
-| `SV-VQR-MUTATE` | Modify, delete, or rewrite an existing customer VQR | **OPERATOR_REQUIRED** | Permanently blocked; emit `[OPERATOR-REQUIRED: SV-VQR-MUTATE]`; present findings as read-only observations only |
+| `SV-VQR-MUTATE` | Modify, delete, or rewrite an existing customer VQR | **OPERATOR_REQUIRED** | Always pause in both modes; show each VQR's current and proposed text; apply only the changes the operator approves, on a candidate copy, reaching production via `SV-PROMOTE`. Automated runs (optimizers, watch, AUTONOMOUS audit) never change a VQR |
 | `VQR-GEN-VALID-SELECT` | Auto-select only VALID new candidates for insertion | **AUTO_RESOLVE** | Select VALID only; discard INVALID; hold NEEDS_FIX for review |
 | `VQR-GEN-INSERT` | Insert new VQR candidates into an existing customer SV | **OPERATOR_REQUIRED** | Always pause; requires explicit mutation authorization from customer |
 | `VQR-CURATOR-PHASE6` | Phase 6 customer approval of VQR activation/deactivation | **OPERATOR_REQUIRED** | Always pause; this gate is permanent and cannot be removed by any optimization pass |
@@ -116,7 +116,7 @@ GEPA works only on candidate copies (see `references/candidate-promotion.md`). I
 
 These gates are **hardcoded OPERATOR_REQUIRED** and cannot be overridden by any mode, configuration, or skill instruction:
 
-1. **`SV-VQR-MUTATE`** — Mutation of any existing customer VQR. Skills may detect and report VQR health issues but must present findings as read-only observations only. Offering to fix, apply, or rewrite existing VQRs is forbidden.
+1. **`SV-VQR-MUTATE`** — Mutation of any existing customer VQR. Change an existing VQR only after the operator approves that specific change (current and proposed text shown side by side). Skills may detect issues and propose fixes; no skill applies one without that approval, and no automated run (optimizers, watch, AUTONOMOUS audit) changes a VQR at all.
 2. **`VQR-GEN-INSERT`** — Insertion of new VQRs into an existing customer SV. Requires explicit mutation authorization.
 3. **`VQR-CURATOR-PHASE6`** — Phase 6 customer approval gate in vqr-curator. This gate is permanent and must not be removed or bypassed by any optimization pass.
 4. **`SV-PROMOTE`** — Any change to a production SV, from any skill. No autonomous system may apply a winning candidate without explicit operator acceptance of the diff.

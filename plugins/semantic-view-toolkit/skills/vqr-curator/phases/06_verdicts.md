@@ -78,6 +78,8 @@ Actions available:
   D) Cancel
 ```
 
+Each FIX_SQL, DEDUPLICATE and SIMPLIFY item is shown with its current and proposed text first. Option A approves exactly the listed changes and nothing else (gate `SV-VQR-MUTATE`); changes apply to a candidate copy and reach production only through `SV-PROMOTE`.
+
 **STOP — do not modify the SV until user selects A or B.**
 
 > **This gate is PERMANENT and applies in BOTH INTERACTIVE and AUTONOMOUS modes.**

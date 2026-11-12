@@ -42,8 +42,8 @@ Ask user: "Do you want to add verified queries (example questions and their SQL)
 `ALTER SEMANTIC VIEW` cannot change verified queries. Add `AI_VERIFIED_QUERIES` as the final
 clause of the full working definition and apply it to the candidate:
 
-- **Existing SV**: adding VQRs is gate `VQR-GEN-INSERT`; existing VQRs are read-only
-  (`SV-VQR-MUTATE`). Copy them unchanged from `GET_DDL`.
+- **Existing SV**: adding VQRs is gate `VQR-GEN-INSERT`; existing VQRs are copied unchanged
+  from `GET_DDL` unless the operator approved a specific change (`SV-VQR-MUTATE`).
 
 ```sql
 CREATE OR ALTER SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<CAND>
@@ -211,7 +211,7 @@ Generate the complete final DDL with all enrichments for:
 - Sharing with colleagues
 
 ```sql
--- Complete final DDL:
+-- Complete final DDL (export only; deploy through Step 7.7, never run this against an existing SV):
 CREATE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
   TABLES ( ... )
   RELATIONSHIPS ( ... )

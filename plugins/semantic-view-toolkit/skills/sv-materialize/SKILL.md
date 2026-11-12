@@ -295,11 +295,11 @@ AS
   [WHERE (<row_filter>)];
 ```
 
-**Example — revenue by customer and year:**
+**Example — revenue by customer and year** (on the trial candidate `REVENUE_ANALYSIS__MAT__R1A2B3C`):
 ```sql
-ALTER SEMANTIC VIEW revenue_analysis SET MAX_STALENESS = 3600;
+ALTER SEMANTIC VIEW REVENUE_ANALYSIS__MAT__R1A2B3C SET MAX_STALENESS = 3600;
 
-ALTER SEMANTIC VIEW revenue_analysis
+ALTER SEMANTIC VIEW REVENUE_ANALYSIS__MAT__R1A2B3C
   ADD MATERIALIZATION cust_year_rollup
   WAREHOUSE = reporting_wh
   REFRESH_MODE = AUTO

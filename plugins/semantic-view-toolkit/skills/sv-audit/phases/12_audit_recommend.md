@@ -94,8 +94,9 @@ eval signal at all.
 
 **Fix:**  
 Use the fix guidance in `../../../references/vqr-eval-health.md` for each check. VQR changes are
-customer-VQR mutations (gate `SV-VQR-MUTATE`); route new VQRs for uncovered metrics to
-`vqr-generator`. Report these findings as observations.
+customer-VQR mutations (gate `SV-VQR-MUTATE`): propose them with current and proposed text, and apply
+only what the operator approves (never in AUTONOMOUS mode). Route new VQRs for uncovered metrics to
+`vqr-generator`.
 
 ---
 

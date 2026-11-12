@@ -497,7 +497,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
     except candidate_contract.ContractError as error:
         errors.append(str(error))
 
-    # Check 7: existing verified queries are immutable (gate SV-VQR-MUTATE); additions are listed for gate VQR-GEN-INSERT
+    # Check 7: an automated run never changes an existing verified query (gate SV-VQR-MUTATE needs operator approval);
+    # additions are listed for gate VQR-GEN-INSERT
     vqr = candidate_contract.vqr_diff(original, mutated)
     if vqr["removed"] or vqr["changed"]:
         errors.append(

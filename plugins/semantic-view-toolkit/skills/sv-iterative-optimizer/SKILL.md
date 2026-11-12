@@ -136,7 +136,7 @@ Each iteration applies ONE mutation from `references/mutation-operators.md`:
 | Analyst confused by too many options | `remove_column` |
 | Analyst refuses question | `add_vqr` (teach by example) |
 | Wrong filter applied | `add_filter` |
-| VQR SQL missing filter that metric definition requires | **Read-only analysis** (exclude/flag; do not modify) |
+| VQR SQL missing filter that metric definition requires | **Read-only analysis** (exclude/flag; the optimizer never changes VQRs; the operator may approve a fix via `SV-VQR-MUTATE`) |
 | VQR always fails and SQL contains a subquery | **Read-only finding** (flag it; the claim that Analyst cannot generate subquery SQL is unverified, so do not mutate the SV on that basis) |
 | Same metric name with different filter logic on two tables | `sync_metric_definitions_across_tables` |
 | Metric uses SUM(CASE WHEN ...) on the same column repeatedly | `extract_metric_filter_to_fact` |

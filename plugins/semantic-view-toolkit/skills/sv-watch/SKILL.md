@@ -38,8 +38,8 @@ Inherits the session mode declared at the toolkit router. Never re-asks.
 
 **This skill never changes a semantic view.** It reports. A fix is made on a `cand` candidate
 copy and reaches production only through gate `SV-PROMOTE` (OPERATOR_REQUIRED in both modes;
-see `../../references/candidate-promotion.md`). Existing VQRs are read-only (`SV-VQR-MUTATE`):
-report VQR findings as observations, never offer to rewrite them.
+see `../../references/candidate-promotion.md`). Existing VQRs are never changed by this skill (`SV-VQR-MUTATE`):
+report VQR findings and, where useful, a proposed fix for the owner to approve (for example through `vqr-curator`).
 
 ---
 
@@ -125,7 +125,7 @@ Detect VQRs with time-relative references that may have drifted:
 - Read VQRs from `DESCRIBE SEMANTIC VIEW` (`AI_VERIFIED_QUERY` rows; the `VERIFIED_AT` property is epoch seconds)
 - Pattern match VQR SQL for: `CURRENT_DATE`, `DATEADD`, `last_month`, `this_quarter`
 - Flag VQRs whose `VERIFIED_AT` is older than 90 days and that use relative date references
-- Report only. Do not suggest rewriting or refreshing them (`SV-VQR-MUTATE`); the owner decides
+- Report them, with a proposed absolute-date rewrite if useful. Never apply it; changing a VQR needs the owner's approval (`SV-VQR-MUTATE`)
 
 ### Check 4: Source Object Health
 - Dynamic Tables: check SCHEDULING_STATE (is it ACTIVE or SUSPENDED?)
@@ -230,7 +230,7 @@ LIMIT 5;
 ## INFO (No Action Required)
 - [VQR_STALE] VQR "What were last month's sales?" VERIFIED_AT is 95 days old
     and uses a relative date reference
-  → Observation only (SV-VQR-MUTATE); the SV owner decides whether to re-verify it
+  → Not applied; the SV owner approves any re-verification or rewrite (SV-VQR-MUTATE)
 
 - [USAGE_SHIFT] Column ORDERS.PRIORITY access up 340% vs previous period
     (already in SV as dimension)

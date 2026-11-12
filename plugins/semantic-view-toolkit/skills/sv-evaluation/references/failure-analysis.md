@@ -20,7 +20,7 @@ that candidate DDL.
 | 5 | SQL error | Bad expression or alias in the SV | Manual DDL fix |
 | 6 | Empty result | Over-restrictive filter, case mismatch, wrong keys | `change_relationship`, `add_filter` |
 | 7 | Analyst refuses | Out of scope or no example | `add_vqr` |
-| 8 | Reference contaminated | Model applies the metric filter; reference SQL does not | Read-only: exclude or flag, do not modify the VQR |
+| 8 | Reference contaminated | Model applies the metric filter; reference SQL does not | Exclude or flag it; change the VQR only with operator approval (`SV-VQR-MUTATE`) |
 | - | FAN_TRAP | Additive aggregate above a many-to-one join; reference pre-aggregates | Move metric to the right grain |
 | - | CHASM_TRAP | Two fact tables joined on a shared dimension without per-fact CTEs | Pre-aggregate each fact to the shared grain |
 | - | JOIN_HALLUCINATION | Joins on fewer/different columns than reference | `change_relationship` |

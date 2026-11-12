@@ -148,5 +148,37 @@ class VqrDiffTests(unittest.TestCase):
         self.assertEqual(c.vqr_diff(self.BASE, mutated)["removed"], ["VQR_B"])
 
 
+
+class NamingConsistencyTests(unittest.TestCase):
+    """Candidate names in skills come from candidate.py; no hand-built or legacy suffixes."""
+
+    LEGACY = __import__("re").compile(
+        r"(?:<SV(?:_NAME|_FQN)?>|<sv_name>|\$SV(?:_NAME|_FQN)?|SV_NAME\})"
+        r"(?:_V\d|_BACKUP|_RESTORE|_COPY|_TMP|_CANDIDATE|_CAND_|_GEPA_)", __import__("re").I)
+    LITERAL = __import__("re").compile(r"\b[A-Z][A-Z0-9_]*__(?:CAND|GEPA|MAT)__[A-Za-z0-9_]+")
+
+    def files(self):
+        for path in ROOT.rglob("*"):
+            if path.suffix in {".md", ".py", ".sql"} and not {"tests", ".pytest_cache", "__pycache__"} & set(path.parts):
+                yield path
+
+    def test_no_legacy_candidate_suffixes(self):
+        hits = [f"{p.relative_to(ROOT)}:{n}" for p in self.files()
+                for n, line in enumerate(p.read_text(errors="ignore").splitlines(), 1) if self.LEGACY.search(line)]
+        self.assertEqual(hits, [])
+
+    def test_every_literal_candidate_name_is_valid(self):
+        bad = []
+        for p in self.files():
+            for n, line in enumerate(p.read_text(errors="ignore").splitlines(), 1):
+                for m in self.LITERAL.finditer(line):
+                    name = m.group(0).rstrip(".,;:)`'\"")
+                    if "<" in line[max(0, m.start() - 1):m.end() + 1]:
+                        continue
+                    if not c.CANDIDATE_RE.search(name):
+                        bad.append(f"{p.relative_to(ROOT)}:{n} {name}")
+        self.assertEqual(bad, [])
+
+
 if __name__ == "__main__":
     unittest.main()

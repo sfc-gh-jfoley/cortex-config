@@ -150,7 +150,7 @@ Runs to completion. Resolves judgment and courtesy gates using documented defaul
 - Trigger: "just run it", "autopilot", "autonomous", "headless", "run to completion"
 
 **Permanent OPERATOR_REQUIRED gates — never auto-resolved in any mode:**
-- Mutation of an existing customer VQR (modify, delete, or rewrite) — VQRs are immutable without explicit customer authorization (see [Gate Inventory](references/gate-inventory.md) — `SV-VQR-MUTATE`)
+- Mutation of an existing customer VQR (modify, delete, or rewrite) — only after the operator approves that specific change; automated runs never change VQRs (see [Gate Inventory](references/gate-inventory.md) — `SV-VQR-MUTATE`)
 - Any change to a production SV, and dropping candidate copies (see [Gate Inventory](references/gate-inventory.md) — `SV-PROMOTE`, `SV-CANDIDATE-CLEANUP`)
 - Any action explicitly listed as OPERATOR_REQUIRED in the gate inventory
 

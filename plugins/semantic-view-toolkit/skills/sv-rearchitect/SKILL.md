@@ -132,7 +132,7 @@ candidate, remove the shared tables and import the core SV instead (syntax unver
 warning above):
 
 ```sql
-CREATE SEMANTIC VIEW <DB>.<SCHEMA>.ORDERS_SV__CAND__<run>
+CREATE SEMANTIC VIEW <CAND>   -- from candidate.py name, e.g. <DB>.<SCHEMA>.ORDERS_SV__CAND__R1A2B3C
   IMPORTS (<DB>.<SCHEMA>.CORE_SV)
   TABLES (
     orders AS <DB>.<SCHEMA>.ORDERS,
