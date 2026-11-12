@@ -8,9 +8,9 @@
 
 ## What VQRs Are (and Are Not)
 
-A VQR is a **named question + precompiled SQL pair** embedded in a Semantic View. When a
-user's question matches a VQR by semantic similarity, Cortex Analyst returns the VQR's SQL
-verbatim instead of generating new SQL. This is called the **fast-path**.
+A VQR is a **named question + precompiled SQL pair** embedded in a Semantic View. Cortex Analyst
+uses relevant VQRs when generating SQL for similar questions. This guide calls the case where a
+matched VQR's SQL is used as-is the **fast-path**.
 
 **VQRs are not:**
 - Fine-tuning data — they do not train or update any model
@@ -22,7 +22,7 @@ verbatim instead of generating new SQL. This is called the **fast-path**.
 | Rank | Role | What it does |
 |------|------|-------------|
 | 1 | **Non-determinism anchor** | Locks in the canonical SQL form for patterns the LLM generates inconsistently — window functions, WoW self-joins, PERCENTILE_CONT, EXTRACT vs HOUR() |
-| 2 | **Fast-path** | Serves precompiled SQL verbatim for high-traffic question patterns, bypassing LLM generation entirely (requires `EnableVQRFastPath: true` on the agent) |
+| 2 | **Fast-path** | Serves precompiled SQL for high-traffic question patterns (agent flag `EnableVQRFastPath` is undocumented; verify before relying on this) |
 | 3 | **Few-shot context injection** | When fast-path does not trigger, VQR SQL is serialized into the LLM context as a worked example, teaching the model correct patterns for this SV |
 | 4 | **Eval ground truth** | VQRs are the eval dataset for `EXECUTE_AI_EVALUATION` — without them, SV accuracy cannot be measured at all |
 | 5 | **Regression anchors** | When SV schema changes (rename a metric, add a table), VQR SQL failing the dry-run immediately signals a breaking change |
@@ -35,17 +35,16 @@ to remove them — but it is always a reason to diagnose why.
 
 ## The Fast-Path Prerequisite Checklist
 
-Before expecting VQRs to trigger, verify all three conditions:
+Before expecting VQRs to trigger, check these conditions. Condition 1 is observed behavior with
+no Snowflake documentation; verify before relying on it.
 
 ```
-1. EnableVQRFastPath = true in agent spec
-   → DESCRIBE AGENT → experimental.EnableVQRFastPath must be true
-   → If absent: ALL VQRs are ignored regardless of SQL quality
+1. Agent flag (undocumented): DESCRIBE AGENT → experimental.EnableVQRFastPath
+   → Observed: without it, fast-path does not trigger. Few-shot use (role 3) still applies.
 
-2. VQR SQL uses __logical table names (not FQN)
-   → FROM __requests, not FROM DB.SCHEMA.V_AGENT_REQUESTS
-   → FQN refs compile and register but never bind at semantic level
-   → Use vqr-curator or agent-health-check to scan for T1/T2 violations
+2. VQR SQL uses logical table names (prefer __orders), never physical FQNs
+   → FROM __orders, not FROM DB.SCHEMA.ORDERS
+   → Use vqr-curator Phase 2 to scan for FQN references
 
 3. VQR question matches how users actually ask
    → Threshold is broad (synonyms, rephrasing, noise words all typically hit)
@@ -72,10 +71,9 @@ A VQR earns its context cost when it satisfies at least **two** of the following
 
 | Signal | Verdict |
 |--------|---------|
-| **Single table, simple aggregate** | `SELECT SUM(x) FROM t GROUP BY y ORDER BY 1 DESC` — LLM generates this correctly every time. Put the formula in `ai_sql_generation` hint instead |
+| **Single table, simple aggregate** | `SELECT SUM(x) FROM t GROUP BY y ORDER BY 1 DESC` — usually generated correctly. Put the formula in `ai_sql_generation` hint instead, **unless** it is the only VQR covering that metric (eval coverage) |
 | **Duplicates existing VQR** | Question cosine similarity > 0.85 to another VQR — one of them is redundant |
-| **FQN table references** | T1/T2 violation — pollutes few-shot signal with wrong syntax AND won't trigger fast-path |
-| **Trivially short SQL** | Under 3 lines — if the SQL is this simple, the hint is cheaper and more flexible |
+| **FQN table references** | Pollutes few-shot signal with wrong syntax; fix the reference rather than register it |
 | **Out-of-scope question** | Tests something the SV doesn't actually model well — wastes context and misleads eval |
 
 ---
@@ -108,42 +106,27 @@ SQL requires a specific structure the hint can't fully convey, use a VQR.
 | Single fact table, one domain | 3–8 | Enough for eval coverage; more is likely redundant |
 | 2–3 tables, one domain | 8–15 | Covers cross-table joins and the key question categories |
 | 3–5 tables, multi-dimensional | 15–20 | Maximum for a well-scoped SV |
-| **>20 VQRs needed** | **Audit the SV design** | Strong signal the SV covers 2+ domains |
+| **>20 VQRs needed** | **Review VQR value first** | Prune redundant VQRs before adding more |
 
-### The 20-VQR rule
+### More than 20 VQRs
 
-If you cannot cover your SV's question space in 20 VQRs, the SV is likely doing too much.
-The right response is not more VQRs — it is splitting the SV.
+Past about 20, check each VQR against the rubric above before adding more; VQRs count toward the
+SV's ~100,000-token guideline. VQR count is not a reason to split the SV. SV boundaries follow
+the single sizing policy in `../../sv-discovery/phases/03_analyze.md` Step 3B.
 
-**Diagnostic test:** Write down the subject of every VQR question. If the subject is not
-consistent ("which agent", "which user", "which agent"), you have two SVs sharing a schema.
-
-```
-Good (cohesive):
-  VQR 1: "Which agent has the highest latency?"     → subject: agent
-  VQR 2: "Which agent costs the most?"              → subject: agent
-  VQR 3: "Which agent has the worst error rate?"    → subject: agent
-
-Split signal (two domains):
-  VQR 1: "Which agent has the highest latency?"     → subject: agent telemetry
-  VQR 2: "What was our total revenue last month?"   → subject: business metric
-  VQR 3: "Which agent costs the most?"              → subject: agent telemetry
-  → These belong in two SVs, not one
-```
-
-**Exception:** A multi-table operational SV with genuinely distinct *source tables* (not
-domains) can reach 20 with discipline. Each table should contribute 4–6 VQRs covering its
-unique question patterns. If one table is contributing 15 of your 20 VQRs, the others are
-undertested and the dominant table should probably be its own SV.
+If one table contributes most VQRs while others have none, the others are under-tested; add
+coverage there.
 
 ---
 
 ## VQR SQL Requirements
 
 ### Required
-- Use `__logical_table_name` for all table references: `FROM __requests r`, `FROM __token_detail td`
-- Use logical column names (the SV's `AS` aliases) in SELECT, GROUP BY, ORDER BY
-- Reference physical column names in aggregates: `SUM(token_credits) AS total_cost` not `SUM(TOTAL_COST)`
+- Use logical table names, preferably `__`-prefixed: `FROM __orders o`, `JOIN __customers c`
+- Use logical column names (the dimension and fact names defined in the SV) everywhere,
+  including inside aggregates
+- Aggregate the logical fact, aliased to the metric name: `SUM(order_total) AS total_revenue`,
+  not `SUM(total_revenue)` (a metric name is not a column)
 
 ### Strongly recommended
 - Use fixed date literals for eval reproducibility (evals use VQR SQL to measure accuracy)
@@ -154,8 +137,11 @@ undertested and the dominant table should probably be its own SV.
 ### Prohibited
 - `FROM DB.SCHEMA.PHYSICAL_TABLE` (T1 — breaks binding and poisons few-shot signal)
 - `CURRENT_DATE` or `CURRENT_TIMESTAMP` — evals compare output against ground truth; relative dates make ground truth stale
-- `LAG()` or `LEAD()` on aggregate expressions — explicitly forbidden; use self-join WoW pattern
-- `HOUR(event_ts)` — use `EXTRACT(HOUR FROM event_ts)`
+
+### Follow the SV's own conventions
+- If the SV's `AI_SQL_GENERATION` instructions prescribe a form (for example a self-join instead
+  of `LAG()`, or `EXTRACT(HOUR FROM ts)` instead of `HOUR(ts)`), VQR SQL must use the same form.
+  Both forms are valid Snowflake SQL; consistency is what matters.
 
 ---
 
@@ -168,7 +154,8 @@ undertested and the dominant table should probably be its own SV.
 - Before running SV evaluation — you need VQRs to measure accuracy
 
 ### When to remove
-- VQR SQL fails the dry-run after SV schema change (metric renamed, table removed)
+- The metric, dimension or table it tests was removed from the SV (confirmed from DESCRIBE).
+  A dry-run failure alone is a reason to review, not to remove.
 - Question has not been asked in production in >90 days AND no evaluation uses it
 - Curator scores it DEDUPLICATE and the higher-scoring near-duplicate covers the same pattern
 - It was only registered for context injection and the pattern is now reliably generatable
@@ -198,9 +185,9 @@ Does it involve a pattern the LLM gets wrong? (window fn, self-join, multi-table
   NO  ↓
 
 Is it needed for eval coverage (no other VQR tests this metric/dimension)?
-  YES → Register for eval ground truth. Mark use_as_onboarding_question=false.
+  YES → Register for eval ground truth. Use ONBOARDING_QUESTION FALSE.
   NO  → Skip. Not worth the context tokens.
 
 After adding: total VQR count > 20?
-  YES → Audit the SV design. >20 is a signal, not a cap.
+  YES → Re-check each VQR against the rubric. >20 is a signal, not a cap.
 ```

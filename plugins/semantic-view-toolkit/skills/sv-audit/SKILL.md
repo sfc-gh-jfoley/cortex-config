@@ -26,7 +26,10 @@ Use this skill when you have an existing semantic view and want to know:
 - Are there common aggregation patterns that should be defined as METRICS?
 - What's the overall column coverage (SV columns vs total source columns)?
 
-**This skill analyzes but does not modify.** It produces a prioritized recommendation report. Apply changes via sv-ddl or sv-iterative-optimizer.
+**This skill never modifies the production semantic view.** It produces a prioritized
+recommendation report. If the operator chooses to apply recommendations, they are applied to a
+candidate copy (`candidate.py name --kind cand`) and reach production only through gate
+`SV-PROMOTE`. See [../../references/candidate-promotion.md](../../references/candidate-promotion.md).
 
 ## Execution Mode
 
@@ -36,16 +39,13 @@ Detect or ask whether to run **INTERACTIVE** or **AUTONOMOUS**:
   stop both block for user input.
 - **AUTONOMOUS**: Phase 10 proceeds automatically (the audit itself is read-only; the
   gate exists to flag privilege/cost, not because it's a judgment call — proceed if
-  `IMPORTED PRIVILEGES` are present, otherwise this becomes a genuine blocker and the
-  skill degrades to structural-only audit as already documented). Phase 12 applies only
-  deterministic, reversible recommendations (relationship additions, clearly safe column
-  additions with `CREATE OR ALTER SEMANTIC VIEW` to preserve materializations, or
-  `CREATE OR REPLACE SEMANTIC VIEW` for structural changes) after a DDL snapshot;
-  recommendations that
-  require judgment (e.g., removing columns, changing relationship types, restructuring
-  metrics) are logged and deferred for explicit operator review. Do not equate AUTONOMOUS
-  with "apply all audit recommendations" — only changes whose validation makes them
-  deterministic and safe are auto-applied.
+  `IMPORTED PRIVILEGES` are present, otherwise gate `AUDIT-PRIVILEGE-MISSING` applies and the
+  skill degrades to structural-only audit as already documented). Gate `AUDIT-RECOMMEND-APPLY`:
+  Phase 12 never selects "Apply all". It writes the report and, at most, builds a candidate copy containing only
+  additive, deterministic recommendations (e.g., a relationship whose referenced side has a
+  declared PRIMARY KEY/UNIQUE). Removals, relationship-type changes and metric restructuring
+  are listed for operator review only. The run ends at `SV-PROMOTE`, which pauses in both
+  modes.
 
 Default to INTERACTIVE if unclear.
 
@@ -80,7 +80,7 @@ Phase 12: Recommend             → prioritized findings, user approval gate
 | Source | What it provides | Latency |
 |--------|-----------------|---------|
 | `DESCRIBE SEMANTIC VIEW` | Current SV structure | Real-time |
-| `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` | Query patterns referencing SV tables | Up to 45 min |
+| `SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY` | Query text for JOIN/GROUP BY pattern extraction | Up to 45 min |
 | `SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY` | Column-level usage frequency | Up to 3 hr |
 | `INFORMATION_SCHEMA.COLUMNS` | Full column set of underlying tables | Real-time |
 | `INFORMATION_SCHEMA.TABLES` | Neighboring tables in same schema | Real-time |
@@ -114,7 +114,7 @@ Findings are ranked by impact:
 ## Quick Start
 
 ```
-$semantic-view-toolkit
+$sv-audit
 "Audit my semantic view: ANALYTICS_DB.PUBLIC.REVENUE_SV"
 ```
 
@@ -126,8 +126,8 @@ After the audit report, users can:
 
 | Choice | Action |
 |--------|--------|
-| Apply all recommendations | → Route to sv-ddl with modification instructions |
-| Apply selected items | → Route to sv-ddl with filtered instructions |
+| Apply all recommendations (INTERACTIVE only) | → Build a `<SV>__CAND__<run>` candidate via sv-ddl, evaluate, then `SV-PROMOTE` |
+| Apply selected items | → Same, with the selected items only |
 | Export report only | → Save markdown report for offline review |
 | Run evaluation | → Route to sv-evaluation to measure current accuracy |
 | Cancel | → End audit, no changes |
@@ -136,7 +136,7 @@ After the audit report, users can:
 
 ## Integration with Toolkit
 
-- **Feeds into sv-ddl**: Audit findings become modification instructions for sv-ddl
+- **Feeds into sv-ddl**: Audit findings become modification instructions for a candidate copy built by sv-ddl
 - **Feeds into sv-evaluation**: After audit, suggest running eval for baseline
 - **Fed by sv-watch**: Watch alerts can trigger targeted audits
 - **Feeds into sv-iterative-optimizer**: Audit findings inform which mutation operators to prioritize

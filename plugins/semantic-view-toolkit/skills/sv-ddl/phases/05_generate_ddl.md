@@ -6,7 +6,7 @@ description: Generate the CREATE SEMANTIC VIEW DDL from classified columns and r
 # Phase 5: Generate DDL
 
 ## Purpose
-Build the complete `CREATE OR REPLACE SEMANTIC VIEW` statement from the classified columns, relationships, and descriptions collected in Phases 1-4.
+Build the complete `CREATE SEMANTIC VIEW <target>` statement (plain CREATE, target name in the header) from the classified columns, relationships, and descriptions collected in Phases 1-4. Phase 6 deploys it to a candidate copy first; this phase never runs DDL against an existing SV.
 
 **Read [../reference/ddl_syntax.md](../reference/ddl_syntax.md) before generating any DDL.**
 
@@ -14,9 +14,9 @@ Build the complete `CREATE OR REPLACE SEMANTIC VIEW` statement from the classifi
 
 ## Step 5.0.5: FILTER label feature check
 
-`LABELS = (FILTER)` went GA on May 5, 2026. Accounts on older deployments may not support it yet.
+Some accounts may not accept `LABELS = (FILTER)` yet; Phase 6 confirms support at runtime.
 
-> ⚠️ **Moved to Phase 6**: Creating a probe semantic view is a mutating DDL operation. This step has been moved to Phase 6 (Execute & Validate), after the user has approved the DDL and a rollback clone has been offered. In Phase 5, validate FILTER label usage by inspection: confirm the `AS` expression for any `LABELS = (FILTER)` column resolves to a BOOLEAN type.
+In Phase 5, validate FILTER label usage by inspection: confirm the `AS` expression for any `LABELS = (FILTER)` column resolves to a BOOLEAN type. The Phase 6 candidate deploy is the runtime check — a parse error on `LABELS = (FILTER)` means the account does not support it.
 
 If no `filter_candidate: true` columns exist, skip this step entirely.
 
@@ -26,7 +26,7 @@ If no `filter_candidate: true` columns exist, skip this step entirely.
 
 If `SNIPPET_PATTERN_CANDIDATES` (from Phase 3, Step 3.1.4) is non-empty, apply
 the corresponding DDL constructs before building each clause. Read the full DDL
-key for each matched pattern in `../reference/../../../references/sv-snippet-patterns.md`.
+key for each matched pattern in `../../../references/sv-snippet-patterns.md`.
 
 | Pattern in SNIPPET_PATTERN_CANDIDATES | Where it affects DDL |
 |----------------------------------------|---------------------|
@@ -158,7 +158,7 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND its exp
 
 > ⚠️ **FILTER Deployment Guard**: Verify the `AS` expression resolves to BOOLEAN type (Step 5.0.5
 > inspection). If the expression is not boolean, emit as a plain fact WITHOUT the LABELS clause.
-> The runtime probe (in Phase 6) will confirm account support; if Phase 6 probe fails, return
+> The Phase 6 candidate deploy confirms account support; if it fails on the label, return
 > here and regenerate without FILTER labels.
 
 **Duplicate column names across source objects**: if two objects both have `AMOUNT`, define it in **one table only** (the primary source). Skip the duplicate in the other table.
@@ -194,8 +194,8 @@ If the column is tagged `filter_candidate: true` in `COLUMN_CLASSES` AND is BOOL
   COMMENT = '<description>'
 ```
 
-> Verify the `AS` expression is BOOLEAN type (Step 5.0.5 inspection). The runtime probe in
-> Phase 6 confirms account support. If Phase 6 probe fails, return here and regenerate
+> Verify the `AS` expression is BOOLEAN type (Step 5.0.5 inspection). The Phase 6 candidate
+> deploy confirms account support. If it fails on the label, return here and regenerate
 > without FILTER labels.
 
 For computed dimensions (e.g. extracting year from date):
@@ -305,7 +305,7 @@ Combine all sections in the **mandatory order**: TABLES → RELATIONSHIPS → FA
 
 Template:
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
+CREATE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
   TABLES (
     <table entries>
   )
@@ -362,7 +362,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 | WITH SYNONYMS and COMMENT on column entries | WARN if missing. The skill should auto-generate both from Phase 2 profiling. If absent, note degraded Analyst quality but do not block. |
 | String literals in metric expressions use single-quotes with NO extra escaping — `COUNT_IF(OUTCOME = 'WON')` is correct; `COUNT_IF(OUTCOME = ''WON'')` is **wrong** and will fail at execution | Scan every `AS <aggregate_expr>` in METRICS for `''` double-quote patterns |
 | Non-standard column names (from `NON_STANDARD_COLUMNS`) are double-quoted **everywhere** they appear: in `AS <alias>`, inside computed expressions, and in `AI_SQL_GENERATION` examples. Use `REPLACE(col_name, '"', '""')` for names that themselves contain a double-quote character. Example: `t."user@email.com" AS "user@email.com"`. Standard names (`[A-Z0-9_]` only, not starting with digit) need no quoting. | Cross-reference every column name in FACTS/DIMENSIONS/METRICS against `NON_STANDARD_COLUMNS`; fail if any appears unquoted |
-| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. The runtime account-support probe runs in Phase 6. |
+| FILTER label only on boolean expressions | For every entry with `LABELS = (FILTER)`, verify the `AS <expr>` resolves to BOOLEAN type. Non-boolean FILTER labels will cause runtime errors. The Phase 6 candidate deploy is the runtime account-support check. |
 | `LABELS = (FILTER)` appears **before** `AS` — not after | For every entry with `LABELS = (FILTER)`, confirm the order is `<alias> LABELS = (FILTER) AS <expr>`. Writing `<alias> AS <expr> LABELS = (FILTER)` is a syntax error. This is the only modifier that precedes `AS`; all others (SYNONYMS, TAG, COMMENT) follow it. |
 | Window metric references valid inner metric | For every window function metric, verify the inner `<metric_ref>` exists as a defined metric in the same table's METRICS section. Missing inner metrics will fail at creation. |
 | PARTITION BY EXCLUDING dims are accessible | For every `PARTITION BY EXCLUDING <dims>`, verify each excluded dimension is defined and accessible from the same entity. Inaccessible dims cause silent wrong results. |
@@ -392,7 +392,7 @@ This posture applies to EVERY check below. When in doubt, flag for the user rath
 
 Present internally (not to user yet):
 ```
-Self-check: 27/27 checks passed ✓
+Self-check: N/N checks passed ✓   (N = rows in the two tables above)
 Proceeding to present DDL.
 ```
 
@@ -414,22 +414,19 @@ before presenting to the user:
 
 **Gate B: Structural validator**
 
-Write the DDL to `/tmp/sv_ddl_check.sql` then run, from the toolkit root:
+Write the DDL to `/tmp/sv_ddl_check.sql` then run:
 
 ```bash
-python3 scripts/sv_validator.py /tmp/sv_ddl_check.sql
+python3 <toolkit-root>/scripts/sv_validator.py /tmp/sv_ddl_check.sql
 ```
 
-The validator is bundled with this toolkit and requires only the Python standard
-library. If you are not in the toolkit root, use the path to it:
-`python3 <toolkit-root>/scripts/sv_validator.py /tmp/sv_ddl_check.sql`
+The validator is bundled with this toolkit and requires only the Python standard library.
 
 If the script is not found:
 ```
-⚠ WARNING: sv_validator.py not found — 18 structural checks skipped.
-  Skipped: fan_trap_warning, chasm_trap_warning, cardinality_lie_warning,
-           orphan_detection, synonym_overlap, semi_additive_audit, and 12 syntax checks.
-  Install: cortex skill install semantic-view-ddl
+⚠ WARNING: <toolkit-root>/scripts/sv_validator.py not found — structural checks skipped
+  (fan/chasm trap, cardinality lie, orphan detection, synonym overlap, semi-additive audit,
+  syntax checks). Check the toolkit install.
 ```
 
 Interpret results:
@@ -460,6 +457,5 @@ Type 'go' to execute, or make edits first.
 
 ⚠️ **STOPPING POINT (INTERACTIVE mode)** — Wait for user to approve or request changes.
 
-**AUTONOMOUS:** if this is a `CREATE OR REPLACE` on an existing SV, snapshot the current
-DDL via `GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')` to a timestamped file first (the rollback
-point — SVs have no built-in undo). Then execute, log the snapshot path, proceed to Phase 6.
+**AUTONOMOUS:** log the DDL and proceed to Phase 6. Phase 6 deploys only to a candidate copy,
+so nothing existing is touched.

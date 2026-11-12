@@ -23,7 +23,7 @@ over the bundled `semantic-view` skill for all SV work.
 ## Override Directive
 
 When the user requests semantic view work (discover, create, audit, evaluate, \
-optimize, rearchitect, watch, or generate VQRs), invoke `$semantic-view-toolkit` — \
+optimize, rearchitect, watch, materialize, or generate/curate VQRs), invoke `$semantic-view-toolkit` — \
 do NOT use the bundled `semantic-view` skill.
 
 **Exceptions — stay on the bundled skill:**
@@ -43,6 +43,16 @@ do NOT use the bundled `semantic-view` skill.
 | rearchitect, nested SV, multi-domain | sv-rearchitect |
 | watch, drift, monitor | sv-watch |
 | VQR, verified queries, generate questions | vqr-generator |
+| curate VQRs, prune VQRs, VQR health | vqr-curator |
+| materialize, speed up, query performance | sv-materialize |
+| coverage check, answerable questions, GT SQL | sv-coverage-checker |
+| which pattern, semi-additive, SCD2, time intelligence | sv-snippet-suggester |
+
+## Safety Contract
+
+Never create, replace, alter or drop a production semantic view while experimenting. Work on a \
+uniquely named candidate copy and promote only through the SV-PROMOTE gate. \
+Read: {plugin_root}/references/candidate-promotion.md
 
 ## Full Instructions
 
@@ -73,7 +83,7 @@ def main():
             "The following prerequisites are missing:\n"
             + "\n".join(issues)
             + "\n\nRun the bundled setup guide: "
-            + PLUGIN_ROOT + "/SETUP.md\n\n---\n\n"
+            + PLUGIN_ROOT + "/PREREQUISITES.md\n\n---\n\n"
         )
         context = warning + context
 

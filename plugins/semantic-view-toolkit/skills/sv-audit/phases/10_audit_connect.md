@@ -56,7 +56,7 @@ Extract the following from the DESCRIBE result:
 - Store as `SV_TABLES` — list of FQNs
 
 **Columns defined:**
-- All columns with their classification (FACT, DIMENSION, MEASURE/METRIC, TIME_DIMENSION)
+- All columns with their classification (FACT, DIMENSION, METRIC, DERIVED_METRIC)
 - Column data types
 - Which table each column belongs to
 - Store as `SV_COLUMNS` — dict keyed by `table.column`
@@ -82,35 +82,31 @@ Store as `SV_VQRS` — list of `{name, question, sql}` dicts (empty list if none
 
 If `SV_VQRS` is non-empty, validate each VQR's SQL against the SV schema. This is a static check — no ACCOUNT_USAGE queries required.
 
-**Canonical check set:** `references/vqr-eval-health.md` defines the full pre-flight check set (Checks 1–7, with severities, detection code, and fix guidance). The checks below are the subset most relevant to an *audit* (structural, no eval launch). For the full set including CA-extension column-drop (CRITICAL, Snowsight-built SVs only) and GROUP BY alias, see the reference. Run all 7 if you intend to launch an eval after this audit; run the subset below for a structural audit only.
+**Canonical check set:** [../../../references/vqr-eval-health.md](../../../references/vqr-eval-health.md) defines the pre-flight checks (Checks 1–8, with severities, detection code and fix guidance). The audit runs the reference checks listed below, plus one audit-only check (duplicate keys). Headings give the reference check number; use the reference for detection code. Run all eight before launching an eval after this audit.
 
-**Check 1 — FQN Table References (HIGH)**
-Scan each VQR SQL for fully qualified table references (e.g., `DB.SCHEMA.table_name`).
-Per the [Snowflake VQR specification](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst/verified-query-repository), VQR SQL **must** use logical table names prefixed with `__` (e.g., `__FCT_TRANSACTIONS`). Raw FQN references are invalid and can cause Cortex Analyst to generate SQL that bypasses the SV relationship graph.
+**Ref Check 1 — Table reference format (HIGH for physical FQN, LOW for bare logical names)**
+Physical `DB.SCHEMA.TABLE` references are HIGH. Bare logical names (`FROM orders`) are LOW style
+findings: the DDL docs example uses them, the YAML docs prefer `__orders`.
 
-Detection pattern: any `WORD.WORD.WORD` or `WORD.WORD.table_name` reference in VQR SQL where the final segment matches an SV table's physical name.
+**Ref Check 2 — Columns not in SV (HIGH)**
+Every column reference must be a logical dimension, fact or metric name from DESCRIBE.
+Skip CTE-defined aliases, SQL keywords and numeric literals.
 
-**Check 2 — Bare Physical / Logical Table Names Without `__` (MEDIUM)**
-Scan for bare table names in FROM/JOIN position that match an SV physical or logical table name but are **not** prefixed with `__`.
-These must become `__TABLE_NAME` references. A bare logical name appears to work when logical and physical names coincide, but is not portable and orphans the VQR when they diverge.
+**Ref Check 3 — CA extension column-drop (CRITICAL, Snowsight-built SVs only)**
+Detect with `GET_DDL` and `'with extension' in ddl.lower()`. Before any eval, build a DDL-only
+candidate copy as described in the reference.
 
-Detection pattern: `\bFROM\s+<table_name>\b` or `\bJOIN\s+<table_name>\b` where `<table_name>` (case-insensitive) is in the SV's physical or logical table list and is NOT a CTE defined in the same SQL.
+**Ref Check 4 — GROUP BY alias (MEDIUM)**
 
-**Check 3 — Columns Not In SV (MEDIUM)**
-For each `alias.column_name` reference in VQR SQL, verify `column_name` exists as a dimension, fact, or metric in the SV.
-Skip: CTE-defined aliases, SQL keywords, and numeric literals.
+**Ref Check 5 — Metric coverage gaps (MEDIUM)**
+Route uncovered metrics to `vqr-generator`.
 
-**Check 4 — Duplicate VQR Keys (LOW)**
-Check for VQR entries with identical `name` field values. Near-duplicates that differ only by trailing whitespace or newlines count as duplicates.
+**Ref Check 7 — Aggregation mismatch (HIGH)**
 
-**Check 5 — Aggregation Mismatch (HIGH)**
-For each VQR that aggregates a metric's source column, compare the aggregation function against the metric's EXPRESSION from DESCRIBE. A VQR using `SUM(amount)` where the metric is `AVG(amount)` scores 0 every time regardless of model quality. See `references/vqr-eval-health.md` Check 7 for detection SQL and fix guidance.
+**Ref Check 8 — Nested subqueries (MEDIUM, unverified heuristic; CTEs exempt)**
 
-**Check 6 — Metric Coverage Gaps (MEDIUM)**
-SV metrics with no VQR have zero eval signal — if the model generates wrong SQL for them, you'll never know. Cross-reference VQR SQL against metrics from DESCRIBE; route uncovered metrics to `vqr-generator`. See `references/vqr-eval-health.md` Check 5.
-
-**Check 7 — CA Extension Column-Drop (CRITICAL, Snowsight-built SVs only)**
-If the SV was built in Snowsight and contains a `with extension (CA='...')` block, the eval framework drops columns not in the CA extension's declared list, causing `invalid identifier` errors before scoring. Detect with `GET_DDL` and `'with extension' in ddl.lower()`; create a DDL-only eval copy before launching an eval. See `references/vqr-eval-health.md` Check 3 for the full strip procedure.
+**Audit-only — Duplicate VQR keys (LOW)**
+VQR entries with identical names, including names that differ only by trailing whitespace.
 
 Store findings as `VQR_HEALTH_FINDINGS`:
 ```
@@ -119,10 +115,12 @@ Store findings as `VQR_HEALTH_FINDINGS`:
   "fqn_bypass":        [{"vqr_name": "...", "tables": ["DB.SCHEMA.T1", ...]}],
   "bare_no_prefix":    [{"vqr_name": "...", "tables": ["T1", ...]}],
   "unknown_cols":      [{"vqr_name": "...", "columns": ["COL1", ...]}],
-  "duplicate_keys":    [{"vqr_name": "...", "count": N}],
-  "agg_mismatch":      [{"vqr_name": "...", "metric": "...", "vqr_agg": "...", "metric_agg": "..."}],
+  "ca_extension_drop": [{"present": true}],
+  "group_by_alias":    [{"vqr_name": "...", "aliases": ["..."]}],
   "uncovered_metrics": [{"metric": "...", "table": "..."}],
-  "ca_extension_drop": [{"present": true, "stripped_copy_fqn": "..."}]
+  "agg_mismatch":      [{"vqr_name": "...", "metric": "...", "vqr_agg": "...", "metric_agg": "..."}],
+  "nested_subquery":   [{"vqr_name": "..."}],
+  "duplicate_keys":    [{"vqr_name": "...", "count": N}]
 }
 ```
 
@@ -136,9 +134,9 @@ Add to the scope summary line in Step 10.5:
 ## Step 10.4b: Topology Check
 
 > **DESCRIBE output structure** (per Snowflake docs): `DESCRIBE SEMANTIC VIEW` returns an EAV-format result with these exact columns (always use double-quoted lowercase in RESULT_SCAN):
-> - `"object_kind"` — `TABLE`, `RELATIONSHIP`, `DIMENSION`, `FACT`, `METRIC`, `DERIVED_METRIC`, `CUSTOM_INSTRUCTIONS`, `AI_VERIFIED_QUERY`, or `NULL`
+> - `"object_kind"` — `TABLE`, `RELATIONSHIP`, `DIMENSION`, `FACT`, `METRIC`, `DERIVED_METRIC`, `CUSTOM_INSTRUCTIONS`, `AI_VERIFIED_QUERY`, `CONSTRAINT` (range joins), or `NULL`
 > - `"object_name"` — name of the entity
-> - `"parent_entity"` — parent table for dims/facts/metrics; NULL for tables, VQRs, custom instructions
+> - `"parent_entity"` — parent table for dims/facts/metrics and relationships; NULL for tables, VQRs, custom instructions
 > - `"property"` — property key (e.g. `TABLE`, `REF_TABLE`, `EXPRESSION`, `DATA_TYPE`, `SYNONYMS`)
 > - `"property_value"` — property value
 >
@@ -148,54 +146,13 @@ Add to the scope summary line in Step 10.5:
 
 Using the DESCRIBE result from Step 10.2 (re-run DESCRIBE and refresh `describe_qid` if needed):
 
-**Check 1 — Fan trap** (metric at coarser grain than a dimension only reachable via bridge table → inflated numbers)
-```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
-metric_tbl AS (
-  SELECT DISTINCT "parent_entity" AS t
-  FROM sv_meta WHERE "object_kind" = 'METRIC'
-),
-dim_tbl AS (
-  SELECT DISTINCT "parent_entity" AS t
-  FROM sv_meta WHERE "object_kind" = 'DIMENSION'
-),
-rels AS (
-  SELECT "object_name" AS rel_name,
-         MAX(CASE WHEN "property" = 'TABLE'     THEN "property_value" END) AS lt,
-         MAX(CASE WHEN "property" = 'REF_TABLE' THEN "property_value" END) AS rt
-  FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP'
-  GROUP BY "object_name"
-)
-SELECT 'FAN_TRAP' AS issue_type, m.t AS metric_table, d.t AS dim_table, r2.lt AS bridge_table,
-  'SUM/COUNT on ' || m.t || ' inflated when grouped by ' || d.t || ' dims (bridge: ' || r2.lt || ')' AS detail
-FROM metric_tbl m
-JOIN rels r1 ON r1.lt = m.t
-JOIN rels r2 ON r2.rt = r1.rt AND r2.lt != m.t
-JOIN dim_tbl d ON d.t = r2.lt
-WHERE d.t != m.t;
-```
+> **No fan/chasm trap checks.** A shared dimension between fact tables is the normal star
+> schema, not a defect. Semantic SQL rejects a dimension whose logical table is not related to the
+> metric's table or has a coarser grain, with `Invalid dimension specified: … must be related to
+> and have an equal or lower level of granularity` (docs: *Querying semantic views*,
+> `SHOW SEMANTIC DIMENSIONS FOR METRIC`). Do not report fan or chasm traps from DESCRIBE alone.
 
-**Check 2 — Chasm trap** (two metric tables converging on shared dimension table → double counting)
-```sql
-WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
-metric_tbl AS (
-  SELECT DISTINCT "parent_entity" AS t FROM sv_meta WHERE "object_kind" = 'METRIC'
-),
-rels AS (
-  SELECT "object_name" AS rel_name,
-         MAX(CASE WHEN "property" = 'TABLE'     THEN "property_value" END) AS lt,
-         MAX(CASE WHEN "property" = 'REF_TABLE' THEN "property_value" END) AS rt
-  FROM sv_meta WHERE "object_kind" = 'RELATIONSHIP' GROUP BY "object_name"
-)
-SELECT 'CHASM_TRAP' AS issue_type, m1.t AS metric_1, m2.t AS metric_2, r1.rt AS shared_table,
-  'Metrics on ' || m1.t || ' and ' || m2.t || ' both reference ' || r1.rt || ' — double-count risk' AS detail
-FROM metric_tbl m1
-JOIN rels r1 ON r1.lt = m1.t
-JOIN metric_tbl m2 ON m2.t != m1.t AND m2.t > m1.t
-JOIN rels r2 ON r2.lt = m2.t AND r2.rt = r1.rt;
-```
-
-**Check 3 — Orphan tables** (table in SV with no RELATIONSHIP entry → queries against its columns will error at runtime)
+**Check 1 — Orphan tables** (table in SV with no RELATIONSHIP entry, MEDIUM → its dimensions cannot be combined with metrics from other tables; single-table queries still work)
 ```sql
 WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 all_tbl AS (
@@ -207,20 +164,18 @@ rel_tbl AS (
   WHERE "object_kind" = 'RELATIONSHIP' AND "property" IN ('TABLE', 'REF_TABLE')
 )
 SELECT 'ORPHAN' AS issue_type, t,
-  'Table has no RELATIONSHIP — queries using its dimensions/facts will fail at runtime' AS detail
+  'Table has no RELATIONSHIP — its fields cannot be combined with other tables' AS detail
 FROM all_tbl WHERE t NOT IN (SELECT t FROM rel_tbl);
 ```
 > Single-table SVs are exempt — a lone table needs no relationship.
 
-**Check 4 — USING completeness** (tables with multiple relationship paths to same target → ambiguous routing for metrics)
+**Check 2 — USING completeness** (tables with multiple relationship paths to same target → ambiguous routing for metrics)
 
 From the RESULT_SCAN rows: for each pair of tables, count how many distinct relationship names connect them. If any pair has 2+ relationships, verify that metrics on the source table include USING. `DESCRIBE SEMANTIC VIEW` does not expose the USING clause directly — flag as: "Multi-path table pairs detected — verify metrics on `<table>` include `USING (<rel_name>)` by inspecting the DDL: `SELECT GET_DDL('SEMANTIC VIEW', '<SV_FQN>')`."
 
 Store findings as `TOPOLOGY_FINDINGS`:
 ```
 {
-  "fan_traps":   [{"metric_table": "...", "dim_table": "...", "bridge": "..."}],
-  "chasm_traps": [{"metric_1": "...", "metric_2": "...", "shared_table": "..."}],
   "orphans":     ["TABLE_NAME", ...],
   "missing_using": [{"table": "...", "relationship_paths": N}]
 }
@@ -228,7 +183,7 @@ Store findings as `TOPOLOGY_FINDINGS`:
 
 Add to scope summary line in Step 10.5:
 ```
-  Topology:         <fan_traps> fan traps, <chasm_traps> chasm traps, <orphans> orphans
+  Topology:         <orphans> orphans, <missing_using> multi-path pairs
 ```
 
 ---
@@ -259,7 +214,7 @@ SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
 ```
 
 **Check 3 — PK cardinality (the cardinality lie)**
-From DESCRIBE, extract PRIMARY_KEY and FOREIGN_KEY values to find PK columns that also appear as FK columns. `"parent_entity"` is NULL for RELATIONSHIP rows — use the pivot pattern to extract the source table from the `TABLE` property:
+From DESCRIBE, extract PRIMARY_KEY and FOREIGN_KEY values to find PK columns that also appear as FK columns. Use the pivot pattern to extract the source table from the relationship's `TABLE` property:
 ```sql
 WITH sv_meta AS (SELECT * FROM TABLE(RESULT_SCAN($describe_qid))),
 pks AS (
@@ -351,7 +306,7 @@ GROUP BY a."object_kind", a."parent_entity";
 | 10–25% of tables missing COMMENT | MEDIUM |
 | > 30% of columns (facts/dims/metrics) missing COMMENT | MEDIUM |
 
-**Check 3 — SAMPLE_VALUES and IS_ENUM coverage** *(SYNONYMS are no longer recommended — skip synonyms check)*
+**Check 3 — SAMPLE_VALUES and IS_ENUM coverage** *(synonym coverage is not scored by this audit)*
 `SAMPLE_VALUES` and `IS_ENUM` are **not exposed in DESCRIBE output** (per Snowflake docs — only `TABLE`, `EXPRESSION`, `DATA_TYPE`, `ACCESS_MODIFIER`, `SYNONYMS`, `COMMENT`, and Cortex Search properties are listed). To check these, retrieve the full DDL:
 ```sql
 SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
@@ -360,8 +315,8 @@ SELECT SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW('<DB>.<SCHEMA>.<SV_NAME>');
 ```
 From the DDL or YAML, flag any VARCHAR/TEXT dimension that has no `SAMPLE_VALUES` and no `IS_ENUM` as MEDIUM — missing sample values force the model to guess valid filter values.
 
-**Check 5 — Source object accessibility**
-Verify the current role can still SELECT from each underlying source table. Base table names come from DESCRIBE rows where `object_kind = 'TABLE'` and `property = 'BASE_TABLE_NAME'` (with `BASE_TABLE_DATABASE_NAME` and `BASE_TABLE_SCHEMA_NAME` for the full FQN):
+**Check 4 — Source object accessibility**
+Verify the current role can still SELECT from each underlying source table. Base table names come from DESCRIBE rows where `object_kind = 'TABLE'` and `property = 'BASE_TABLE_NAME'` (with `BASE_TABLE_DATABASE_NAME` and `BASE_TABLE_SCHEMA_NAME` for the full FQN). A logical table defined as a SQL query has a `DEFINITION` property instead; run `SELECT * FROM (<DEFINITION>) LIMIT 0` for it:
 ```sql
 SELECT * FROM <BASE_TABLE_DATABASE_NAME>.<BASE_TABLE_SCHEMA_NAME>.<BASE_TABLE_NAME> LIMIT 0;
 ```
@@ -373,7 +328,6 @@ Store findings as `METADATA_QUALITY_FINDINGS`:
   "ai_sql_generation_missing": true | false,
   "tables_missing_comment": ["TABLE_NAME", ...],
   "columns_missing_comment_count": N,
-  "tables_missing_synonyms": ["TABLE_NAME", ...],
   "dims_missing_sample_values": [{"table": "...", "dim": "..."}],
   "inaccessible_source_tables": ["DB.SCHEMA.TABLE", ...]
 }
@@ -414,15 +368,13 @@ Calculate:
 
 ---
 
----
-
 ## Step 10.4f: Relationship join type compatibility — CRITICAL check
 
 For each relationship in `SV_RELATIONSHIPS`, verify that the join columns on both sides have compatible data types. This is a **CRITICAL severity finding** — a type-mismatched relationship passes SV validation and DESCRIBE silently, but causes every SQL generation attempt on that join path to fail at runtime. This check is entirely static and requires no ACCOUNT_USAGE access.
 
-**Why it matters:** The agent reads the SV relationship graph and generates SQL joins on those columns. If the join columns have incompatible types (e.g., `NUMBER(38,0)` joined to `VARCHAR(30)`), the generated SQL fails. The SV toolkit previously had no check for this class of defect. Any SV created before this check was added may silently carry broken relationships — and this is the defect most likely to cause repeated 500-level errors in agent responses.
+**Why it matters:** Generated SQL joins on those columns. If the join columns have incompatible types (e.g., `NUMBER(38,0)` joined to `VARCHAR(30)`), the join can fail with a conversion error on non-numeric values or match nothing. Verify before relying on the severity: confirm with one test query on the join path.
 
-For each relationship, retrieve both join columns' types from `INFORMATION_SCHEMA.COLUMNS`:
+RELATIONSHIP rows carry **logical** table names and JSON-array keys (`FOREIGN_KEY`, `REF_KEY`). Map each logical table to `BASE_TABLE_DATABASE_NAME.BASE_TABLE_SCHEMA_NAME.BASE_TABLE_NAME` from its TABLE rows, and map logical key names to physical columns via the DIMENSION/FACT `EXPRESSION` rows. Compare composite keys position by position. Then retrieve both join columns' types from `INFORMATION_SCHEMA.COLUMNS`:
 
 ```sql
 SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH
@@ -443,7 +395,7 @@ WHERE TABLE_SCHEMA = '<schema>'
 
 | Mismatch | Severity |
 |---|---|
-| `NUMBER` / `INT` / `FLOAT` ↔ `VARCHAR` / `TEXT` / `CHAR` | **CRITICAL** — every query on this join path will fail |
+| `NUMBER` / `INT` / `FLOAT` ↔ `VARCHAR` / `TEXT` / `CHAR` | **CRITICAL** — joins on this path can fail or return wrong rows |
 | `BOOLEAN` ↔ any non-boolean | **CRITICAL** |
 | `VARIANT` / `OBJECT` / `ARRAY` ↔ any structured type | **CRITICAL** |
 | `DATE` ↔ `TIMESTAMP_*` | **HIGH** — implicit cast exists but may lose time precision |
@@ -459,14 +411,13 @@ WHERE TABLE_SCHEMA = '<schema>'
   Left:   <left_table>.<left_col>   →  <LEFT_DATA_TYPE>
   Right:  <right_table>.<right_col> →  <RIGHT_DATA_TYPE>
 
-  Every query that traverses this relationship will fail at runtime.
-  This is a HARD BLOCK — the relationship must be fixed before this SV
-  can be trusted for production use.
+  Queries that traverse this relationship can fail or mis-join.
+  Fix the relationship before trusting this SV in production.
 
   Resolution options:
     A) Find the correct join column — run:
-       SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_NAME IN ('<left>', '<right>')
+       SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM <DB>.INFORMATION_SCHEMA.COLUMNS
+       WHERE (TABLE_SCHEMA, TABLE_NAME) IN (('<left_schema>', '<left>'), ('<right_schema>', '<right>'))
        ORDER BY DATA_TYPE, COLUMN_NAME;
        Look for a column with a matching type on both sides.
 
@@ -504,7 +455,7 @@ Semantic View Audit Scope
   Coverage:         <X>/<Y> = <Z>%
   Relationships:    <N> defined
   Verified Queries: <N> defined — VQR Health: <X> issues (<Y> HIGH, <Z> MEDIUM)
-  Topology:         <fan_traps> fan traps, <chasm_traps> chasm traps, <orphans> orphans
+  Topology:         <orphans> orphans, <missing_using> multi-path pairs
   Join type safety: <N> relationships checked — <X> CRITICAL, <Y> HIGH, <Z> MEDIUM
   Metric integrity: <N> issues found
   Metadata quality: <N> issues found (<Y> HIGH, <Z> MEDIUM)
@@ -546,8 +497,6 @@ If user says no, stop and report: "Audit cancelled. The describe summary above i
 
 After user confirms, store these variables for subsequent phases:
 
-## Output variables
-
 | Variable | Contents |
 |----------|----------|
 | `SV_FQN` | Fully qualified semantic view name |
@@ -556,11 +505,11 @@ After user confirms, store these variables for subsequent phases:
 | `SV_COLUMNS` | Dict: table.column → {classification, data_type} |
 | `SV_RELATIONSHIPS` | List of relationship definitions |
 | `SV_VQRS` | List of verified query representations |
-| `VQR_HEALTH_FINDINGS` | Dict: fqn_bypass, bare_physical, unknown_cols, duplicate_keys |
-| `TOPOLOGY_FINDINGS` | Dict: fan_traps, chasm_traps, orphans, missing_using |
+| `VQR_HEALTH_FINDINGS` | Dict keyed as in Step 10.4a |
+| `TOPOLOGY_FINDINGS` | Dict: orphans, missing_using |
 | `JOIN_TYPE_FINDINGS` | List of {rel_name, left_table, left_col, left_type, right_table, right_col, right_type, severity} |
 | `METRIC_INTEGRITY_FINDINGS` | Dict: semi_additive_candidates, non_boolean_filter_facts, pk_cardinality_suspects |
-| `METADATA_QUALITY_FINDINGS` | Dict: ai_sql_generation_missing, tables/cols missing comment/synonyms, sample_values gaps, inaccessible tables |
+| `METADATA_QUALITY_FINDINGS` | Dict: ai_sql_generation_missing, tables/cols missing comment, sample_values gaps, inaccessible tables |
 | `TOTAL_SV_COLUMNS` | Count of columns in the SV |
 | `TOTAL_SOURCE_COLUMNS` | Count of columns in underlying tables |
 | `COVERAGE_PCT` | Column coverage percentage |

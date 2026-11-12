@@ -39,9 +39,10 @@ Store as: `SCAN_STRATEGY` — `full` | `schema_affinity` | `fk_and_cooccurrence_
 
 ## Step 2A: FK/PK Constraint Scan
 
-Follow the detection method in `../../references/relationship-detection.md`, Section 1 (Declared FK/PK Constraints).
+Detection rules: `../../../references/relationship-detection.md`, Section 1. This step owns the SQL.
 
-For each schema in `DISCOVERY_SCHEMAS`:
+For each schema in `DISCOVERY_SCHEMAS` (write the list as upper-case quoted string literals,
+e.g. `'SALES', 'MARKETING'`, and compare with `UPPER(...)`):
 
 > **Empty schema list guard:** If `DISCOVERY_SCHEMAS` is empty (meaning "all non-system schemas"),
 > omit the `WHERE ... IN (...)` filter entirely from the queries below. An empty `IN ()` is a
@@ -79,7 +80,7 @@ SHOW PRIMARY KEYS IN DATABASE <DISCOVERY_DB>
         "key_sequence",
         "constraint_name"
       FROM $1
-      WHERE "schema_name" IN (<DISCOVERY_SCHEMAS>);
+      WHERE UPPER("schema_name") IN (<DISCOVERY_SCHEMAS>);
 
 SHOW UNIQUE KEYS IN DATABASE <DISCOVERY_DB>
   ->> SELECT
@@ -89,7 +90,7 @@ SHOW UNIQUE KEYS IN DATABASE <DISCOVERY_DB>
         "key_sequence",
         "constraint_name"
       FROM $1
-      WHERE "schema_name" IN (<DISCOVERY_SCHEMAS>);
+      WHERE UPPER("schema_name") IN (<DISCOVERY_SCHEMAS>);
 ```
 
 **Output:** Store each FK relationship as an edge:
@@ -103,7 +104,7 @@ Set flag: `CONSTRAINTS_AVAILABLE = true/false` (if zero FK rows returned).
 
 ## Step 2B: Column Name FK Inference
 
-Follow the detection method in `../../references/relationship-detection.md`, Section 2 (Column Name Pattern Inference).
+Detection rules: `../../../references/relationship-detection.md`, Section 2.
 
 **Skip this step if** `SCAN_STRATEGY = 'fk_and_cooccurrence_only'`.
 
@@ -117,7 +118,7 @@ SELECT
     DATA_TYPE,
     IS_NULLABLE
 FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA IN (<DISCOVERY_SCHEMAS>)
+WHERE UPPER(TABLE_SCHEMA) IN (<DISCOVERY_SCHEMAS>)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;
 ```
 
@@ -131,7 +132,7 @@ For each column with a recognized suffix (_ID, _KEY, _CODE, _SK, _NBR, _NO, _FK)
      - Singular: CUSTOMER_ID → CUSTOMER table
      - Alias: CUST_ID → CUSTOMERS (common abbreviations)
   3. In the target table, find PK/UNIQUE column with matching data type
-  4. Assign confidence per `../../references/relationship-detection.md` suffix table
+  4. Assign confidence per `../../../references/relationship-detection.md` suffix table
 ```
 
 **Schema affinity pre-filter (if SCAN_STRATEGY = 'schema_affinity'):**
@@ -149,18 +150,22 @@ For each column with a recognized suffix (_ID, _KEY, _CODE, _SK, _NBR, _NO, _FK)
 
 **Skip this step if** `HAS_ACCOUNT_USAGE = false`.
 
-This is the most impactful signal — tables queried together are almost always related. Uses structured `base_objects_accessed` JSON array, NOT query text parsing.
+Tables queried together are likely related, but co-occurrence never identifies the join columns.
+Rules: `../../../references/relationship-detection.md`, Section 3. The query scans 90 days of
+ACCESS_HISTORY; run it with `timeout_seconds` of 1200 on large accounts.
 
 ```sql
 WITH query_tables AS (
-    SELECT
+    SELECT DISTINCT
         ah.QUERY_ID,
-        obj.value:objectName::VARCHAR AS table_fqn
+        UPPER(obj.value:objectName::VARCHAR) AS table_fqn
     FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY ah,
         LATERAL FLATTEN(input => ah.BASE_OBJECTS_ACCESSED) obj
     WHERE ah.QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-        AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
-        AND SPLIT_PART(obj.value:objectName::STRING, '.', 1) = '<DISCOVERY_DB>'
+        AND ARRAY_SIZE(ah.OBJECTS_MODIFIED) = 0          -- exclude writes (INSERT…SELECT, CTAS, MERGE)
+        AND UPPER(obj.value:objectDomain::STRING) IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'EXTERNAL TABLE')
+        AND UPPER(SPLIT_PART(obj.value:objectName::STRING, '.', 1)) = '<DISCOVERY_DB>'
+        AND UPPER(SPLIT_PART(obj.value:objectName::STRING, '.', 2)) IN (<DISCOVERY_SCHEMAS>)  -- omit if all schemas
 )
 SELECT
     a.table_fqn AS table_a,
@@ -176,22 +181,16 @@ ORDER BY co_query_count DESC
 LIMIT 2000;  -- cap for large accounts
 ```
 
-> **⚠️ LIMIT before scope filter:** The LIMIT above caps results globally, not within the
-> discovery scope. On large accounts, in-scope table pairs may be pushed out by high-volume
-> out-of-scope pairs. If the co-occurrence query returns exactly 2000 rows and the scope
-> filter removes most of them, re-run with the scope filter inside the query (add
-> `AND SPLIT_PART(table_fqn, '.', 2) IN (<DISCOVERY_SCHEMAS>)` to the CTE's WHERE clause).
+`SPLIT_PART` on `.` misreads quoted identifiers that contain dots; such tables need manual review.
 
-**Filter to scope:** Remove pairs where either table is NOT in `DISCOVERY_SCHEMAS`.
+**Confidence assignment** (scores from `../../../references/confidence-scoring.md`):
+- co_query_count >= 50 → 0.85
+- co_query_count 10-49 → 0.65
+- co_query_count 3-9 → 0.40
 
-**Confidence assignment per `../../references/confidence-scoring.md`:**
-- co_query_count >= 50 → HIGH
-- co_query_count 10-49 → MEDIUM
-- co_query_count 3-9 → LOW
-
-**Output:** Store each co-occurrence pair as an edge:
+**Output:** Store each co-occurrence pair as a table-level edge with no join columns:
 ```
-{table_a_fqn, table_b_fqn, co_query_count, detection_method: 'CO_OCCURRENCE', confidence: tier_score}
+{table_a_fqn, table_b_fqn, co_query_count, detection_method: 'CO_OCCURRENCE', confidence: <score>, join_columns: null}
 ```
 
 ---
@@ -211,14 +210,13 @@ FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY,
     LATERAL FLATTEN(input => BASE_OBJECTS_ACCESSED) obj,
     LATERAL FLATTEN(input => obj.value:columns) col
 WHERE QUERY_START_TIME >= DATEADD('day', -90, CURRENT_TIMESTAMP())
-    AND obj.value:objectDomain::STRING IN ('Table', 'View')  -- Dynamic tables surface as 'Table' in ACCESS_HISTORY
-    AND SPLIT_PART(obj.value:objectName::STRING, '.', 1) = '<DISCOVERY_DB>'
+    AND UPPER(obj.value:objectDomain::STRING) IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'EXTERNAL TABLE')
+    AND UPPER(SPLIT_PART(obj.value:objectName::STRING, '.', 1)) = '<DISCOVERY_DB>'
+    AND UPPER(SPLIT_PART(obj.value:objectName::STRING, '.', 2)) IN (<DISCOVERY_SCHEMAS>)  -- omit if all schemas
 GROUP BY 1, 2
 ORDER BY access_count DESC
 LIMIT 5000;
 ```
-
-**Filter to scope:** Keep only columns for tables in `DISCOVERY_SCHEMAS`.
 
 **Output:** Store as column usage map:
 ```
@@ -234,27 +232,17 @@ This data is used in Phase 3 for:
 
 ## Step 2E: Merge Edges into Relationship Graph
 
-Combine all detected edges into a unified graph. For table pairs with multiple detection signals, compute combined confidence per `../../references/confidence-scoring.md`:
+Combine all detected edges into a unified graph, one entry per table pair. Compute
+`combined_confidence` with the Combined Score rule in `../../../references/confidence-scoring.md`.
 
-```
-combined_score = max(individual_scores) + bonus_from_additional_signals
-
-Bonus:
-  2 signals agree: +0.05
-  3 signals agree: +0.10
-  4 signals agree: +0.15
-
-Cap at 1.0.
-```
-
-**FK boost:** If an FK exists for a pair, boost the combined score one tier.
-
-**Data type match boost:** If join columns have identical data types, add +0.05.
+Join columns come **only** from FK or column-pattern signals. If a pair has only a co-occurrence
+signal, set `join_column_a = join_column_b = null` and `needs_join_key = true`.
 
 Store the final relationship graph:
 ```
 RELATIONSHIP_GRAPH = [
-  {table_a, table_b, join_column_a, join_column_b, combined_confidence, detection_methods[], co_query_count}
+  {table_a, table_b, join_column_a, join_column_b, combined_confidence, detection_methods[],
+   co_query_count, needs_join_key}
 ]
 ```
 
@@ -270,7 +258,7 @@ Scan Complete:
 Detection Results:
   FK constraints found:        <N> relationships
   Column pattern matches:      <N> relationships
-  Co-occurrence pairs (≥3):    <N> table pairs
+  Co-occurrence pairs (≥3):    <N> table pairs (<M> with no join key yet)
   Column usage data:           <N> columns with access data
 
 Relationship Graph:

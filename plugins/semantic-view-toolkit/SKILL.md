@@ -82,7 +82,7 @@ Or just describe what you need — I'll figure out where to route you.
 |---|---|---|
 | "what tables should be in my SV", "discover", "recommend groupings", "I have a database", "find tables", "data mart" | **sv-discovery** | `skills/sv-discovery/SKILL.md` |
 | "create SV", "build semantic view", "DDL", "I know my tables", "create from these tables" | **sv-ddl** | `skills/sv-ddl/SKILL.md` |
-| "audit my SV", "what's missing", "unused columns", "relationship gaps", "coverage" | **sv-audit** | `skills/sv-audit/SKILL.md` |
+| "audit my SV", "what's missing", "unused columns", "relationship gaps" | **sv-audit** | `skills/sv-audit/SKILL.md` |
 | "evaluate", "eval", "run evaluation", "how good is my SV", "sql correctness", "accuracy" | **sv-evaluation** | `skills/sv-evaluation/SKILL.md` |
 | "optimize", "improve", "iterate", "fix failures", "tune", "iterative loop" | **sv-iterative-optimizer** | `skills/sv-iterative-optimizer/SKILL.md` |
 | "GEPA", "evolutionary", "population", "hit a wall", "plateau", "local optimum", "broad search" | **sv-gepa-optimizer** | `skills/sv-gepa-optimizer/SKILL.md` |
@@ -145,16 +145,30 @@ Step-by-step with human review. Explains each phase and pauses at gates.
 ### AUTONOMOUS
 Runs to completion. Resolves judgment and courtesy gates using documented defaults, logs every resolution, and continues without pausing.
 - **Judgment / courtesy gates** → resolved by the documented deterministic default; logged as `[AUTO-RESOLVED: <gate-id> → <default>]`
-- **Additive / idempotent metadata setup** → executed without prompting (`CREATE SCHEMA IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`, `CREATE OR ALTER` preserving materializations)
+- **Additive / idempotent metadata setup** → executed without prompting (`CREATE SCHEMA IF NOT EXISTS`, `CREATE TABLE IF NOT EXISTS`)
 - **True blockers** → do NOT become questions when no operator decision can unblock them; either auto-remediate via a deterministic path, terminate with a `[BLOCKER: <reason>]` record, or escalate only when operator input is genuinely required
 - Trigger: "just run it", "autopilot", "autonomous", "headless", "run to completion"
 
 **Permanent OPERATOR_REQUIRED gates — never auto-resolved in any mode:**
 - Mutation of an existing customer VQR (modify, delete, or rewrite) — VQRs are immutable without explicit customer authorization (see [Gate Inventory](references/gate-inventory.md) — `SV-VQR-MUTATE`)
-- Acceptance of a winning SV configuration before production overwrite (see [Gate Inventory](references/gate-inventory.md) — `GEPA-PROD-OVERWRITE`)
+- Any change to a production SV, and dropping candidate copies (see [Gate Inventory](references/gate-inventory.md) — `SV-PROMOTE`, `SV-CANDIDATE-CLEANUP`)
 - Any action explicitly listed as OPERATOR_REQUIRED in the gate inventory
 
 **Gate categories and full inventory:** See `references/gate-inventory.md`
+
+---
+
+## Candidate-Copy Contract
+
+No skill in this toolkit creates, replaces, alters or drops a production semantic view while
+experimenting. Skills that change an SV (audit fixes, VQR changes, rearchitect, DDL iteration,
+both optimizers, materialization trials) work on a uniquely named candidate copy cloned from
+`GET_DDL`, evaluate it, and reach production only through the `SV-PROMOTE` gate.
+
+Naming, the production guard, DDL rewriting and exact-name cleanup are implemented in
+`scripts/candidate.py`; the full procedure is in `references/candidate-promotion.md`.
+Never use `CREATE OR REPLACE` on a semantic view (it drops grants and materializations). `CREATE OR ALTER`
+unsets any property left out of the statement, so it is used only with the full approved DDL at promotion.
 
 ---
 
@@ -175,9 +189,9 @@ CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;
 -- Tables:
 _SV_TOOLKIT_META.OPTIMIZATION_LOG    -- iteration history, scores, accept/reject
 _SV_TOOLKIT_META.WATCH_LOG           -- drift detections, shadow alerts
-_SV_TOOLKIT_META.GEPA_RUNS           -- GEPA generation history, operator weights
-_SV_TOOLKIT_META.EVAL_HISTORY        -- all eval run results (denormalized)
-_SV_TOOLKIT_META.DISCOVERY_STATE     -- domain groupings, relationship graph
+_SV_TOOLKIT_META.EVAL_HISTORY        -- one row per eval run (metric version, scores)
+_SV_TOOLKIT_META.EVAL_RESULTS        -- per-question eval results
+_SV_TOOLKIT_META.PROMOTIONS          -- candidate -> production promotion decisions
 ```
 
 ---
@@ -203,9 +217,9 @@ See `references/queryable-objects.md` for detection patterns and INFORMATION_SCH
 
 ## Composable SV Patterns
 
-> ⚠️ **Cortex Analyst does not support IMPORTS-based composed views.**
-> Pattern 1 (IMPORTS clause) is GA but only works with direct `SEMANTIC_VIEW()` queries.
-> For Cortex Analyst / Agent workflows, use Pattern 2 (Multi-SV Agent Composition).
+> ⚠️ **Unverified:** the `IMPORTS` clause is real (the `SEMANTIC_VIEW_IMPORTS` usage views document it), but this
+> toolkit has not confirmed its release status or whether Cortex Analyst answers questions over composed views.
+> For Cortex Analyst / Agent workflows, default to Pattern 2 (Multi-SV Agent Composition) and test Pattern 1 before relying on it.
 > See sv-rearchitect/SKILL.md for the decision framework.
 
 Two composition patterns supported by `sv-rearchitect`:

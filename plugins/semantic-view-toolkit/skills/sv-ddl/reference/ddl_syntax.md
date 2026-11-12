@@ -7,8 +7,14 @@ description: Complete CREATE SEMANTIC VIEW DDL syntax with all pitfalls, example
 
 ## Top-level template
 
+> **Toolkit rule.** This is a syntax reference. The toolkit itself only ever runs plain
+> `CREATE SEMANTIC VIEW` (new views and candidate copies) and, at gate `SV-PROMOTE`,
+> `CREATE OR ALTER SEMANTIC VIEW` with the full approved definition. It never uses the
+> `OR REPLACE` form, which drops the old object (grants are lost unless `COPY GRANTS` is given,
+> and OWNERSHIP is never copied). See `../../../references/candidate-promotion.md`.
+
 ```sql
--- Standard replace:
+-- Grammar per the CREATE SEMANTIC VIEW docs (IMPORTS line: see the IMPORTS section below):
 CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
   [ IMPORTS ( <imported_sv> [ [ FACTS (...) ] [ DIMENSIONS (...) ] [ METRICS (...) ] ] [ , ... ] ) ]
   TABLES ( logicalTable [ , ... ] )
@@ -24,9 +30,8 @@ CREATE [ OR REPLACE ] SEMANTIC VIEW [ IF NOT EXISTS ] <db>.<schema>.<name>
   [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , ... ] ) ]
   [ COPY GRANTS ]
 
--- In-place alter (Preview — Open, available all accounts):
--- Creates if not exists; adds/removes/modifies tables, rels, facts, dims, metrics, VQs, AI instructions.
--- Does NOT support tags. Any property absent from the statement is unset.
+-- In-place alter: creates if not exists; adds/removes/modifies tables, rels, facts, dims,
+-- metrics, verified queries, comment and AI instructions.
 CREATE OR ALTER SEMANTIC VIEW <db>.<schema>.<name>
   TABLES ( logicalTable [ , ... ] )
   [ RELATIONSHIPS ( relationshipDef [ , ... ] ) ]
@@ -34,10 +39,19 @@ CREATE OR ALTER SEMANTIC VIEW <db>.<schema>.<name>
   [ DIMENSIONS ( dimensionExpression [ , ... ] ) ]
   [ METRICS ( { metricExpression | windowFunctionMetricExpression } [ , ... ] ) ]
   [ COMMENT = '<comment_about_semantic_view>' ]
+  [ MAX_STALENESS = <integer> ]
   [ AI_SQL_GENERATION '<instructions_for_sql_generation>' ]
   [ AI_QUESTION_CATEGORIZATION '<instructions_for_question_categorization>' ]
   [ AI_VERIFIED_QUERIES ( verifiedQuery [ , ... ] ) ]
 ```
+
+**CREATE OR ALTER usage notes (per the docs):**
+- Any previously set property that the statement omits (for example `COMMENT` or
+  `MAX_STALENESS`) is **unset**. Always apply the full definition, never a fragment.
+- It cannot add or change tags; existing tags are preserved.
+- On an existing view the role needs **OWNERSHIP** on the semantic view.
+- Changing or removing a dimension or metric that a materialization uses suspends that
+  materialization (see the materializations guide).
 
 > **TAG clause position**: TAG must appear **after** AI_VERIFIED_QUERIES (last clause), not before AI_SQL_GENERATION. Placing TAG before AI_SQL_GENERATION will cause a syntax error.
 
@@ -48,7 +62,7 @@ CREATE OR ALTER SEMANTIC VIEW <db>.<schema>.<name>
 This example uses TPC-H sample data (available in every Snowflake account). It demonstrates all major clauses and correct syntax. Copy and modify for your own tables.
 
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW MY_DB.MY_SCHEMA.TPCH_REVENUE_ANALYSIS
+CREATE SEMANTIC VIEW MY_DB.MY_SCHEMA.TPCH_REVENUE_ANALYSIS
   TABLES (
     orders AS SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
       PRIMARY KEY (O_ORDERKEY)
@@ -392,19 +406,23 @@ Window function metrics apply a window function over an existing metric. Key con
 
 ## IMPORTS clause — composable semantic views
 
-> ⚠️ **Cortex Analyst and Snowsight do not support IMPORTS-based views.** For Analyst/Agent workflows, use multi-SV agent composition instead (Pattern 2 in `references/composable-sv-patterns.md`).
+> ⚠️ **Verify before relying on this section.** `IMPORTS` is not in the public CREATE SEMANTIC VIEW
+> syntax; the only documented surface is `SNOWFLAKE.ACCOUNT_USAGE.SEMANTIC_VIEW_IMPORTS`. The
+> behaviors below (including `DESC ... MODE`, the SHOW `imports` column, and Cortex Analyst /
+> Snowsight support) are not confirmed by the docs. For Analyst/Agent workflows, multi-SV agent
+> composition (Pattern 2 in `../../../references/composable-sv-patterns.md`) is the documented route.
 
 The `IMPORTS` clause lets one SV pull in tables, dimensions, facts, metrics, and relationships from another SV. IMPORTS must appear **before** `TABLES`.
 
 ```sql
 -- Full import (all public calculations):
-CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+CREATE SEMANTIC VIEW <db>.<schema>.<composing_sv>
   IMPORTS ( <db>.<schema>.<source_sv> )
   TABLES ( ... )      -- optional if only using imported entities
   ...
 
 -- Selective import (only named calcs):
-CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+CREATE SEMANTIC VIEW <db>.<schema>.<composing_sv>
   IMPORTS (
     <db>.<schema>.<source_sv>
       FACTS ( <table>.<fact_name> [, ...] )
@@ -414,7 +432,7 @@ CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
   ...
 
 -- Multiple imports:
-CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.<composing_sv>
+CREATE SEMANTIC VIEW <db>.<schema>.<composing_sv>
   IMPORTS ( <sv_a>, <sv_b> )
   ...
 ```
@@ -445,7 +463,7 @@ SHOW SEMANTIC VIEWS LIKE '<sv_name>';
 SELECT SYSTEM$READ_YAML_FROM_SEMANTIC_VIEW('<db>.<schema>.<sv_name>');
 ```
 
-See `references/composable-sv-patterns.md` for full patterns, selective imports examples, and YAML format details.
+See `../../../references/composable-sv-patterns.md` for full patterns, selective imports examples, and YAML format details.
 
 ---
 
@@ -470,7 +488,7 @@ See `references/composable-sv-patterns.md` for full patterns, selective imports 
 | 15 | `SAMPLE_VALUES (...)` uses **no `WITH` prefix** — `WITH SAMPLE_VALUES` is a syntax error; also valid on facts, not just dimensions | Writing `WITH SAMPLE_VALUES (...)` causes a DDL parse error |
 | 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |
 | 17 | Metric `AS` expressions can only reference columns that physically belong to the metric's own table — cross-table references (e.g. `a.col` inside a metric on `w`) are not resolved even through a defined relationship | Writing `SUM(CASE WHEN a.eligible THEN w.amount END)` on a metric on `w` — fails; workaround: `LABELS = (FILTER)` on the parent-table dimension + `AI_SQL_GENERATION` instructions, or denormalize the column into `w` |
-| 18 | `ALTER SEMANTIC VIEW` supports: RENAME, SET/UNSET COMMENT, SET/UNSET TAG, SET/UNSET MAX_STALENESS, and materialization operations (ADD/DROP/SUSPEND/RESUME/REFRESH MATERIALIZATION). It does NOT support `ALTER COLUMN`, `ALTER DIMENSION`, `ADD METRIC`, `ALTER METRIC SET EXPR`, or `DROP METRIC`. For structural changes to dimensions, facts, metrics, or relationships, use `CREATE OR ALTER SEMANTIC VIEW` (preserves materializations) or `CREATE OR REPLACE SEMANTIC VIEW` (drops materializations). `IS_TIME_DIMENSION` is a YAML-only concept — DDL time dimensions are regular dimensions with DATE/TIMESTAMP types. | Using `ALTER METRIC ... SET EXPR` or `ALTER COLUMN ... SET IS_TIME_DIMENSION` — neither exists; use `CREATE OR ALTER` for structural changes |
+| 18 | `ALTER SEMANTIC VIEW` supports: RENAME, SET/UNSET COMMENT, SET/UNSET TAG, SET/UNSET MAX_STALENESS, and materialization operations (ADD/DROP/SUSPEND/RESUME/REFRESH MATERIALIZATION). It does NOT support `ALTER COLUMN`, `ALTER DIMENSION`, `ADD METRIC`, `ALTER METRIC SET EXPR`, or `DROP METRIC`. For structural changes to dimensions, facts, metrics, or relationships, use `CREATE OR ALTER SEMANTIC VIEW` with the full definition (omitted properties are unset; materializations on changed calcs are suspended). `IS_TIME_DIMENSION` is a YAML-only concept — DDL time dimensions are regular dimensions with DATE/TIMESTAMP types. | Using `ALTER METRIC ... SET EXPR` or `ALTER COLUMN ... SET IS_TIME_DIMENSION` — neither exists; use `CREATE OR ALTER` for structural changes |
 | 19 | TAG clause must appear **after** `AI_VERIFIED_QUERIES` in the CREATE statement — not before `AI_SQL_GENERATION` | Placing TAG between COMMENT and AI_SQL_GENERATION causes a syntax error |
 | 20 | Derived metrics (view-scoped, combining multiple tables) omit `<table_alias>.` from the name and cannot use USING, window functions, or non-aggregated references | Adding a table prefix to a derived metric or trying to use it in a regular metric expression |
 
@@ -484,7 +502,7 @@ DESCRIBE SEMANTIC VIEW <db>.<schema>.<sv_name>;
 
 Returns a property-row result set (NOT DDL text). To get DDL, use `SELECT GET_DDL('semantic_view', '<FQN>')`.
 
-**Output columns** (verified Sep 2026 — lowercase, require double-quoting in RESULT_SCAN):
+**Output columns** (lowercase, require double-quoting in RESULT_SCAN):
 
 | Column | Description |
 |--------|-------------|
@@ -520,7 +538,7 @@ Returns a property-row result set (NOT DDL text). To get DDL, use `SELECT GET_DD
 ## Full working example (TPC-H)
 
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW MY_DB.PUBLIC.TPCH_REVENUE_SV
+CREATE SEMANTIC VIEW MY_DB.PUBLIC.TPCH_REVENUE_SV
   TABLES (
     orders    AS SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS
       PRIMARY KEY (O_ORDERKEY)
@@ -589,7 +607,7 @@ CREATE OR REPLACE SEMANTIC VIEW MY_DB.PUBLIC.TPCH_REVENUE_SV
 ### Window metric and range join example
 
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW MY_DB.PUBLIC.SALES_WITH_RATES_SV
+CREATE SEMANTIC VIEW MY_DB.PUBLIC.SALES_WITH_RATES_SV
   TABLES (
     orders AS MY_DB.PUBLIC.ORDERS
       PRIMARY KEY (ORDER_ID)
@@ -680,7 +698,7 @@ ORDER BY C_MKTSEGMENT;
 | Error message | Root cause | Fix |
 |--------------|-----------|-----|
 | `No queryable expression` | TABLES defined but no FACTS or DIMENSIONS | Add at least one FACTS or DIMENSIONS clause |
-| `invalid identifier 'X'` (where X is your alias) | Two confirmed causes: (1) duplicate physical column name across entities — see C6 in composable SV pitfalls; (2) specific column `DAYPART_IDX` from `CONTENT_TAXONOMY` fails in all SVs for unknown reasons — see C1 | See composable SV pitfalls section |
+| `invalid identifier 'X'` (where X is your alias) | Duplicate physical column name across entities (see C6), or a custom alias the engine rejects (see C1) | See composable SV pitfalls section |
 | `invalid identifier 'X'` (non-composable SV, no imports) | Fact/dim alias doesn't match physical column name | Change alias to match exact physical column name |
 | `Duplicate identifier` | Same column name defined in multiple tables' FACTS/DIMENSIONS | Keep definition on one table, remove from others |
 | `duplicate alias 'X'` | Selective IMPORTS across SVs that share a common ancestor (diamond without dedup) | Use full IMPORTS (no FACTS/DIMENSIONS/METRICS sub-clauses) when diamond deduplication is needed — selective imports do not support diamond dedup |
@@ -697,17 +715,17 @@ ORDER BY C_MKTSEGMENT;
 | `SQL compilation error` on COMMENT before TABLES | Top-level COMMENT placed before TABLES clause | Move COMMENT to after the last clause (METRICS), before AI_SQL_GENERATION |
 | `Referenced key ... does not match` | FK column count doesn't match referenced table's PK column count | Ensure the number of columns in `(<fk_cols>)` matches the PK declaration on the REFERENCES target. For composite PKs, list all PK columns or omit the column list (auto-match). |
 | `Object '<X>' does not exist or not authorized` | Source object FQN is wrong, object doesn't exist, or role lacks SELECT | Verify with `SHOW OBJECTS LIKE '<name>' IN SCHEMA <db>.<schema>` and check grants |
-| `Semantic view cannot reference another semantic view` | Attempted to use an SV as a source in TABLES clause | Use the `IMPORTS` clause instead of referencing an SV in TABLES. Note: Cortex Analyst does not support IMPORTS-based views — use multi-SV agent composition for Analyst workflows |
+| `Semantic view cannot reference another semantic view` | Attempted to use an SV as a source in TABLES clause | Use the `IMPORTS` clause instead of referencing an SV in TABLES (see the verification note in the IMPORTS section), or use multi-SV agent composition |
 
 ---
 
-## Composable SV pitfalls (IMPORTS clause) — validated August 2026
+## Composable SV pitfalls (IMPORTS clause)
 
-These were confirmed by targeted unit tests (composable SV deployment, August 2026).
+Observed in testing, not documented by Snowflake. Re-check on the target account.
 
 | # | Issue | Fix |
 |---|-------|-----|
-| C1 | **Alias = physical name required for certain columns** — if a column fails with `invalid identifier 'ALIAS'` despite correct order and no name conflict, try alias = physical column name (`ct.DAYPART_IDX AS DAYPART_IDX`). Workaround when custom alias is blocked for unknown reasons. | Use alias = physical column name |
+| C1 | **Alias = physical name required for certain columns** — if a column fails with `invalid identifier 'ALIAS'` despite correct order and no name conflict, try alias = physical column name (`t.COL_X AS COL_X`). | Use alias = physical column name |
 | C2 | **IS_ENUM must be the last dimension modifier** — `IS_ENUM COMMENT = '...'` is a hard `syntax error: unexpected 'COMMENT'`. Nothing can follow IS_ENUM. | Put COMMENT before IS_ENUM |
 | C4 | **Selective IMPORTS do not support diamond deduplication** — `IMPORTS(sv_a METRICS(...), sv_b METRICS(...))` across SVs sharing a common upstream SV produces `duplicate alias 'X'`. | Use full IMPORTS (no sub-clauses) when any shared ancestor exists |
 | C5 | **SEMANTIC_VIEW() output columns are unqualified** — `entity.metric_name` works in the METRICS input clause, but output columns drop the entity prefix. `ORDER BY entity.metric_name` fails. | `ORDER BY metric_name` (unqualified) |
@@ -742,38 +760,35 @@ Ask these for every SV before deploying:
 
 ## LABELS = (FILTER) — deployment notes
 
-`LABELS = (FILTER)` went **GA May 5, 2026**. Accounts on older deployments will reject this syntax with a parse error.
+Accounts that do not support `LABELS = (FILTER)` reject it with a parse error.
 
 **Behavior**: Marks a boolean fact or dimension as usable in WHERE clauses via the FILTER semantic hint. Cortex Analyst can then apply it as a predicate automatically.
 
 **Fallback**: If not available on the target account, emit boolean expressions as plain facts/dimensions without the LABELS clause. They still work — Cortex Analyst can use boolean columns in WHERE clauses, but won't recognize them as dedicated "filter" semantic types.
 
-**Feature probe pattern** (used in Phase 5 Step 5.0.5):
-```sql
-CREATE OR REPLACE SEMANTIC VIEW <db>.<schema>.__FILTER_PROBE
-  TABLES ( <table> PRIMARY KEY (<pk>) )
-  FACTS ( <alias>.probe LABELS = (FILTER) AS TRUE )
-  COMMENT = 'probe';
-DROP SEMANTIC VIEW IF EXISTS <db>.<schema>.__FILTER_PROBE;
-```
+**Feature check**: no separate probe view. The Phase 6 candidate deploy is the probe — a parse
+error on `LABELS = (FILTER)` means the account does not support it; apply the fallback above and
+regenerate in Phase 5.
 
 ---
 
 ## ALTER SEMANTIC VIEW — Supported Operations
 
-`ALTER SEMANTIC VIEW` supports only these operations (per official Snowflake docs, Sep 2026):
+`ALTER SEMANTIC VIEW` supports only these operations (per the ALTER SEMANTIC VIEW docs):
 
 - `RENAME TO <new_name>`
 - `SET COMMENT = '...'` / `UNSET COMMENT`
 - `SET TAG <name> = '<value>'` / `UNSET TAG <name>`
-- `SET MAX_STALENESS = '<N> <unit>'` / `UNSET MAX_STALENESS`
+- `SET MAX_STALENESS = <seconds>` (integer, minimum 120) / `UNSET MAX_STALENESS` (only when no materializations exist)
 - `ADD MATERIALIZATION <name> WAREHOUSE = <wh> AS DIMENSIONS ... METRICS ...`
 - `DROP MATERIALIZATION <name>`
 - `SUSPEND MATERIALIZATION <name>` / `RESUME MATERIALIZATION <name>`
 - `REFRESH MATERIALIZATION <name>`
 
 **For all structural changes** (dimensions, facts, metrics, relationships, VQRs, AI instructions):
-use `CREATE OR ALTER SEMANTIC VIEW` (preserves materializations) or `CREATE OR REPLACE SEMANTIC VIEW`.
+use `CREATE OR ALTER SEMANTIC VIEW` with the **full** definition (omitted properties are unset;
+materializations on changed calcs are suspended). In this toolkit that runs only on a candidate or
+at gate `SV-PROMOTE`.
 
 `ALTER COLUMN`, `ALTER DIMENSION`, `ADD METRIC`, `ALTER METRIC`, `ADD RELATIONSHIP`,
 `ALTER RELATIONSHIP`, `DROP COLUMN`, and `ADD FILTER` are NOT supported.
@@ -790,7 +805,7 @@ VQR SQL **must use `__`-prefixed logical table names** for every table reference
 
 **Rules for writing verified query SQL:**
 - **Table references: prefix with `__`.** Write `FROM __orders`, not `FROM orders`, not `FROM PROD_DB.PUBLIC.ORDERS`. The `__` prefix is required by the Snowflake VQR spec — the official VQR docs example uses `FROM __sales_data` and state "the name of the logical table is prefixed with two underscores."
-- **The Snowsight UI adds `__` automatically as an authoring convenience.** Raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`), the CA extension JSON, and the YAML `verified_queries:` block do NOT auto-prefix — the engine stores VQR SQL verbatim. You must write `__` yourself in all non-UI paths. (Verified July 2026 via live `CREATE OR ALTER` test: DESCRIBE returns the SQL exactly as authored, no auto-prefixing.)
+- **The Snowsight UI adds `__` automatically as an authoring convenience.** Raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`), the CA extension JSON, and the YAML `verified_queries:` block do NOT auto-prefix — the engine stores VQR SQL verbatim. You must write `__` yourself in all non-UI paths.
 - **Columns stay plain.** Write `customer_name`, not `__orders.customer_name`. The `__` prefix applies to table references only.
 - **A bare or FQN table reference is orphaned.** If the SV defines a table as `orders` but a VQR writes `FROM orders` (bare) or `FROM PROD_DB.PUBLIC.ORDERS` (FQN), the SV cannot map the SQL back to its own table objects. The VQR may appear to work when logical and physical names coincide, but it is not portable and fails when they diverge.
 - **Verify after authoring.** Run `SHOW SEMANTIC FACTS IN <sv>` and inspect the stored VQR SQL; confirm every table reference carries `__`.

@@ -6,18 +6,31 @@ description: Execute the DDL, validate with DESCRIBE SEMANTIC VIEW, and run a se
 # Phase 6: Execute & Validate
 
 ## Purpose
-Execute the DDL, confirm it was created correctly, and run a self-test question loop to verify Cortex Analyst can answer business questions from it.
+Deploy the Phase 5 DDL to a **candidate copy**, confirm it was created correctly, and run a self-test question loop to verify Cortex Analyst can answer business questions from it. Phase 6 never writes to the target name; see `../../../references/candidate-promotion.md`.
 This is the **iterative core** of the skill — failures loop back to Phase 5 for DDL fixes.
 
 ---
 
-## Step 6.1: Execute the DDL
+## Step 6.1: Deploy the DDL as a candidate
 
-```sql
-<paste DDL from Phase 5>
+Each Phase 5 → 6 iteration uses a fresh run id, so a candidate name is never reused
+(`<toolkit-root>` is the semantic-view-toolkit directory):
+
+```bash
+RUN=$(python3 <toolkit-root>/scripts/candidate.py new-run | jq -r .run)
+CAND=$(python3 <toolkit-root>/scripts/candidate.py name --source <SV_FQN> --kind cand --run "$RUN" | jq -r .candidate)
+python3 <toolkit-root>/scripts/candidate.py rewrite-ddl --source <SV_FQN> --candidate "$CAND" < phase5.sql > cand.sql
+python3 <toolkit-root>/scripts/candidate.py register <manifest.json> --run "$RUN" --source <SV_FQN> --candidate "$CAND" --ddl-file cand.sql
+python3 <toolkit-root>/scripts/candidate.py guard --source <SV_FQN> --target "$CAND"
 ```
 
-**Expected result**: `Semantic view <name> successfully created.`
+Execute `cand.sql` (plain `CREATE SEMANTIC VIEW <CAND>`). If the candidate name already exists,
+stop; do not replace it.
+
+**Expected result**: `Semantic view <CAND> successfully created.`
+
+Run every remaining Phase 6 step against `<CAND>`, not `<SV_FQN>`. When an iteration is
+abandoned, mark its candidate `failed` with `candidate.py set-status`.
 
 **If DDL fails**, go to Step 6.2 (error handling). Otherwise proceed to Step 6.3.
 
@@ -102,7 +115,7 @@ Run these SQL checks immediately after the DESCRIBE in Step 6.3.
 > ```sql
 > SELECT * FROM TABLE(RESULT_SCAN($describe_qid)) LIMIT 0;
 > ```
-> The DESCRIBE output uses these columns (verified on live Snowflake Sep 2026):
+> The DESCRIBE output typically uses these columns (confirm with the `LIMIT 0` query above):
 > - `"object_kind"` — the type of object (TABLE, FACT, DIMENSION, METRIC, RELATIONSHIP)
 > - `"object_name"` — name of the object
 > - `"parent_entity"` — which logical table the object belongs to
@@ -270,7 +283,7 @@ For each question, capture:
 
 For mixed detail/rollup sources, identify row-level markers and documented grains before selecting a filter; never guess that NULL means total. Compute independent base-detail SUM, COUNT, and AVG (SUM/count of non-null values, not average of group averages), then compare SV results at identical filters, null policy, date boundaries, units and snapshot. Repeat grouped and ungrouped tests; inspect referenced-key uniqueness and each join's row multiplicity. Do not use generated Analyst SQL as the reference answer.
 
-Persist expected/observed JSON objects with `scope`, `sum`, `count`, `avg` plus source queries and snapshot evidence. Run `python scripts/sv_validator.py <ddl.sql> <aggregate-evidence.json>` from the toolkit root; the existing validator calls `validate_aggregate_evidence`. Missing evidence, scope differences, or numeric mismatches block acceptance. Exact comparison requires normalized numeric values; record any approved rounding before comparison. Topology warnings alone neither prove nor disprove inflation.
+Persist expected/observed JSON objects with `scope`, `sum`, `count`, `avg` plus source queries and snapshot evidence. Run `python3 <toolkit-root>/scripts/sv_validator.py <ddl.sql> <aggregate-evidence.json>`; the existing validator calls `validate_aggregate_evidence`. Missing evidence, scope differences, or numeric mismatches block acceptance. Exact comparison requires normalized numeric values; record any approved rounding before comparison. Topology warnings alone neither prove nor disprove inflation.
 
 **Mandatory semantic validation** — before marking Phase 6 complete, run at least one query
 through the semantic view for each entity that has metrics defined:
@@ -349,7 +362,7 @@ Validation Results for <SV_NAME>
 
 ## Step 6.7: Decide — iterate or proceed
 
-If **0 failures**: proceed to Phase 7 (enrichment / verified queries).
+If **0 failures**: mark the candidate `evaluated` and proceed to Phase 7 (enrichment / verified queries). The target SV is created (new SV) or promoted (existing SV) at the end of Phase 7.
 
 If **any failures**: return to Phase 5 with the specific fixes identified. Increment iteration counter.
 

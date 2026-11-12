@@ -3,7 +3,7 @@ name: vqr-curator
 description: >
   Audit and curate Verified Query Representations on an existing Semantic View.
   Scores each VQR on complexity, uniqueness, activation, and correctness, then
-  produces a KEEP / FIX_SQL / DEDUPLICATE / SIMPLIFY / REMOVE verdict for each.
+  produces a KEEP / FIX_SQL / DEDUPLICATE / SIMPLIFY / REVIEW verdict for each.
   Also detects coverage gaps — metrics and dimensions with no VQR test coverage.
   Use when: VQR set is growing, SV context is bloated, VQRs never trigger fast-path,
   or before re-running SV evaluation after schema changes.
@@ -42,7 +42,8 @@ quality rubric and verdicts used throughout this skill.
 
 ## What This Skill Does NOT Do
 
-- Modify the SV — verdict only, no writes unless user confirms in Phase 6
+- Modify the production SV — approved changes go to a candidate copy and reach production only
+  through gate `SV-PROMOTE` (see `../../references/candidate-promotion.md`)
 - Replace `vqr-generator` — use that to create VQRs; use this to audit existing ones
 - Run EXECUTE_AI_EVALUATION — use sv-evaluation for formal accuracy scoring
 
@@ -65,7 +66,7 @@ Fetch SV, parse all VQRs and schema, measure token footprint.
 
 ### Phase 2 — SQL Quality (static)
 `phases/02_sql_quality.md`
-Check T1 (FQN refs), T2 (bare physical names), dry-run each VQR SQL, measure complexity.
+Check T1 (physical FQN refs), T2 (bare physical table names), dry-run each VQR SQL, measure complexity.
 
 ### Phase 3 — Uniqueness
 `phases/03_uniqueness.md`
@@ -82,8 +83,8 @@ Identify metrics and dimensions in the SV with zero VQR coverage.
 
 ### Phase 6 — Verdicts and Report
 `phases/06_verdicts.md`
-Assign KEEP / FIX_SQL / DEDUPLICATE / SIMPLIFY / REMOVE to every VQR.
-Present full report. Optionally apply fixes.
+Assign KEEP / FIX_SQL / DEDUPLICATE / SIMPLIFY / REVIEW to every VQR.
+Present full report. Optionally apply approved changes to a candidate copy.
 
 ---
 
@@ -95,7 +96,7 @@ Present full report. Optionally apply fixes.
 | `FIX_SQL` | Good question, fixable SQL issue (FQN refs, column error) | Rewrite SQL with __logical refs |
 | `DEDUPLICATE` | Near-duplicate of a higher-scoring VQR | Merge question text into winner; remove duplicate |
 | `SIMPLIFY` | Trivially generatable SQL — better as ai_sql_generation hint | Move to hint; remove VQR |
-| `REMOVE` | Broken, stale, or pure context bloat with no redeeming value | Drop from SV |
+| `REVIEW` | Dry-run failed, or evidence is inconclusive | Operator inspects; may choose to fix or remove. Never removed automatically |
 
 ---
 
@@ -115,7 +116,6 @@ Before the full audit, surface immediately if the VQR count exceeds the recommen
 ```
 ≤ 10 VQRs:   Healthy — focused SV
 10–20 VQRs:  Acceptable — multi-dimensional SV, watch for duplicates
-> 20 VQRs:   ⚠ Audit recommended — possible SV design issue
-              Ask: "Do all VQRs share the same subject?"
-              If not, the SV may be doing too much — consider splitting.
+> 20 VQRs:   ⚠ Review — check each VQR against the rubric before adding more
+              (VQR count alone is not a reason to split the SV)
 ```

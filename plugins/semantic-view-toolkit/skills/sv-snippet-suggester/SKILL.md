@@ -57,7 +57,10 @@ existing partial DDL, or the user's plain-language description.
 
 ### Step 2 — Score against the pattern catalog
 
-Read `../../references/sv-snippet-patterns.md`. For each pattern, check its
+Read only the **Index** table at the top of `../../references/sv-snippet-patterns.md` and
+shortlist the patterns whose signals plausibly fit. Then read only the shortlisted sections: find
+each with `grep -n '^## <N>\. ' ../../references/sv-snippet-patterns.md` and read from that line to the
+next `## ` heading. Do not load the whole catalog. For each shortlisted pattern, check its
 **detection signals** against the collected signals. Score: MATCH / POSSIBLE / NO.
 
 Present only MATCH and POSSIBLE results.
@@ -77,7 +80,7 @@ Fix: Use NON ADDITIVE BY (balance_date) on the total_balance metric.
 Synonym discipline: total_balance → "current balance", "snapshot balance", "balance as of date"
                     avg_daily_balance → "average balance", "balance trend"
 
-### [HIGH] Range Join (SCD2)  →  snippet: range_join
+### [HIGH] Range Join (SCD2, Preview)  →  snippet: range_join
 Signal: VALID_FROM + VALID_TO columns on CUSTOMER_SEGMENTS
 Problem: Joining orders to current customer tier silently mis-attributes historical revenue.
 Fix: CONSTRAINT segment_period DISTINCT RANGE BETWEEN VALID_FROM AND VALID_TO EXCLUSIVE
@@ -101,47 +104,19 @@ Then generate the exact DDL additions for each selected pattern.
 
 ## Pattern Quick-Reference
 
-See full catalog: `../../references/sv-snippet-patterns.md`
-
-| Pattern | Key signals | Primary DDL construct |
-|---------|------------|----------------------|
-| `semi_additive_metric` | snapshot table, balance, headcount, inventory | `NON ADDITIVE BY (time_col)` |
-| `range_join` | valid_from + valid_to, SCD2 | `DISTINCT RANGE BETWEEN ... EXCLUSIVE` |
-| `asof_join` | single effective_date, no valid_to | `REFERENCES dim(id, ASOF date_col)` |
-| `accumulating_snapshot` | pipeline stages, multiple milestone dates | `USING (rel)` per metric |
-| `role_playing_dimensions` | two+ FK dates in same fact table | double alias in TABLES |
-| `multi_path_metrics` | two paths to same physical table | `USING (rel)` per metric |
-| `time_intelligence` | SPLY, YoY, MoM, prior period | shifted FACT join key + role alias |
-| `window_metrics` | rolling avg, YTD, LAG, rank | `OVER (PARTITION BY EXCLUDING ...)` |
-| `derived_metrics` | cross-entity totals, ratios | no-prefix metric on right-hand refs |
-| `entity_facts` | LTV, segment from aggregate | `PRIVATE ... AS SUM(other_table.col)` |
-| `fact_as_relationship_key` | computed FK, no physical FK col | FACT as derived expression + REFERENCES |
-| `multi_fact_table` | multiple independent fact tables | separate TABLES + shared dims |
-| `shared_degenerate_dimension` | categorical col on multiple facts, no dim table | UNION helper view → UNIQUE entity |
-| `ai_metadata` | steer SQL style, reject OOB questions | `AI_SQL_GENERATION`, VQRs |
-| `variables` | adjustable thresholds, weights | `VARIABLES (...) DEFAULT` |
-| `scoped_dataset` | LOB filter, pre-join ⚠️ Private Preview | `AS (SELECT ... WHERE ...)` in TABLES |
-| `inline_sv` | prototyping, dbt unit test ⚠️ Private Preview | `WITH ... AS SEMANTIC VIEW` |
-| `materialization` | pre-aggregate hot queries | `ADD MATERIALIZATION ... AS DIMENSIONS ... METRICS` |
-| `caller_rights` | enforce base-table ACL through SV | owner-with-no-table-access pattern |
-| `row_access_policies` | region/tenant RAP + SV | apply RAP to FACT table, not dim |
-| `introspection` | discover SV structure, lineage | `SHOW SEMANTIC METRICS`, `SHOW SEMANTIC DIMENSIONS FOR METRIC`, `GET_LINEAGE` |
-| `sv_diagnostics` | debugging, wrong numbers | pre-deploy checklist, cardinality lie detection |
-| `system_explain_semantic_query` | debug generated SQL | `SYSTEM$EXPLAIN_SEMANTIC_QUERY(sv, query)` |
-| `standard_sql` | Tableau/dbt query without SEMANTIC_VIEW() | `ANY_VALUE(metric)` wrapper |
-| `tags` | ownership, certification governance | `WITH TAG (key = 'value')` on metrics |
+The Index table at the top of `../../references/sv-snippet-patterns.md` is the quick reference
+(pattern, signal → construct, section link). It is the only copy; do not duplicate it here.
 
 ---
 
-## Private Preview Guard
+## Availability Notes
 
-For any pattern marked ⚠️ Private Preview, always include this note before
-generating DDL:
+Before generating DDL for these patterns, state the status:
 
-> ⚠️ This feature (`<feature_name>`) is Private Preview — not GA. It requires
-> account-team enablement. Confirm availability before deploying:
-> `SELECT SYSTEM$BEHAVIOR_CHANGE_BUNDLE_STATUS('2025_01');` (or relevant bundle).
-> Generating DDL anyway for reference.
-
-Patterns in Private Preview: `scoped_dataset` (inline SQL in TABLES),
-`inline_sv` (WITH ... AS SEMANTIC VIEW), `materialization`.
+| Pattern | Status |
+|---|---|
+| `materialization` | Preview (Open, all accounts). Helps Semantic SQL only; Cortex Analyst, Cortex Agents and CoWork physical SQL do not benefit |
+| `range_join` | Preview |
+| `multi_path_metrics`, `accumulating_snapshot` (`USING`) | Preview |
+| `scoped_dataset` (SQL query as a logical table) | Generally available |
+| `inline_sv` (`WITH ... AS SEMANTIC VIEW`) | Not found in Snowflake docs — verify before relying on this |

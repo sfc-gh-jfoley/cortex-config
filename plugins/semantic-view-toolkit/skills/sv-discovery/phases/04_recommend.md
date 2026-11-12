@@ -114,22 +114,11 @@ In AUTONOMOUS mode:
   C) Switch to INTERACTIVE mode for this domain
   ```
 - **FULLY_COVERED domains:** Auto-skip (report "skipped — already covered")
-- **PARTIALLY_COVERED domains:** STOP and run sv-audit on the existing SV before presenting options. The extend-vs-new decision depends on the quality of the existing SV — extending a low-quality SV is worse than creating a new one.
-
-  **sv-audit gate:**
-  ```
-  Before offering extend vs create for domain "<name>":
-  → Invoke sv-audit on <existing_sv_fqn>
-  → Present the audit score alongside the options
-  ```
-
-  Options to present after audit:
-  - If audit score is HIGH → recommend EXTEND (SV is healthy, worth building on)
-  - If audit score is MEDIUM → present both options, surface audit findings
-  - If audit score is LOW → recommend CREATE NEW, note existing SV quality issues
-
-  If the user prefers not to run sv-audit (AUTONOMOUS mode or explicit skip):
-  default to presenting both options without a recommendation.
+- **PARTIALLY_COVERED domains:** present both options (EXTEND existing / CREATE NEW) without a
+  recommendation, and suggest running `sv-audit` on the existing SV as an optional follow-up.
+  sv-audit produces per-finding severities, not an overall score; if it reports CRITICAL findings
+  (for example join type mismatches), mention them when the user chooses. In AUTONOMOUS mode,
+  do not run sv-audit inline; record "extend vs new: operator decision" and continue.
 
 ---
 

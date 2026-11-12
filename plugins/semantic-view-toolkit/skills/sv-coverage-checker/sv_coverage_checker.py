@@ -5,9 +5,9 @@ try:
 except ImportError:
     Session = object  # type stub for local testing without snowpark installed
 
-CHECKER_VERSION = "2.0.0"
+CHECKER_VERSION = "2.1.0"
 
-# MEDIUM-1: error message sanitizer — redacts FQN-shaped tokens before surfacing to callers
+# Redacts FQN-shaped tokens from error messages before surfacing them to callers
 _FQN_RE = re.compile(r"'[^']*\.[^']*'")
 
 def _sanitize_err(msg: str) -> str:
@@ -105,6 +105,31 @@ def _unquote(identifier: str) -> str:
     return s.upper()
 
 
+def _split_top_level(text: str) -> list:
+    """Split on commas at paren depth 0, ignoring commas inside quotes and parentheses."""
+    parts, buf, depth, quote = [], [], 0, None
+    for ch in text:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None  # a doubled quote re-opens on the next character
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+        elif ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif ch == ',' and depth == 0:
+            parts.append(''.join(buf))
+            buf = []
+            continue
+        buf.append(ch)
+    if ''.join(buf).strip():
+        parts.append(''.join(buf))
+    return [p for p in parts if p.strip()]
+
+
 def _parse_col_list(expr: str) -> list:
     if not expr:
         return []
@@ -186,6 +211,18 @@ _KNOWN_OPS = frozenset({
 })
 
 
+def _failed_workload(exc) -> dict:
+    return {
+        'explain_failed': True,
+        'explain_error': _sanitize_err(exc),
+        'tables': set(),
+        'join_keys': set(),
+        'columns': {},
+        'alias_to_fqn': {},
+        'warnings': [],
+    }
+
+
 def explain_parser(session: Session, sql_text: str) -> dict:
     """Run EXPLAIN USING TABULAR and extract workload requirements."""
     _empty = {'explain_failed': False, 'tables': set(), 'join_keys': set(), 'columns': {}, 'alias_to_fqn': {}, 'warnings': []}
@@ -196,15 +233,7 @@ def explain_parser(session: Session, sql_text: str) -> dict:
     try:
         rows = session.sql(f"EXPLAIN USING TABULAR {sql_text}").collect()
     except Exception as exc:
-        return {
-            'explain_failed': True,
-            'explain_error': _sanitize_err(exc),
-            'tables': set(),
-            'join_keys': set(),
-            'columns': {},
-            'alias_to_fqn': {},
-            'warnings': [],
-        }
+        return _failed_workload(exc)
 
     alias_to_fqn = {}
     join_keys = set()
@@ -272,7 +301,7 @@ def explain_parser(session: Session, sql_text: str) -> dict:
 def sv_manifest_parser(session: Session, sv_name: str) -> dict:
     """Parse GET_DDL output for a semantic view into a structured manifest."""
     try:
-        # HIGH-2: escape single quotes to prevent injection via sv_name
+        # escape single quotes in the name
         sv_name_safe = sv_name.replace("'", "''")
         ddl = session.sql(f"SELECT GET_DDL('SEMANTIC_VIEW', '{sv_name_safe}')").collect()[0][0]
     except Exception as exc:
@@ -288,18 +317,17 @@ def sv_manifest_parser(session: Session, sv_name: str) -> dict:
     tables_block = _extract_block(ddl, 'tables')
     alias_map = {}  # logical_alias → physical_fqn (uppercase)
 
-    for m in re.finditer(
-        r'(?:("?\w+"?)\s+as\s+)?([\w."]+)\s+primary\s+key',
-        tables_block, re.IGNORECASE
-    ):
-        alias_token = m.group(1)
+    pk_cols = {}  # logical_alias → primary key columns (when declared)
+    for entry in _split_top_level(tables_block):
+        m = re.match(r'\s*(?:("?\w+"?)\s+as\s+)?([\w."]+)', entry, re.IGNORECASE)
+        if not m:
+            continue
         fqn = m.group(2).replace('"', '').upper()
-        if alias_token:
-            logical = _unquote(alias_token)
-        else:
-            # M2 fix: unaliased → last segment as logical alias
-            logical = fqn.split('.')[-1]
+        logical = _unquote(m.group(1)) if m.group(1) else fqn.split('.')[-1]
         alias_map[logical] = fqn
+        pk = re.search(r'primary\s+key\s*\(([^)]*)\)', entry, re.IGNORECASE)
+        if pk:
+            pk_cols[logical] = _parse_col_list(pk.group(1))
 
     registered_fqns = set(alias_map.values())
     fqn_to_alias = {v: k for k, v in alias_map.items()}
@@ -310,16 +338,24 @@ def sv_manifest_parser(session: Session, sv_name: str) -> dict:
     relationship_pairs = []
     parse_warnings = []
 
-    for m in re.finditer(
-        r'(?:\w+\s+as\s+)?("?\w+"?)\s*\(([^)]+)\)\s+references\s+("?\w+"?)\s*\(([^)]+)\)',
-        rel_block, re.IGNORECASE
-    ):
+    for entry in _split_top_level(rel_block):
+        m = re.match(
+            r'\s*(?:\w+\s+as\s+)?("?\w+"?)\s*\(([^)]+)\)\s+references\s+("?\w+"?)\s*(?:\(([^)]+)\))?\s*$',
+            entry, re.IGNORECASE
+        )
+        if not m:
+            parse_warnings.append(f"unmatched relationship entry: {' '.join(entry.split())[:120]}")
+            continue
         from_alias = _unquote(m.group(1))
-        from_cols  = [c.strip().upper() for c in m.group(2).split(',')]
+        from_cols  = _parse_col_list(m.group(2))
         to_alias   = _unquote(m.group(3))
-        to_cols    = [c.strip().upper() for c in m.group(4).split(',')]
+        to_cols    = _parse_col_list(m.group(4)) if m.group(4) else pk_cols.get(to_alias, [])
+        if not to_cols or len(to_cols) != len(from_cols):
+            parse_warnings.append(
+                f"relationship {from_alias} -> {to_alias}: referenced columns unknown "
+                f"(no column list and no matching PRIMARY KEY)")
+            continue
 
-        # frozenset per column pair for backward-compat gap_differ lookup
         for fc, tc in zip(from_cols, to_cols):
             relationships.add(frozenset({f"{from_alias}.{fc}", f"{to_alias}.{tc}"}))
 
@@ -331,15 +367,6 @@ def sv_manifest_parser(session: Session, sv_name: str) -> dict:
             'composite': len(from_cols) > 1,
         })
 
-    # Warn on any rel_block fragments that look like relationship entries but didn't match
-    for frag in re.finditer(r'\b\w+\s+as\s+\w+[^,\n]{0,200}', rel_block, re.IGNORECASE):
-        raw = frag.group(0)
-        if 'references' in raw.lower() and not re.search(
-            r'(?:\w+\s+as\s+)?"?\w+"?\s*\([^)]+\)\s+references\s+"?\w+"?\s*\([^)]+\)',
-            raw, re.IGNORECASE
-        ):
-            parse_warnings.append(f"unmatched relationship fragment: {raw[:120]}")
-
     # --- Dimensions, Facts, Metrics blocks ---
     exposed_cols = set()   # logical_alias.col_name (LHS of 'as')
     source_cols = set()    # logical_alias.physical_col (tokens from RHS expression)
@@ -348,15 +375,14 @@ def sv_manifest_parser(session: Session, sv_name: str) -> dict:
         block = _extract_block(ddl, block_name)
         if not block:
             continue
-        for m in re.finditer(
-            r'("?\w+"?)\.(\w+)\s+as\s+([^,\n]+)',
-            block, re.IGNORECASE
-        ):
+        for entry in _split_top_level(block):
+            m = re.match(r'\s*("?\w+"?)\.(\w+)\s+as\s+(.+)$', entry, re.IGNORECASE | re.DOTALL)
+            if not m:
+                continue
             sv_alias = _unquote(m.group(1))
             col_name = m.group(2).upper()
-            expr = m.group(3).strip()
+            expr = re.split(r'\s+(?:with\s+synonyms|comment)\s*[=(]', m.group(3), 1, flags=re.IGNORECASE)[0].strip()
             exposed_cols.add(f"{sv_alias}.{col_name}")
-            # C2 fix: index physical column tokens from the RHS expression
             for tok in _extract_expr_column_tokens(expr):
                 source_cols.add(f"{sv_alias}.{tok}")
 
@@ -420,7 +446,7 @@ def gap_differ(workload: dict, sv: dict) -> list:
         parts = list(jk_frozenset)
         resolved = []
         for part in parts:
-            q_alias, col = part.split('.', 1)
+            q_alias, col = part.rsplit('.', 1)
             fqn = workload['alias_to_fqn'].get(q_alias)
             sv_alias = fqn_to_alias.get(fqn) if fqn else None
             resolved.append(f"{sv_alias}.{col}" if sv_alias else None)
@@ -437,18 +463,36 @@ def gap_differ(workload: dict, sv: dict) -> list:
     return gaps
 
 
-def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
-                        validate_data: bool = False) -> dict:
-    """
-    Main entry point. Expects gt_table to have columns (QUESTION_ID, SQL_TEXT).
-    Returns VARIANT with keys: checker_version, gaps[], verdicts[], summary{}, warnings[].
+def _to_fqn_workload(w: dict) -> dict:
+    """Re-key one question's workload by physical FQN so query aliases cannot collide across questions."""
+    a2f = w['alias_to_fqn']
+    columns = defaultdict(set)
+    for alias, cols in w['columns'].items():
+        fqn = a2f.get(alias)
+        if fqn:
+            columns[fqn].update(cols)
+    join_keys = set()
+    for jk in w['join_keys']:
+        resolved = []
+        for part in jk:
+            alias, col = part.split('.', 1)
+            fqn = a2f.get(alias)
+            resolved.append(f"{fqn}.{col}" if fqn else part)
+        join_keys.add(frozenset(resolved))
+    return {
+        'tables': set(w['tables']),
+        'join_keys': join_keys,
+        'columns': dict(columns),
+        'alias_to_fqn': {f: f for f in a2f.values()},
+    }
 
-    validate_data (optional, default False):
-        When True, execute each SQL_TEXT against actual data (LIMIT 3) and attach
-        the top rows to each verdict as 'actual_top_rows'. Useful for GT data validation:
-        confirms structural ANSWERABLE verdict with grounded data results.
+
+def sv_coverage_checker(session: Session, gt_table: str, sv_name: str) -> dict:
     """
-    # HIGH-1: validate identifiers before any session call
+    Main entry point. Expects gt_table to have columns (QUESTION_ID, SQL_TEXT) holding
+    physical-table SQL (not VQR SQL that uses logical names).
+    Returns a dict (VARIANT) with keys: checker_version, gaps[], verdicts[], summary{}, warnings[].
+    """
     _IDENT_RE = re.compile(r'^[\w]+(?:\.[\w]+){0,2}$')
     if not _IDENT_RE.match(gt_table):
         raise ValueError(f"gt_table must be a plain identifier (got: {gt_table!r})")
@@ -457,7 +501,6 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
 
     rows = session.sql(f"SELECT QUESTION_ID, SQL_TEXT FROM {gt_table}").collect()
 
-    # MEDIUM-2: guard against oversized GT tables
     _MAX_ROWS = 500
     if len(rows) > _MAX_ROWS:
         raise ValueError(
@@ -468,7 +511,6 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
     per_question = {}
     all_warnings = []
     skipped_ids = set()
-    actual_data: dict = {}  # q_id → list of row dicts (populated when validate_data=True)
 
     for row in rows:
         q_id = str(row['QUESTION_ID'])
@@ -479,44 +521,28 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
         try:
             w = explain_parser(session, sql)
         except Exception as exc:
-            w = {
-                'explain_failed': True,
-                'explain_error': _sanitize_err(exc),
-                'tables': set(),
-                'join_keys': set(),
-                'columns': {},
-                'alias_to_fqn': {},
-                'warnings': [],
-            }
+            w = _failed_workload(exc)
         per_question[q_id] = w
         if not w.get('explain_failed'):
             all_warnings.extend(w.get('warnings', []))
 
-        if validate_data and not w.get('explain_failed'):
-            try:
-                data_rows = session.sql(f"{sql} LIMIT 3").collect()
-                actual_data[q_id] = [r.as_dict() for r in data_rows]
-            except Exception as exc:
-                actual_data[q_id] = [{'_error': _sanitize_err(exc)}]
-
-    # Build global workload from non-failed questions only
-    global_workload = {
-        'tables': set(), 'join_keys': set(),
-        'columns': defaultdict(set), 'alias_to_fqn': {},
-    }
+    global_workload = {'tables': set(), 'join_keys': set(), 'columns': defaultdict(set), 'alias_to_fqn': {}}
     for w in per_question.values():
         if w.get('explain_failed'):
             continue
-        global_workload['tables'].update(w['tables'])
-        global_workload['join_keys'].update(w['join_keys'])
-        for alias, cols in w['columns'].items():
-            global_workload['columns'][alias].update(cols)
-        global_workload['alias_to_fqn'].update(w['alias_to_fqn'])
+        fw = _to_fqn_workload(w)
+        global_workload['tables'].update(fw['tables'])
+        global_workload['join_keys'].update(fw['join_keys'])
+        for fqn, cols in fw['columns'].items():
+            global_workload['columns'][fqn].update(cols)
+        global_workload['alias_to_fqn'].update(fw['alias_to_fqn'])
     global_workload['columns'] = dict(global_workload['columns'])
 
     sv = sv_manifest_parser(session, sv_name)
     if 'parse_error' in sv:
         all_warnings.append(_warn('SV_PARSE_ERROR', f"SV manifest parse failed: {sv['parse_error']}"))
+    for msg in sv.get('parse_warnings', []):
+        all_warnings.append(_warn('SV_PARSE_WARNING', msg))
 
     gaps = gap_differ(global_workload, sv)
 
@@ -532,14 +558,8 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
         })
 
     for q_id, w in per_question.items():
-        if w.get('explain_failed'):
-            v = _classify_verdict(q_id, w, [])
-        else:
-            q_gaps = gap_differ(w, sv)
-            v = _classify_verdict(q_id, w, q_gaps)
-        if validate_data and q_id in actual_data:
-            v['actual_top_rows'] = actual_data[q_id]
-        verdicts.append(v)
+        q_gaps = [] if w.get('explain_failed') else gap_differ(_to_fqn_workload(w), sv)
+        verdicts.append(_classify_verdict(q_id, w, q_gaps))
 
     summary = {
         'total_questions': len(verdicts),
@@ -549,10 +569,9 @@ def sv_coverage_checker(session: Session, gt_table: str, sv_name: str,
         'explain_failed': sum(1 for v in verdicts if v['status'] == 'EXPLAIN_FAILED'),
         'skipped': len(skipped_ids),
         'unique_gaps': len(gaps),
-        'validate_data': validate_data,
     }
 
-    # C3 fix: return dict (Snowpark auto-converts to VARIANT), do NOT use json.dumps()
+    # Return a dict (Snowpark converts it to VARIANT); do not json.dumps().
     return {
         'checker_version': CHECKER_VERSION,
         'gaps': gaps,

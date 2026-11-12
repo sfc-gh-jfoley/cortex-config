@@ -56,7 +56,11 @@ Classify each as one of:
 Store as `SOURCE_OBJECT_TYPES` dict: `{fqn: type}`.
 
 **If any object is a SEMANTIC VIEW**: Redirect the user:
-> "Composable semantic views use the `IMPORTS` clause (GA). This skill (sv-ddl) creates standard SVs from physical tables. To compose SVs together, use the **sv-rearchitect** skill which handles the IMPORTS workflow. Note: Cortex Analyst does not support IMPORTS-based views — if your goal is Analyst/Agent integration, sv-rearchitect will guide you to the multi-SV agent pattern instead."
+> "Composable semantic views use the `IMPORTS` clause. This skill (sv-ddl) creates standard SVs from physical tables. To compose SVs together, use the **sv-rearchitect** skill, which also covers the multi-SV agent pattern."
+
+The `IMPORTS` clause is documented only indirectly (the `SEMANTIC_VIEW_IMPORTS` usage views);
+it is not in the public CREATE SEMANTIC VIEW syntax. Its release status and Cortex Analyst
+support are unverified — verify before relying on either.
 
 **Verification**: Each object must be queryable. For TABLE/VIEW/DYNAMIC TABLE, run:
 ```sql

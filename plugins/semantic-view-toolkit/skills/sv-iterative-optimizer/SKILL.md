@@ -40,7 +40,7 @@ AUTONOMOUS without asking again.
 
 - A deployed semantic view with at least 5 VQRs
 - All sv-evaluation prerequisites met (EXECUTE TASK, CREATE TASK/DATASET, MONITOR, etc.)
-- CREATE OR REPLACE SEMANTIC VIEW privilege
+- Privilege to create semantic views in the SV's schema (candidates are created there); promotion needs more and is gated (`SV-PROMOTE`)
 - Baseline eval score (run sv-evaluation first if you don't have one)
 
 **Size awareness during optimization.** Mutations that add synonyms, descriptions, metrics, or VQRs grow the SV. Re-estimate the SV's token size (~1 token per ~2.5 chars of DDL) after mutations that add content; if it approaches ~100,000 tokens, prefer mutations that *improve* existing descriptions over ones that *add* new content, and consider splitting the SV (see `sv-discovery` / `sv-rearchitect`). Above ~100K, Cortex Agents prunes the SV (latency + reduced accuracy), which can mask optimization gains in production even when eval scores improve.
@@ -51,17 +51,15 @@ Run these **before the first optimization iteration**. They catch structural def
 
 ### Check 1: VQR-Metric Filter Alignment (Critical)
 
-For each metric with a conditional aggregation filter (e.g., `CASE WHEN REFUNDED_IND = 0`), scan all VQRs that aggregate the same source column. Flag any VQR that omits the required filter.
+For each metric with a conditional aggregation filter (a `CASE WHEN <col> = <val>` guard), scan all VQRs that aggregate the same source column. Flag any VQR that omits the guard.
 
-**Detection:** Extract `CASE WHEN <col> = <val>` patterns from metric exprs → check each VQR's SQL for the same guard.
-
-**Remediation:** VQR contamination is a **read-only finding** — do NOT apply mutations to contaminated VQRs. Instead, exclude them from optimization (see Step 3b in sv-evaluation/SKILL.md) or flag as REFERENCE_CONTAMINATED and continue optimizing with clean VQRs. A contaminated VQR baseline will penalize correct model behavior throughout the entire optimization loop.
+**Remediation:** VQR contamination is a **read-only finding** - do NOT mutate contaminated VQRs. Exclude them from the evaluated question list (see sv-evaluation) or flag as REFERENCE_CONTAMINATED and continue with clean VQRs. A contaminated reference penalizes correct model behavior for the whole loop.
 
 ### Check 2: Cross-Table Metric Consistency (High)
 
 Same metric name with different aggregation logic on two fact tables creates LLM ambiguity.
 
-**Detection:** Group metric definitions by name across all tables. Compare EXPR values. Flag any pair where filter logic differs (e.g., `TOTAL_NET_REVENUE_USD` with filter on one table, without on another).
+**Detection:** Group metric definitions by name across all tables. Compare EXPR values. Flag any pair where filter logic differs (a filter on one table and none on another).
 
 **Remediation:** Apply `sync_metric_definitions_across_tables` — either align the expressions or rename one metric to make semantic difference explicit.
 
@@ -69,7 +67,7 @@ Same metric name with different aggregation logic on two fact tables creates LLM
 
 A VQR that uses the wrong fact table may produce correct-looking SQL against a table with looser metric semantics.
 
-**Detection:** For VQRs querying extended attributes (discounts, campaign data, upgrade flags), confirm they use `FCT_*_EXT` rather than the base fact table. For revenue-only questions, confirm they use the base fact table with stricter metric definitions.
+**Detection:** For each VQR, confirm the fact table it queries is the one whose metric definitions match the question (for example the table that carries the attribute the question filters on, versus a base table with stricter metrics).
 
 **Remediation:** Manually review flagged VQRs and update table references if misrouted.
 
@@ -97,14 +95,14 @@ SETUP (one-time)
 OPTIMIZE (iterative loop)
   → Analyze eval failures
   → Select mutation operator
-  → Apply mutation to SV DDL
-  → Deploy: CREATE OR REPLACE SEMANTIC VIEW
-  → Run eval on modified SV
-  → Compare vs baseline
+  → Create candidate copy (kind cand) from GET_DDL via scripts/candidate.py
+  → Apply mutation to the candidate only
+  → Run eval on the candidate (hold-out questions, >=2 repeats, pinned metric version)
+  → Compare vs baseline under the same question list and metric version
     ↓
 REVIEW (per iteration)
-  → Accept: new SV becomes baseline, log to OPTIMIZATION_LOG
-  → Reject: revert to previous DDL, log rejection
+  → Accept: candidate becomes the working copy; log to OPTIMIZATION_LOG. Production changes only via gate SV-PROMOTE (references/candidate-promotion.md)
+  → Reject: discard the candidate, log rejection
     ↓
   [Repeat OPTIMIZE until accuracy target reached or 3 consecutive rejections]
     ↓
@@ -115,16 +113,13 @@ REVIEW (per iteration)
 
 ## VQR Split Strategy
 
-VQRs serve dual purpose in optimization:
-- **Guide VQRs**: remain in the SV during eval to guide Analyst (like few-shot examples)
-- **Eval VQRs**: removed during eval (holdout) to test generalization
+VQRs serve two roles, and the split must be real:
+- **Guide VQRs**: stay in the SV as examples for Analyst.
+- **Eval VQRs**: the hold-out set. Evaluation lists exactly these questions in `source_metadata.verified_queries`; guide questions are never scored.
 
-Split recommendation:
-- 5-10 VQRs total: 60% eval / 40% guide
-- 11-20 VQRs total: 70% eval / 30% guide
-- 20+ VQRs: 75% eval / 25% guide
+Recommended hold-out share: 5-10 VQRs: 60%; 11-20: 70%; 20+: 75%. Record the eval question list once at setup and reuse it unchanged for every run. Hold-out questions must not also appear as VQRs in the candidate; if the SV currently contains them, evaluate on a candidate that omits them (VQR edits on the candidate only). Verify the exact omission/selection mechanics in `skills/sv-evaluation/SKILL.md`.
 
-The eval system automatically holds out eval VQRs (Snowflake handles this), but we track which are "guide-quality" vs "eval-quality" for the optimization loop.
+**Evaluation rules (Cortex Analyst contract):** use `analyst_params` with `source_metadata.type: verified_queries` and pin the metric (`sql_correctness`, version `v3`). Scores from different metric versions are not comparable; refuse to compare them. SQL generation is non-deterministic: run the same question list at least 2 times per SV state.
 
 ---
 
@@ -142,19 +137,19 @@ Each iteration applies ONE mutation from `references/mutation-operators.md`:
 | Analyst refuses question | `add_vqr` (teach by example) |
 | Wrong filter applied | `add_filter` |
 | VQR SQL missing filter that metric definition requires | **Read-only analysis** (exclude/flag; do not modify) |
-| VQR always fails and SQL contains a subquery | **Read-only finding** (flag; remove VQR or rewrite without subquery — Analyst cannot generate subquery-based SQL; do not mutate the SV) |
+| VQR always fails and SQL contains a subquery | **Read-only finding** (flag it; the claim that Analyst cannot generate subquery SQL is unverified, so do not mutate the SV on that basis) |
 | Same metric name with different filter logic on two tables | `sync_metric_definitions_across_tables` |
 | Metric uses SUM(CASE WHEN ...) on the same column repeatedly | `extract_metric_filter_to_fact` |
 | Pre-check: VQR health classification before eval | `detect_contaminated_vqr_baseline` |
 
-**One mutation per iteration** — measure its impact in isolation before stacking changes.
+**One mutation per iteration** - measure its impact in isolation before stacking changes.
 
 ---
 
 ## State Persistence
 
 > **Note (INTERACTIVE mode only):** When creating `_SV_TOOLKIT_META` objects for the first
-> time in INTERACTIVE mode, offer: "Want me to create a rollback clone first?
+> time in INTERACTIVE mode (gate `META-ROLLBACK-CLONE`), offer: "Want me to create a rollback clone first?
 > (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
 > In AUTONOMOUS mode, `CREATE SCHEMA/TABLE IF NOT EXISTS` is additive and idempotent
 > — no prompt needed.
@@ -192,5 +187,5 @@ CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG (
 
 - **DO**: Apply one mutation at a time, target specific failures, use evidence from eval
 - **DON'T**: Stack multiple mutations, change things randomly, ignore regressions
-- **ALWAYS**: Run eval after each change, check for regressions, log everything
+- **ALWAYS**: Mutate a candidate, never production; run eval (>=2 repeats) after each change, check for regressions, log everything
 - **STOP WHEN**: 3 rejections in a row, accuracy target met, or user satisfied

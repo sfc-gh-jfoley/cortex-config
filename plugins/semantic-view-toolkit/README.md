@@ -22,17 +22,27 @@ location works.
 |---|---|---|
 | `sv-discovery` | Find tables/views/DTs that should be in semantic views, recommend domain groupings | Starting fresh — "I have a database, what SVs do I need?" |
 | `sv-ddl` | Create or edit SVs using SQL DDL with AI-generated descriptions, self-check, and validation | Building a new SV from known tables, or editing an existing one |
+| `sv-snippet-suggester` | Match a table model to a verified DDL pattern (semi-additive, SCD2, time intelligence, multi-fact) | "Which DDL pattern fits my table model?" |
 | `sv-audit` | Audit existing SV against actual query usage patterns | "Is my SV missing tables? Are columns unused?" |
 | `sv-evaluation` | Run native Cortex Analyst evaluations (sql_correctness) against VQRs | Measuring SV quality: can Analyst generate correct SQL? |
+| `sv-coverage-checker` | Structural check: can the SV answer each eval question's ground-truth SQL? | Before tuning, to separate missing structure from wording problems |
 | `sv-iterative-optimizer` | Iterative improvement loop with VQR-based eval and accept/reject gates | Systematically improving accuracy over multiple iterations |
 | `sv-gepa-optimizer` | Population-based evolutionary optimization via tournament selection | Sequential optimizer hit a plateau — explore broadly |
 | `sv-watch` | Drift detection, schema change monitoring, coverage decay alerts | Ongoing production maintenance |
-| `sv-rearchitect` | Multi-SV composition patterns: IMPORTS clause (GA, not Analyst-compatible) or multi-tool Agent composition (GA, Analyst-compatible) | Multiple domains that need to work together |
+| `sv-materialize` | Add and manage SV materializations to speed up repeated queries | Measured slow queries on a stable SV |
+| `sv-rearchitect` | Multi-SV composition: IMPORTS clause (unverified for Analyst) or multi-tool Agent composition | Multiple domains that need to work together |
 | `vqr-generator` | Auto-generate verified query candidates from query history | Need more VQRs for eval coverage |
+| `vqr-curator` | Audit existing VQRs: quality, duplicates, activation, coverage gaps | VQR set is noisy or not triggering |
 
 ## Entry Point
 
 The plugin has a single router (`SKILL.md`) that detects user intent and dispatches to the right sub-skill. Each skill is also independently invocable from skill-loader.
+
+## Safety: candidate copies
+
+No skill modifies a production semantic view while experimenting. Changes are made on a uniquely named
+candidate copy created from `GET_DDL`, evaluated, and promoted only after an explicit operator decision.
+See [references/candidate-promotion.md](./references/candidate-promotion.md).
 
 ## Key: Verified Queries (VQRs)
 
@@ -67,10 +77,10 @@ State is persisted in `<DB>._SV_TOOLKIT_META` schema (Snowflake tables). This en
 - Resumable optimization across sessions
 - Drift detection history
 - Evaluation score tracking over time
-- GEPA state recovery after session crashes
+- Promotion decisions (candidate to production)
 
 ## Prerequisites
 
 See [PREREQUISITES.md](./PREREQUISITES.md) for roles, permissions, and edition requirements per skill.
 
-See [CUSTOMER_GUIDE.md](./CUSTOMER_GUIDE.md) for a step-by-step walkthrough of the full workflow.
+See [GUIDE.md](./GUIDE.md) for a walkthrough of the full workflow.

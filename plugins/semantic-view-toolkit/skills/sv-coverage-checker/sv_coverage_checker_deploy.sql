@@ -1,7 +1,7 @@
 -- sv_coverage_checker_deploy.sql
 -- Run with: USE DATABASE <db>; USE SCHEMA <schema>; USE WAREHOUSE <wh>;
 
--- Step 1: create internal stage (if it doesn't exist)
+-- Step 1: create internal stage (if it doesn't exist; must exist before the PUT)
 CREATE STAGE IF NOT EXISTS SV_TOOLKIT_STAGE
     COMMENT = 'Stage for sv-toolkit Snowpark Python procedures';
 
@@ -20,7 +20,7 @@ PACKAGES = ('snowflake-snowpark-python')
 IMPORTS = ('@SV_TOOLKIT_STAGE/sv_coverage_checker.py')
 HANDLER = 'sv_coverage_checker.sv_coverage_checker'
 EXECUTE AS CALLER
-COMMENT = 'GT SQL vs Semantic View coverage checker. Diffs explain-plan workload manifest against SV DDL. Returns gaps[] + verdicts[] + summary{}.';
+COMMENT = 'GT SQL vs Semantic View coverage checker. Diffs explain-plan workload manifest against SV DDL. Returns checker_version, gaps[], verdicts[], summary{}, warnings[].';
 
 -- Step 4: verify
 DESCRIBE PROCEDURE SV_COVERAGE_CHECKER(VARCHAR, VARCHAR);

@@ -6,48 +6,37 @@ Unified scoring model for relationship detection confidence. Combines signals fr
 
 | Tier | Score Range | Meaning |
 |------|-------------|---------|
-| **HIGH** | 0.85–1.00 | Strong evidence — include in SV without user confirmation |
+| **HIGH** | 0.85–1.00 | Strong evidence. Include without confirmation **only if the edge has resolved join columns** |
 | **MEDIUM** | 0.60–0.84 | Moderate evidence — suggest to user for confirmation |
 | **LOW** | 0.30–0.59 | Weak evidence — mention as possible but don't auto-include |
 
-## Scoring Rules
+## Signal Scores
 
-### Tier Assignment
+Each detection method gives a table pair one numeric score. There are at most three pairwise
+signals; column usage frequency (Step 2D) ranks columns and is not a pair signal.
 
-| Condition | Tier |
-|-----------|------|
-| FK constraint exists | **HIGH** (1.0) |
-| Column pattern match + ≥50 co-queries | **HIGH** |
-| ≥50 co-queries alone (no column match) | **HIGH** |
-| Column pattern match + 10–49 co-queries | **MEDIUM** |
-| Column pattern match alone (no co-queries) | **MEDIUM** |
-| Co-query only, <10 occurrences | **LOW** |
+| Signal | Score | Join columns? |
+|--------|-------|---------------|
+| Declared FK constraint | 1.00 | Yes |
+| Column name pattern | Suffix score from `relationship-detection.md` (0.70–0.95), +0.05 if the target PK/UNIQUE column has the same data type, capped at 0.95 | Yes |
+| Co-occurrence ≥ 50 queries | 0.85 | **No** |
+| Co-occurrence 10–49 queries | 0.65 | **No** |
+| Co-occurrence 3–9 queries | 0.40 | **No** |
 
-### Boost Rules
-
-- **FK/PK boost**: If an FK or PK constraint exists between two tables, always boost one tier:
-  - LOW → MEDIUM
-  - MEDIUM → HIGH
-  - HIGH stays HIGH
-
-- **Data type match boost**: If the joining columns have identical data types, add +0.05 to the raw score.
-
-- **Naming convention boost**: If column names follow a consistent pattern (e.g., both use `_ID` suffix), add +0.03.
-
-### Combined Score Calculation
-
-When multiple signals exist for the same table pair:
+### Combined Score
 
 ```
-combined_score = max(individual_scores) + bonus_from_additional_signals
+combined_score = max(signal_scores) + 0.05 × (number_of_signals − 1)
 ```
 
-Bonus schedule:
-- 2 signals agree: +0.05
-- 3 signals agree: +0.10
-- 4 signals agree: +0.15
+Cap at 1.0. Two signals add 0.05, three add 0.10.
 
-Cap at 1.0.
+### Join-key rule
+
+Co-occurrence is a table-level signal. An edge whose only signal is co-occurrence has no join
+columns: record it with `join_columns = null` and `needs_join_key = true`. It may support domain
+clustering but must never be emitted as a RELATIONSHIP or join key until a column pair is
+confirmed (by the user, an FK, or a column-pattern match).
 
 ## Edge Cases
 
@@ -56,9 +45,9 @@ Cap at 1.0.
 When `SNOWFLAKE.ACCOUNT_USAGE` is not accessible (Standard Edition or insufficient privileges):
 
 - Only methods 1 (FK constraints) and 2 (column patterns) are available
-- Maximum achievable confidence without co-occurrence data:
-  - FK: 1.0 (unchanged)
-  - Column pattern: 0.70–0.95 (no co-occurrence boost possible)
+- Achievable confidence without co-occurrence data:
+  - FK: 1.0
+  - Column pattern alone: 0.70–0.95
 - Warn user: "Co-occurrence analysis unavailable. Relationship confidence is based on schema metadata only."
 
 ### Zero Constraints
@@ -76,7 +65,7 @@ When ACCESS_HISTORY has no data (new account, no queries yet):
 
 - Method 3 produces no results
 - Rely on constraints and column patterns only
-- Maximum confidence: 0.95 (from FK + column match, no co-occurrence boost)
+- FK edges still score 1.0; pattern-only edges score at most 0.95
 - Note: "No query history available. Run queries against these tables to improve relationship detection."
 
 ### Ambiguous Matches
@@ -105,16 +94,19 @@ Example 2: ORDERS.PRODUCT_KEY → PRODUCTS.PRODUCT_KEY
 Example 3: EVENTS.USER_REF → USERS.USER_ID
   - No FK constraint
   - Column pattern: weak match (0.70, _REF not standard)
-  - Co-occurrence: 5 queries
-  - Combined: max(0.70, LOW) + 0.05 = 0.75
+  - Co-occurrence: 5 queries (0.40)
+  - Combined: max(0.70, 0.40) + 0.05 = 0.75
   - Result: MEDIUM (0.75)
 
-Example 4: LOGS.SESSION_TOKEN → SESSIONS.TOKEN
-  - No FK constraint
-  - Column pattern: no standard suffix (0.0)
-  - Co-occurrence: 3 queries
-  - Combined: 0.30 (co-query only)
-  - Result: LOW (0.30)
+Example 4: LOGS ↔ SESSIONS
+  - No FK constraint, no column pattern match
+  - Co-occurrence: 3 queries (0.40)
+  - Result: LOW (0.40), needs_join_key = true — not a relationship
+
+Example 5: ORDERS ↔ WEB_EVENTS
+  - No FK constraint, no column pattern match
+  - Co-occurrence: 120 queries (0.85)
+  - Result: HIGH (0.85) for clustering, needs_join_key = true — ask for the join columns
 ```
 
 ---
@@ -123,23 +115,15 @@ Example 4: LOGS.SESSION_TOKEN → SESSIONS.TOKEN
 
 Edge confidence scores above apply to individual table-pair relationships. When
 scoring an entire domain (cluster of tables), use a weighted average of all
-internal edge confidences, weighted by co-occurrence query count:
+internal edge confidences. The weight floor of 1 keeps FK- and pattern-only edges in the
+average and avoids a zero denominator:
 
 ```
-domain_confidence = SUM(edge_confidence × edge_co_query_count)
-                  / SUM(edge_co_query_count)
+weight            = MAX(edge_co_query_count, 1)
+domain_confidence = SUM(edge_confidence × weight) / SUM(weight)
 ```
 
-**If ACCESS_HISTORY is unavailable** (no co-occurrence data), fall back to simple
-average of internal edge confidences:
-
-```
-domain_confidence = AVG(internal_edge_confidences)
-```
-
-**Guard: zero denominator.** If all internal edges have `co_query_count = 0` (e.g.
-all relationships were detected via FK/column pattern only, no co-occurrence data),
-use the simple average fallback — do not divide by zero.
+Without ACCESS_HISTORY every weight is 1, which is the simple average.
 
 **Tier assignment** (same thresholds as edge-level):
 - ≥ 0.85 → HIGH

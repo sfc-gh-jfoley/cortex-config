@@ -12,19 +12,23 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Check 8 — exact implementation from references/vqr-eval-health.md
+# Check 8 — copy of the implementation in references/vqr-eval-health.md (keep in sync)
 # ---------------------------------------------------------------------------
 
+NESTED_SELECT = re.compile(r"\(\s*SELECT\b", re.IGNORECASE)
+CTE_BODY = re.compile(r"\bAS\s*\(\s*SELECT\b", re.IGNORECASE)
+
+
 def check_vqr_subqueries(vqr_list: list[dict]) -> list[dict]:
-    """Detect VQR SQL containing subqueries (nested SELECT statements)."""
+    """Detect nested subqueries; CTE bodies and top-level UNION are exempt."""
     issues = []
     for vqr in vqr_list:
         sql = vqr["sql"]
-        select_count = len(re.findall(r"\bSELECT\b", sql, re.IGNORECASE))
-        if select_count > 1:
+        nested = len(NESTED_SELECT.findall(sql)) - len(CTE_BODY.findall(sql))
+        if nested > 0:
             issues.append({
                 "vqr": vqr["name"],
-                "issue": "contains subquery — Analyst cannot generate subquery-based SQL",
+                "issue": "contains nested subquery (unverified heuristic: Analyst may not generate this shape)",
                 "fix": "rewrite without subquery, or add the filtering table as an SV relationship",
             })
     return issues
@@ -181,11 +185,22 @@ class TestCheck8SubqueryDetection:
         issues = check_vqr_subqueries([{"name": "lower_case", "sql": sql}])
         assert len(issues) == 1
 
-    def test_union_all_also_flagged(self):
-        # UNION ALL is also a rule-5 violation (complex SQL); flagging it is correct
+    def test_top_level_union_all_not_flagged(self):
+        # Top-level UNION is not a nested subquery
         sql = "SELECT SUM(amount) FROM __orders WHERE year = 2024 UNION ALL SELECT SUM(amount) FROM __orders WHERE year = 2023"
-        issues = check_vqr_subqueries([{"name": "union_vqr", "sql": sql}])
-        assert len(issues) == 1
+        assert check_vqr_subqueries([{"name": "union_vqr", "sql": sql}]) == []
+
+    def test_cte_self_join_not_flagged(self):
+        # vqr-strategy recommends CTE self-joins (e.g. week-over-week); CTEs are exempt
+        sql = (
+            "WITH wk AS (SELECT week, SUM(amount) AS rev FROM __orders GROUP BY week) "
+            "SELECT a.week, a.rev - b.rev FROM wk a JOIN wk b ON a.week = DATEADD(week, 1, b.week)"
+        )
+        assert check_vqr_subqueries([{"name": "wow", "sql": sql}]) == []
+
+    def test_subquery_inside_cte_still_flagged(self):
+        sql = "WITH x AS (SELECT * FROM __orders WHERE id IN (SELECT id FROM __lookup)) SELECT COUNT(*) FROM x"
+        assert len(check_vqr_subqueries([{"name": "nested_in_cte", "sql": sql}])) == 1
 
     def test_only_flagged_vqr_reported(self):
         vqrs = [

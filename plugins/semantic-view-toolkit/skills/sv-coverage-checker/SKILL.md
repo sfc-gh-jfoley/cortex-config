@@ -1,11 +1,11 @@
 ---
 name: sv-coverage-checker
 description: >
-  GT SQL vs Semantic View coverage checker. Diffs a workload manifest (from EXPLAIN
-  plans on Ground Truth SQL) against the SV definition to produce a structural gap
-  report and per-question ANSWERABLE / NOT_ANSWERABLE verdicts. Runs as a parallel
-  thread alongside EXECUTE_AI_EVALUATION — same GT SQL input, non-blocking.
-  Three failure modes: TABLE_NOT_REGISTERED, COLUMN_NOT_EXPOSED, RELATIONSHIP_MISSING.
+  Coverage checker for physical-table SQL against a semantic view. Runs EXPLAIN on each SQL
+  statement in a table you supply, parses the semantic view's GET_DDL, and reports structural
+  gaps plus per-question ANSWERABLE / NOT_ANSWERABLE verdicts. Independent of
+  EXECUTE_AI_EVALUATION: it does not read the view's verified queries.
+  Gap types: TABLE_NOT_REGISTERED, COLUMN_NOT_EXPOSED, RELATIONSHIP_MISSING.
 triggers:
   - coverage check
   - SV coverage
@@ -21,97 +21,76 @@ triggers:
 
 # sv-coverage-checker
 
-Check whether your Semantic View can structurally answer all your Ground Truth SQL questions
-before running an eval. Runs in parallel with `EXECUTE_AI_EVALUATION` — same input, no blocking.
+Check whether a semantic view structurally covers a set of reference SQL statements, before or
+alongside an evaluation. It is a structural diff, not an accuracy score.
 
-## Prerequisites
+**Input is not the evaluation input.** Analyst evaluation (`sv-evaluation`) uses the verified queries
+stored in the view, whose SQL is written against logical names. This checker takes a separate table of
+**physical-table SQL** (`QUESTION_ID VARCHAR, SQL_TEXT VARCHAR`, at most 500 rows) because it runs
+`EXPLAIN USING TABULAR` on each statement. VQR SQL that uses logical tables or `__` prefixes will report
+`EXPLAIN_FAILED`; translate it first (see the VQR dry-run in `../sv-evaluation/SKILL.md`).
 
-1. A GT eval table with columns `(QUESTION_ID VARCHAR, SQL_TEXT VARCHAR)`.
-   If your eval table stores SQL inside JSON (e.g. `EXPECTED_TOOLS` VARIANT), create an extraction view first:
-   ```sql
-   CREATE OR REPLACE VIEW <db>.<schema>.GT_SQL_VIEW AS
-   SELECT
-       ROW_NUMBER() OVER (ORDER BY INPUT_QUERY) AS QUESTION_ID,
-       PARSE_JSON(EXPECTED_TOOLS):ground_truth_invocations[0]:tool_output:SQL::STRING AS SQL_TEXT
-   FROM <db>.<schema>.<eval_table>;
-   ```
+## Execution Mode
 
-2. The `SV_COVERAGE_CHECKER` procedure deployed to your schema.
-   See `sv_coverage_checker_deploy.sql` for the one-time setup.
+Inherits the session mode from the toolkit router. The procedure is read-only apart from `EXPLAIN`, which
+runs with the caller's rights (`EXECUTE AS CALLER`) on SQL text from the supplied table, so only point it
+at tables you trust. Identifiers must be plain (`[A-Za-z0-9_$]` segments, up to three parts).
 
-## Workflow
+## Deploy (once per schema)
 
-### Phase 1: Deploy (once per schema)
+The stage must exist before the upload:
 
 ```bash
-# Upload procedure to stage
-snow sql -q "PUT file:///.../sv_coverage_checker.py @<DB>.<SCHEMA>.SV_TOOLKIT_STAGE/ AUTO_COMPRESS=FALSE OVERWRITE=TRUE" -c <connection>
-
-# Deploy procedure
-snow sql -f sv_coverage_checker_deploy.sql -c <connection> --database <DB> --schema <SCHEMA>
+snow sql -c <conn> --database <DB> --schema <SCHEMA> -q "CREATE STAGE IF NOT EXISTS SV_TOOLKIT_STAGE"
+snow sql -c <conn> --database <DB> --schema <SCHEMA> -q "PUT file://$PWD/sv_coverage_checker.py @SV_TOOLKIT_STAGE/ AUTO_COMPRESS=FALSE OVERWRITE=TRUE"
+snow sql -c <conn> --database <DB> --schema <SCHEMA> -f sv_coverage_checker_deploy.sql
 ```
 
-### Phase 2: Run the checker
+## Run
 
 ```sql
--- Run standalone (or kick off in a parallel worksheet alongside EXECUTE_AI_EVALUATION)
-CALL <DB>.<SCHEMA>.SV_COVERAGE_CHECKER(
-    '<DB>.<SCHEMA>.GT_SQL_VIEW',       -- extraction view or plain SQL table
-    '<DB>.<SCHEMA>.<YOUR_SV_NAME>'     -- semantic view to check
-);
+CALL <DB>.<SCHEMA>.SV_COVERAGE_CHECKER('<DB>.<SCHEMA>.GT_SQL_TABLE', '<DB>.<SCHEMA>.<SV_NAME>');
 ```
 
-### Phase 3: Interpret output
+Two arguments only. (An earlier `validate_data` option was removed: it could not be set through CALL,
+and it executed full queries and returned raw data rows.)
 
-The result is a VARIANT with three keys:
+## Output
 
-**`gaps[]`** — structural holes in the SV (primary output):
-```json
-[
-  {"gap_type": "TABLE_NOT_REGISTERED", "physical_table": "DB.S.DIM_DEVICE_TYPE", "element": null,
-   "detail": "DB.S.DIM_DEVICE_TYPE used in GT SQL but not registered in SV TABLES block"},
-  {"gap_type": "COLUMN_NOT_EXPOSED", "physical_table": "DB.S.FCT_TXN", "element": "DISCOUNT_AMT",
-   "detail": "DB.S.FCT_TXN.DISCOUNT_AMT referenced in GT SQL but not exposed in SV"},
-  {"gap_type": "RELATIONSHIP_MISSING", "physical_table": null, "element": "FCT.TXN_ID = DIM.TXN_ID",
-   "detail": "JOIN condition in GT SQL has no corresponding RELATIONSHIPS entry in SV"}
-]
-```
+A VARIANT with five keys:
 
-**`verdicts[]`** — per-question ANSWERABLE / NOT_ANSWERABLE:
-```json
-[
-  {"question_id": "1", "status": "ANSWERABLE",     "failure_mode": null, "gap_detail": null},
-  {"question_id": "3", "status": "NOT_ANSWERABLE", "failure_mode": "TABLE_NOT_REGISTERED",
-   "gap_detail": "DB.S.DIM_DEVICE_TYPE used in GT SQL but not registered in SV TABLES block"}
-]
-```
+- `checker_version`
+- `gaps[]`: `{gap_type, physical_table, element, detail}`; `gap_type` is `TABLE_NOT_REGISTERED`, `COLUMN_NOT_EXPOSED` or `RELATIONSHIP_MISSING`.
+- `verdicts[]`: `{question_id, status, failure_mode, gap_detail, warnings, confidence}`.
+- `summary{}`: `total_questions`, `answerable`, `not_answerable`, `unknown`, `explain_failed`, `skipped`, `unique_gaps`.
+- `warnings[]`: parser warnings (messages), including `SV_PARSE_WARNING` entries about DDL fragments it could not interpret.
 
-**`summary{}`**:
-```json
-{"total_questions": 20, "answerable": 14, "not_answerable": 6, "unique_gaps": 4}
-```
+Verdict `status` values:
 
-### Phase 4: Fix and iterate
+| Status | Meaning |
+|---|---|
+| `ANSWERABLE` | No gaps and no blocking parse warning |
+| `NOT_ANSWERABLE` | At least one gap for this question; `failure_mode` is the first gap type |
+| `UNKNOWN` | A blocking parse warning (unhandled join type, unresolved alias, no tables extracted) means the result cannot be trusted |
+| `EXPLAIN_FAILED` | `EXPLAIN` failed for the SQL (invalid SQL, missing object, logical names) |
+| `SKIPPED` | `SQL_TEXT` is NULL or empty |
 
-For each gap in `gaps[]`:
-- `TABLE_NOT_REGISTERED` → add the table to the SV `TABLES` block
-- `COLUMN_NOT_EXPOSED` → add the column as a `DIMENSION`, `FACT`, or `METRIC`
-- `RELATIONSHIP_MISSING` → add a `RELATIONSHIPS` entry
+`gaps[]` is computed over all questions together and keyed by physical table, so two questions that use
+the same alias for different tables do not interfere.
 
-Re-run the checker. Repeat until `summary.not_answerable = 0`.
+## Fix and iterate
 
-## Notes
+Apply fixes to a **candidate** copy of the view (`../../references/candidate-promotion.md`), never to production:
+- `TABLE_NOT_REGISTERED`: add the table to `TABLES`.
+- `COLUMN_NOT_EXPOSED`: expose the column as a dimension, fact or metric.
+- `RELATIONSHIP_MISSING`: add a `RELATIONSHIPS` entry.
 
-- **Parallel execution**: kick off this CALL in a separate Snowsight worksheet at the same
-  time as `EXECUTE_AI_EVALUATION`. Both consume the same GT SQL input; neither blocks the other.
-- **Computed columns**: the checker indexes physical column tokens from metric/fact/dimension
-  expressions (e.g. `SUM(SALES_USD)` → tracks `SALES_USD`). This prevents false
-  COLUMN_NOT_EXPOSED errors for metric-covered columns.
-- **All join types**: LEFT OUTER, FULL OUTER, CROSS and other join variants are all detected,
-  not just INNER JOINs.
-- **2-hop joins**: correctly handled — each join pair is checked independently against
-  the SV RELATIONSHIPS entries.
-- **CTEs and subqueries**: `EXPLAIN USING TABULAR` flattens these; TableScan rows appear
-  for all physical tables regardless of nesting depth.
-- **Unaliased tables**: tables without an explicit alias in the SV TABLES block use the
-  last segment of the FQN as their logical name (e.g. `DB.SCHEMA.ORDERS` → `ORDERS`).
+Re-run against the candidate until `not_answerable = 0` and `unknown = 0`.
+
+## Notes and limits
+
+- Columns used inside dimension/fact/metric expressions count as covered; relationship key columns count as covered.
+- Join types: inner, left/right/full outer, cross, semi, anti are parsed; lateral, natural, asof, range and positional joins produce an `UNKNOWN` verdict.
+- `TABLES` entries may omit `PRIMARY KEY`. `REFERENCES <table>` without a column list resolves to the target's declared `PRIMARY KEY`; if none is declared the relationship is skipped with a warning.
+- Not parsed: relationship forms other than `[name AS] t (cols) REFERENCES t [(cols)]`, and string literals containing unbalanced parentheses outside the quoted-comment cases the splitter handles.
+- CTEs: `EXPLAIN` plans still list the physical `TableScan` rows, but if a plan has none the verdict is `UNKNOWN` (`ZERO_TABLES_EXTRACTED`).

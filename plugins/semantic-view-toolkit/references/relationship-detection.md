@@ -1,6 +1,8 @@
 # Relationship Detection
 
-Shared logic for detecting table relationships from multiple sources. Used by `sv-discovery` and `sv-gepa-optimizer` skills.
+Shared detection rules for table relationships. The SQL for each method lives in one place,
+`skills/sv-discovery/phases/02_scan.md`; this file holds the rules that SQL applies. Scores are in
+`confidence-scoring.md`.
 
 ## Detection Sources (Priority Order)
 
@@ -8,44 +10,11 @@ Shared logic for detecting table relationships from multiple sources. Used by `s
 
 Snowflake does not enforce FK constraints, but declared constraints are strong evidence of intentional relationships.
 
-```sql
--- Discover declared FK relationships using SHOW IMPORTED KEYS.
--- INFORMATION_SCHEMA.KEY_COLUMN_USAGE does not exist in Snowflake.
--- FK constraints on standard tables are informational (RELY/NOVALIDATE).
-SHOW IMPORTED KEYS IN DATABASE <DB>
-  ->> SELECT
-        "pk_table_name" AS parent_table,
-        "pk_column_name" AS parent_column,
-        "fk_table_name" AS child_table,
-        "fk_column_name" AS child_column,
-        "key_sequence" AS key_sequence,
-        "fk_name" AS fk_constraint_name
-      FROM $1
-      WHERE "fk_schema_name" = :schema_name;
-```
-
-```sql
--- Discover PK and UNIQUE constraints.
-SHOW PRIMARY KEYS IN DATABASE <DB>
-  ->> SELECT
-        "table_name",
-        "column_name",
-        "key_sequence",
-        "constraint_name"
-      FROM $1
-      WHERE "schema_name" = :schema_name;
-
-SHOW UNIQUE KEYS IN DATABASE <DB>
-  ->> SELECT
-        "table_name",
-        "column_name",
-        "key_sequence",
-        "constraint_name"
-      FROM $1
-      WHERE "schema_name" = :schema_name;
-```
-
-`SHOW IMPORTED KEYS` supplies the column-level FK mapping, while `SHOW PRIMARY KEYS` and `SHOW UNIQUE KEYS` supply the target-key metadata. `TABLE_CONSTRAINTS` and `REFERENTIAL_CONSTRAINTS` do not expose key columns. On standard Snowflake tables, FK constraints are informational metadata and may be declared with `RELY`/`NOVALIDATE`.
+Use `SHOW IMPORTED KEYS`, `SHOW PRIMARY KEYS` and `SHOW UNIQUE KEYS` (SQL: Phase 2 Step 2A).
+Keep the `pk_*`/`fk_*` database and schema columns so cross-schema FKs are not lost.
+`INFORMATION_SCHEMA.KEY_COLUMN_USAGE` does not exist in Snowflake, and `TABLE_CONSTRAINTS` /
+`REFERENTIAL_CONSTRAINTS` do not expose key columns. On standard Snowflake tables, FK constraints
+are informational metadata and may be declared with `RELY`/`NOVALIDATE`.
 
 ### 2. Column Name Pattern Inference (Confidence: 0.70–0.95)
 
@@ -72,83 +41,40 @@ Match columns across tables using naming conventions. Higher confidence when col
 ```python
 # Pseudocode for pattern matching
 SUFFIX_PATTERNS = {
-    '_ID': 0.90, '_KEY': 0.85, '_CODE': 0.80,
-    '_SK': 0.85, '_NBR': 0.75, '_NO': 0.75, '_FK': 0.95,
+    '_FK': 0.95, '_ID': 0.90, '_KEY': 0.85, '_SK': 0.85,
+    '_CODE': 0.80, '_NBR': 0.75, '_NO': 0.75,
 }
 
-def match_column(col_name, tables):
-    for suffix, base_confidence in SUFFIX_PATTERNS.items():
-        if col_name.upper().endswith(suffix):
-            entity = col_name[:-len(suffix)]
-            # Look for table named entity (singular/plural)
-            candidates = find_matching_tables(entity, tables)
-            # Boost if data type matches PK
-            if pk_type_matches:
-                confidence = min(0.95, base_confidence + 0.05)
-            return candidates, confidence
-    return [], 0.0
+def match_column(col, tables):
+    """col: {name, data_type}. Returns [(target_table, target_col, confidence)]."""
+    matches = []
+    for suffix, base in SUFFIX_PATTERNS.items():
+        if not col['name'].upper().endswith(suffix):
+            continue
+        entity = col['name'][:-len(suffix)]
+        for table in find_matching_tables(entity, tables):       # singular/plural/alias
+            for key in table.pk_or_unique_columns():
+                score = base + (0.05 if key.data_type == col['data_type'] else 0.0)
+                matches.append((table.name, key.name, min(0.95, score)))
+    return matches  # empty if no suffix or no target matched
 ```
 
 ### 3. Query Co-occurrence from ACCESS_HISTORY (Confidence: from frequency)
 
-Tables frequently accessed together in the same query are likely related. Uses the structured `base_objects_accessed` JSON array — NOT query text parsing.
-
-```sql
--- Find table co-occurrence pairs from ACCESS_HISTORY
--- Uses structured base_objects_accessed (array of objects with objectName, objectDomain)
-WITH query_tables AS (
-    SELECT
-        query_id,
-        f.value:objectName::STRING AS table_name
-    FROM snowflake.account_usage.access_history,
-        LATERAL FLATTEN(input => base_objects_accessed) f
-    WHERE f.value:objectDomain::STRING = 'Table'
-        AND query_start_time >= DATEADD(day, -90, CURRENT_TIMESTAMP())
-        AND SPLIT_PART(f.value:objectName::STRING, '.', 2) = :schema_name
-),
-co_occurrences AS (
-    SELECT
-        a.table_name AS table_a,
-        b.table_name AS table_b,
-        COUNT(DISTINCT a.query_id) AS co_query_count
-    FROM query_tables a
-    JOIN query_tables b
-        ON a.query_id = b.query_id
-        AND a.table_name < b.table_name  -- avoid duplicates
-    GROUP BY 1, 2
-)
-SELECT
-    table_a,
-    table_b,
-    co_query_count,
-    CASE
-        WHEN co_query_count >= 50 THEN 'HIGH'
-        WHEN co_query_count >= 10 THEN 'MEDIUM'
-        ELSE 'LOW'
-    END AS confidence_tier
-FROM co_occurrences
-ORDER BY co_query_count DESC;
-```
+Tables frequently accessed together in the same query are likely related (SQL: Phase 2 Step 2C).
+Rules:
+- Use the structured `base_objects_accessed` array, not query-text parsing.
+- Compare `objectDomain` case-insensitively (`UPPER(...)`); doc examples spell it inconsistently.
+- Filter to the discovery database **and** schemas inside the CTE, before any LIMIT.
+- Co-occurrence is table-level: it never supplies join columns (see `confidence-scoring.md`,
+  Join-key rule).
+- ETL statements (INSERT…SELECT, CTAS, dynamic-table refreshes) inflate counts; exclude them where
+  possible.
 
 ### 4. Column Access Frequency (Supplementary Signal)
 
-Which columns are most commonly accessed — helps prioritize which relationships matter most.
-
-```sql
--- Column-level access frequency from ACCESS_HISTORY
-SELECT
-    obj.value:objectName::STRING AS table_name,
-    col.value:columnName::STRING AS column_name,
-    COUNT(DISTINCT query_id) AS access_count
-FROM snowflake.account_usage.access_history,
-    LATERAL FLATTEN(input => base_objects_accessed) obj,
-    LATERAL FLATTEN(input => obj.value:columns) col
-WHERE query_start_time >= DATEADD(day, -90, CURRENT_TIMESTAMP())
-    AND obj.value:objectDomain::STRING = 'Table'
-    AND SPLIT_PART(obj.value:objectName::STRING, '.', 2) = :schema_name
-GROUP BY 1, 2
-ORDER BY access_count DESC;
-```
+Which columns are most commonly accessed (SQL: Phase 2 Step 2D). It ranks columns and tables; it is
+not a pairwise relationship signal.
 
 ## Important Notes
 

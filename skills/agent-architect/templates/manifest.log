@@ -1,9 +1,0 @@
-# Agent Architect canonical event log, one run per file.
-# Primary is the only canonical writer. Roles publish committed event files.
-# Generate records with scripts/event.py and validate with scripts/manifest.py.
-# Required task identity: run, attempt; role evidence additionally needs dispatch.
-# Register dependencies first and assign stable acceptance criterion IDs.
-# Persist collector candidates and their JSON COLLECTED receipts atomically.
-# Complete schema: roles/manifest-schema.md.
-# Dispatch recovery: references/worktree-handoff.md.
-# DONE is not SHIPPED; neither a missing ship marker nor commit age proves abandonment.

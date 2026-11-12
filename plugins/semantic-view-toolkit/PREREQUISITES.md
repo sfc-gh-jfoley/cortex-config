@@ -20,9 +20,10 @@
 
 | Requirement | Why | Fallback if Missing |
 |---|---|---|
-| `CREATE SEMANTIC VIEW` privilege on target schema | Create the SV | Cannot proceed |
+| `CREATE SEMANTIC VIEW` privilege on target schema | Create the new SV and candidate copies | Cannot proceed |
 | `SELECT` on source tables/views/DTs | Validate relationships and sample data | Cannot proceed |
-| Warehouse with `CORTEX.COMPLETE` access | AI-generated descriptions | Manual descriptions only |
+| `USE AI FUNCTIONS` (granted to PUBLIC by default) and a warehouse | AI-generated descriptions | Manual descriptions only |
+| `OWNERSHIP` on an existing SV | Promotion by `CREATE OR ALTER` at gate `SV-PROMOTE` | Retarget consumers instead, or ask the owner |
 
 ### sv-audit
 
@@ -44,14 +45,15 @@
 | `MONITOR` on semantic view | Eval API requirement | Cannot run eval |
 | At least 1 VQR on the SV | Ground truth for eval | Route to vqr-generator first |
 
-**⚠️ Primary Role Only:** `EXECUTE_AI_EVALUATION` can only be called from a **primary role**. If your current role is not primary (e.g., a secondary role or role in a hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
+**⚠️ Single primary role:** all evaluation privileges must be held by the session's **primary role** (directly or through roles it inherits). Evaluation runs as Snowflake tasks, which ignore secondary-role privileges.
 
 ### sv-iterative-optimizer / sv-gepa-optimizer
 
 | Requirement | Why | Fallback if Missing |
 |---|---|---|
 | All sv-evaluation prerequisites | Runs evals in a loop | Cannot proceed |
-| `CREATE OR REPLACE SEMANTIC VIEW` | Deploy SV variants | Cannot proceed |
+| `CREATE SEMANTIC VIEW` on the SV schema | Deploy candidate copies | Cannot proceed |
+| `OWNERSHIP` on the production SV | Replace production at gate `SV-PROMOTE` (`CREATE OR ALTER`) | Retarget consumers instead, or ask the owner |
 | `CREATE SCHEMA` (first run only) | Create `_SV_TOOLKIT_META` | Ask user to create manually |
 | `CREATE TABLE` on `_SV_TOOLKIT_META` | Persist optimization state | Cannot proceed |
 
@@ -62,6 +64,15 @@
 | `IMPORTED PRIVILEGES` on `SNOWFLAKE` database | Detect schema changes via ACCOUNT_USAGE | Cannot detect drift |
 | `SELECT` on semantic views to monitor | DESCRIBE to compare | Cannot proceed |
 | `CREATE TABLE` on `_SV_TOOLKIT_META` | Persist watch history | Cannot proceed |
+| Enterprise Edition | ACCESS_HISTORY for Check 2 (coverage decay) | Skips Check 2 |
+
+### sv-materialize
+
+| Requirement | Why | Fallback if Missing |
+|---|---|---|
+| `SELECT` on the SV | `SHOW MATERIALIZATIONS` | Cannot proceed |
+| `CREATE SEMANTIC VIEW` on the SV schema | `mat` trial candidates | Assess and design only |
+| `OWNERSHIP` on the SV, `ADD SEMANTIC VIEW MATERIALIZATION` on the schema, `USAGE` on the refresh warehouse | Materialization changes at gate `SV-PROMOTE` | Produce statements for the owner |
 
 ### sv-rearchitect
 
@@ -75,15 +86,16 @@
 | Requirement | Why | Fallback if Missing |
 |---|---|---|
 | `IMPORTED PRIVILEGES` on `SNOWFLAKE` database | QUERY_HISTORY for question mining | Cannot auto-generate (manual only) |
-| `ALTER SEMANTIC VIEW` on target SV | Add generated VQRs | Generate only, user applies manually |
+| `CREATE SEMANTIC VIEW` on the SV schema | Candidate copy carrying the new VQRs | Generate only, user applies manually |
+| `OWNERSHIP` on the target SV | Promote the VQRs (`CREATE OR ALTER`; `ALTER SEMANTIC VIEW` cannot change VQRs) at `SV-PROMOTE` | Generate only, user applies manually |
 
 ## Edition Requirements
 
 | Feature | Edition |
 |---|---|
 | ACCESS_HISTORY (column-level usage) | Enterprise or higher |
-| EXECUTE_AI_EVALUATION | Standard (Preview, all accounts) |
-| Cortex Analyst evaluations | Standard (Preview, all accounts) |
+| Cortex Analyst evaluations (`EXECUTE_AI_EVALUATION`) | No edition or Preview label on the current evaluation page; Snowflake now recommends transitioning to Cortex Agents. Verify before relying on this |
+| Semantic view materializations | Preview (Open, all accounts) |
 | Dynamic Tables as SV sources | Standard |
 | External Tables (Iceberg) as SV sources | Standard |
 
@@ -96,10 +108,28 @@ Run this to check your current role has the essentials:
 SELECT COUNT(*) FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
 WHERE START_TIME >= DATEADD('day', -1, CURRENT_TIMESTAMP()) LIMIT 1;
 
--- Check CORTEX_USER role
+-- Check role grants (look for CORTEX_USER, USE AI FUNCTIONS, EXECUTE TASK, CREATE SEMANTIC VIEW)
 SELECT CURRENT_ROLE();
 SHOW GRANTS TO ROLE <your_role>;
-
--- Check eval prerequisites
-SELECT SYSTEM$ALLOWLIST('CORTEX');
 ```
+
+## Install and Verify
+
+1. Install `uv` (required for the optimization, GEPA, candidate and validator scripts):
+
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   Make sure `uv` is on your shell PATH. On macOS with zsh, put the `PATH` export in `~/.zshenv`
+   (not `.zshrc`) so non-interactive shells can find it:
+
+   ```bash
+   # ~/.zshenv
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+2. Grant the privileges listed under each skill above to the role you will use.
+3. Reload your Cortex Code session. The toolkit banner confirms it is active; a "Setup Incomplete"
+   warning means a prerequisite above is missing.
+

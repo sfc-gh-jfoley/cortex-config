@@ -24,7 +24,7 @@ This reference helps bootstrap, expand, or rebalance VQRs before or during optim
 ## Step 1: Check Current VQR Count
 
 ```sql
-DESCRIBE SEMANTIC VIEW <SV_FQN>;
+SELECT GET_DDL('SEMANTIC_VIEW', '<SV_FQN>');
 ```
 
 Count `verified_queries` entries in the DDL output.
@@ -67,9 +67,9 @@ a split per the guide in `SKILL.md` (VQR Split Strategy section):
 | 11–20 | 70% | 30% |
 | 20+ | 75% | 25% |
 
-The Snowflake evaluation API handles holdout automatically. This split is informational —
-track "guide-quality" VQRs (those that teach the SV by example) vs "eval-quality" VQRs
-(those that test generalization).
+The split is enforced by the evaluation request: list only the hold-out questions in
+`source_metadata.verified_queries` (`analyst_params`, `sql_correctness` pinned to `v3`).
+Guide VQRs are never scored. Save the hold-out list and reuse it for every run.
 
 ---
 
@@ -86,3 +86,23 @@ VQR setup complete:
   Eval split:  <X> holdout / <Y> guide
   Next step:   Run sv-evaluation to establish baseline, then sv-iterative-optimizer → optimize
 ```
+
+
+---
+
+## Failure summary format
+
+One JSON object per failing hold-out question, in a JSON array (or JSON Lines) file. The same
+shape is read by `sv-gepa-optimizer --failures-file`.
+
+```json
+{"question": "...", "expected_sql": "...", "generated_sql": "...", "failure_class": "wrong_column"}
+```
+
+- `question`: natural-language question text.
+- `expected_sql`: the VQR reference SQL.
+- `generated_sql`: SQL Analyst produced (empty string if it refused).
+- `failure_class`: free-form short label mapped to an operator in `SKILL.md` (for example `wrong_column`, `wrong_aggregation`, `wrong_join`, `wrong_time_filter`, `wrong_filter`, `refusal`, `error`).
+
+Build it from `GET_ANALYST_AI_EVALUATION_DATA` rows with `sql_correctness < 1.0`
+(`INPUT` -> question, `GROUND_TRUTH` -> expected_sql, `OUTPUT` -> generated_sql).

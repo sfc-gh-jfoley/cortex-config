@@ -10,8 +10,23 @@ Polish the semantic view after initial validation:
 1. Add `AI_VERIFIED_QUERIES` (curated Q&A pairs for Cortex Analyst)
 2. Improve descriptions based on what failed in Phase 6
 3. Export the final DDL for HOL setup scripts or version control
+4. Create the new SV, or hand an existing SV's changes to gate `SV-PROMOTE`
 
 This phase repeats as many times as needed.
+
+### Where edits go (candidate-copy contract)
+
+Every edit in Steps 7.1–7.5 changes the **working DDL**, then is applied to a candidate, never to
+`<SV_FQN>` (see `../../../references/candidate-promotion.md`):
+
+- **New SV** (target does not exist yet): keep editing the Phase 5/6 working DDL and apply it to
+  the Phase 6 candidate.
+- **Existing SV**: start from `GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')`, create a `cand` candidate
+  with `candidate.py` exactly as in Phase 6 Step 6.1, and edit that.
+
+Apply an edit to the candidate by running `candidate.py guard --source <SV_FQN> --target <CAND>`
+and then `CREATE OR ALTER SEMANTIC VIEW <CAND>` with the **full** updated definition (omitted
+properties are unset). Re-run the Phase 6 checks against `<CAND>` after each edit.
 
 ---
 
@@ -22,12 +37,16 @@ These are displayed as starter questions in Snowflake Intelligence and improve C
 
 Ask user: "Do you want to add verified queries (example questions and their SQL)? These become the onboarding questions shown in Snowflake Intelligence."
 
-### Add via CREATE OR REPLACE (primary path)
+### Add to the full definition
 
-`ALTER SEMANTIC VIEW ... SET AI_VERIFIED_QUERIES` is **not supported** — it returns a syntax error ("unexpected SET"). The only working path is to rebuild with `CREATE OR REPLACE`, using the DDL from Phase 5 as the base, with `AI_VERIFIED_QUERIES` appended as the final clause:
+`ALTER SEMANTIC VIEW` cannot change verified queries. Add `AI_VERIFIED_QUERIES` as the final
+clause of the full working definition and apply it to the candidate:
+
+- **Existing SV**: adding VQRs is gate `VQR-GEN-INSERT`; existing VQRs are read-only
+  (`SV-VQR-MUTATE`). Copy them unchanged from `GET_DDL`.
 
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
+CREATE OR ALTER SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<CAND>
   TABLES ( ... )
   RELATIONSHIPS ( ... )
   FACTS ( ... )
@@ -73,23 +92,8 @@ CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
 
 For each question that failed or warned in Phase 6, improve the relevant column descriptions:
 
-### Option A: Rebuild with CREATE OR ALTER
-
-> `ALTER SEMANTIC VIEW ... ALTER DIMENSION` is not a supported sub-command.
-> Use `CREATE OR ALTER SEMANTIC VIEW` to modify column descriptions — this preserves
-> materializations and avoids the ownership/grant reset of `CREATE OR REPLACE`.
-
-```sql
--- Get current DDL, edit the COMMENT on the target dimension, then redeploy:
--- SELECT GET_DDL('semantic_view', '<SV_DB>.<SV_SCHEMA>.<SV_NAME>');
--- Edit the DIMENSIONS clause, changing the COMMENT for the target dimension.
--- Then run CREATE OR ALTER SEMANTIC VIEW with the full updated definition.
-```
-
-### Option B: Rebuild with CREATE OR REPLACE
-
-For multi-column fixes, it's cleaner to `CREATE OR REPLACE` the entire SV with updated COMMENT clauses.
-Use the DDL generated in Phase 5 as the base — edit the specific COMMENT strings and re-execute.
+`ALTER SEMANTIC VIEW ... ALTER DIMENSION` is not a supported sub-command. Edit the COMMENT
+strings in the working DDL and apply the full definition to the candidate (see "Where edits go").
 
 After any description change:
 1. Re-run the failing questions from Phase 6 Step 6.4
@@ -108,17 +112,9 @@ Common additions:
 - Date handling: `Use DATE_TRUNC('month', ACQUISITION_DATE) for monthly grouping`
 - Aggregation preferences: `Use COUNT(DISTINCT DEALER_ID) for unique dealer counts, not COUNT(*)`
 
-Update via `CREATE OR ALTER SEMANTIC VIEW` (include the AI_SQL_GENERATION clause in the full definition):
-
-> `ALTER SEMANTIC VIEW ... SET AI_SQL_GENERATION` is not a supported sub-command.
-> Include the AI_SQL_GENERATION clause in a `CREATE OR ALTER SEMANTIC VIEW` statement.
-
-```sql
--- Get current DDL, add/update the AI_SQL_GENERATION clause, then redeploy:
--- SELECT GET_DDL('semantic_view', '<SV_DB>.<SV_SCHEMA>.<SV_NAME>');
--- Add or edit the AI_SQL_GENERATION '<instructions>' clause after COMMENT.
--- Then run CREATE OR ALTER SEMANTIC VIEW with the full updated definition.
-```
+`ALTER SEMANTIC VIEW ... SET AI_SQL_GENERATION` is not a supported sub-command. Add or edit the
+`AI_SQL_GENERATION '<instructions>'` clause (after COMMENT) in the working DDL and apply the full
+definition to the candidate.
 
 ---
 
@@ -147,13 +143,11 @@ For each CSS found, check if any text DIMENSION in the semantic view maps to the
 - `USING <source_col>` is only needed if the CSS source column name differs from the dimension's physical column
 - Present each CSS linking suggestion as optional — user can accept or skip
 
-Update via `CREATE OR ALTER SEMANTIC VIEW` (add `WITH CORTEX SEARCH SERVICE` to the dimension in the full definition):
-
-> `ALTER SEMANTIC VIEW ... ALTER DIMENSION ... SET CORTEX SEARCH SERVICE` is not supported.
-> Include the CSS linkage in the dimension's definition within `CREATE OR ALTER SEMANTIC VIEW`.
+`ALTER SEMANTIC VIEW ... ALTER DIMENSION ... SET CORTEX SEARCH SERVICE` is not supported. Add
+the linkage to the dimension in the working DDL and apply the full definition to the candidate:
 
 ```sql
--- In the DIMENSIONS clause of CREATE OR ALTER SEMANTIC VIEW:
+-- In the DIMENSIONS clause of the full definition:
 <table_alias>.<dim_name> AS <col>
   COMMENT = '...'
   WITH CORTEX SEARCH SERVICE <db>.<schema>.<css_name>
@@ -181,8 +175,8 @@ If `PII_FLAGGED` columns exist (from Phase 3 classification), suggest tagging di
 If `REGULATED_MODE = true` (from BUSINESS_CONTEXT), suggest tagging the semantic view itself:
 
 ```sql
--- On the semantic view:
-CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
+-- On the semantic view (new SV: in the final CREATE in Step 7.7):
+CREATE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
   ...
   WITH TAG ( 'compliance_scope' = '<HIPAA|GDPR|PCI|SOX>', 'data_classification' = 'confidential' )
 ```
@@ -202,7 +196,10 @@ If `IS_MTT = true` (multi-tenant table detected), suggest tagging tenant boundar
 - Tags integrate with Snowflake's native tag system — they are queryable via `TAG_REFERENCES` and compatible with tag-based masking policies
 - Do not invent tag categories beyond what the business context supports
 - If no PII, compliance, or MTT signals exist, skip this step entirely
-- Tags can be applied via `ALTER SEMANTIC VIEW ... SET TAG` or included in `CREATE OR REPLACE`
+- `CREATE OR ALTER` cannot add or change tags (existing tags are preserved). For a new SV, put
+  tags in the final `CREATE SEMANTIC VIEW`. For an existing SV, `ALTER SEMANTIC VIEW ... SET TAG`
+  is a production change and goes through `SV-PROMOTE`.
+- See [../reference/multitenant_sv_guidance.md](../reference/multitenant_sv_guidance.md) for tenant columns
 
 ---
 
@@ -215,7 +212,7 @@ Generate the complete final DDL with all enrichments for:
 
 ```sql
 -- Complete final DDL:
-CREATE OR REPLACE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
+CREATE SEMANTIC VIEW <SV_DB>.<SV_SCHEMA>.<SV_NAME>
   TABLES ( ... )
   RELATIONSHIPS ( ... )
   FACTS ( ... )
@@ -230,7 +227,28 @@ Present this as a complete, self-contained SQL block the user can paste into any
 
 ---
 
-## Step 7.7: Final summary
+## Step 7.7: Create the new SV, or promote
+
+**New SV.** Check for a collision by exact name (not `LIKE`; `_` is a wildcard):
+
+```sql
+SHOW SEMANTIC VIEWS IN SCHEMA <SV_DB>.<SV_SCHEMA>;
+SELECT COUNT(*) AS existing FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) WHERE "name" = '<SV_NAME>';
+```
+
+If `existing > 0`, stop: the name is taken and this skill does not overwrite it. Use the
+existing-SV path instead. Otherwise run the Step 7.6 DDL (plain `CREATE SEMANTIC VIEW`).
+
+**Existing SV.** Stop at gate `SV-PROMOTE` (OPERATOR_REQUIRED in both modes) and follow
+`../../../references/candidate-promotion.md` §4: DDL diff, evaluation evidence, consumers
+(possibly incomplete), captured grants/tags/materializations, then the operator's choice.
+
+**Both.** Mark the winning candidate `winner` (or `promoted`) and offer gate
+`SV-CANDIDATE-CLEANUP` with `candidate.py cleanup-plan` for the rest.
+
+---
+
+## Step 7.8: Final summary
 
 ```
 ✅ Semantic View Complete
@@ -250,9 +268,9 @@ Present this as a complete, self-contained SQL block the user can paste into any
   DDL saved above — copy to hol_setup.sql or version control.
 
 Next options:
-  - Add this SV to a Cortex Agent   → run agent-ddl skill
+  - Add this SV to a Cortex Agent   → agent-ddl skill (cortex-agent-toolkit plugin, if installed)
   - Add more verified queries       → repeat Phase 7
-  - Schedule drift monitoring       → Phase 8 (weekly/monthly health check)
+  - Monitor drift                   → sv-watch skill
   - Optimize with Cortex Analyst    → run semantic-view skill (existing/optimization path)
   - A/B test agent configurations   → use the cortex-agent-toolkit plugin's agent-model-tester skill if installed
 ```
@@ -263,8 +281,9 @@ If `IS_MTT = true` for this semantic view, append the following note to the fina
 
 ```
 ⚠️  Multi-tenant SV: The downstream Cortex Agent MUST use a matching tenant
-    isolation pattern (user/role/session-attr). See agent-ddl Phase 4b
-    for the three patterns. RAPs applied to base tables automatically scope
+    isolation pattern (user/role/session-attr). See
+    ../reference/multitenant_sv_guidance.md and agent-ddl Phase 4b
+    (cortex-agent-toolkit) for the three patterns. RAPs applied to base tables automatically scope
     agent-generated SQL queries because Cortex Analyst generates SQL against
     the SV's source tables — the RAP evaluates at query time regardless of
     whether the query was written by a human or by the AI.
@@ -272,6 +291,6 @@ If `IS_MTT = true` for this semantic view, append the following note to the fina
 
 ⚠️ **STOPPING POINT (INTERACTIVE mode)** — Present final summary and wait for user's next action.
 
-**AUTONOMOUS:** this is the workflow's natural completion point — log the final summary
-and return control (the SV is built and validated; there's no further action to take
-autonomously).
+**AUTONOMOUS:** a new SV is created in Step 7.7 after the collision check; an existing SV
+waits at `SV-PROMOTE` and cleanup waits at `SV-CANDIDATE-CLEANUP`. Log the final summary and
+return control.

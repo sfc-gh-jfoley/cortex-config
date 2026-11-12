@@ -53,29 +53,25 @@ Every OPERATOR_REQUIRED gate that fires (in INTERACTIVE mode) must log the opera
 | `EVAL-NO-PERMISSION` | Role lacks SELECT on SV or EXECUTE on evaluation procedure | **TERMINATE** | — |
 | `EVAL-NO-VQR` | SV has zero verified queries; evaluation cannot proceed | **TERMINATE** | — |
 | `EVAL-CONTAMINATED-VQR` | VQR baseline is contaminated (used as training signal) | **AUTO_RESOLVE** | Continue with contaminated VQRs as **read-only flagged references**; do not block run; log warning |
-| `EVAL-COMPILE-ERROR-VQR` | VQR SQL fails to compile against current SV DDL | **AUTO_RESOLVE** | Exclude that VQR from the eval run; log `[AUTO-RESOLVED: EVAL-COMPILE-ERROR-VQR → excluded VQR <id>]`; do not block the whole run |
+| `EVAL-COMPILE-ERROR-VQR` | VQR dry-run fails (compile error or untranslatable) | **AUTO_RESOLVE** | Do not exclude the VQR; run all VQRs, list the failures as REVIEW in the report, and stop if more than half fail |
 | `EVAL-METADATA-CREATE` | Need to create additive metadata table for eval history | **AUTO_REMEDIATE** | Execute `CREATE TABLE IF NOT EXISTS`; no prompt needed in any mode |
-| `EVAL-ROLLBACK-CLONE` | Offer clone before replacing eval metadata table | **AUTO_RESOLVE** | In AUTONOMOUS: skip clone offer for `IF NOT EXISTS` additive creates; offer only for destructive replaces in INTERACTIVE |
 
 ### SV GEPA Optimizer Gates
 
+GEPA works only on candidate copies (see `references/candidate-promotion.md`). It has no gate that writes to production; promotion uses `SV-PROMOTE`.
+
 | Gate ID | Description | Classification | Default (AUTONOMOUS) |
 |---|---|---|---|
-| `GEPA-CANDIDATE-DEPLOY` | Deploy validated candidate SV copy for evaluation | **AUTO_RESOLVE** | Deploy; log action |
+| `GEPA-CANDIDATE-DEPLOY` | Deploy a validated candidate copy (named by `candidate.py`) for evaluation | **AUTO_RESOLVE** | Deploy with plain `CREATE SEMANTIC VIEW`; skip if the name exists; log action |
 | `GEPA-POP-REVIEW` | Review population matrix before candidate generation begins | **AUTO_RESOLVE** | Log population matrix and continue; `[AUTO-RESOLVED: GEPA-POP-REVIEW → proceed (population validated, autonomous mode)]` |
-| `GEPA-PROD-SNAPSHOT` | Snapshot production SV DDL and materialization state before winner deployment | **AUTO_REMEDIATE** | Execute snapshot with timestamp **before** any production write; no prompt in either mode |
-| `GEPA-PROD-OVERWRITE` | Apply winning candidate to production SV | **OPERATOR_REQUIRED** | Always pause in both modes; show diff; wait for explicit acceptance |
 | `GEPA-CONVERGENCE-STOP` | Population converged — no further improvement expected | **AUTO_RESOLVE** | Terminate loop; report best candidate |
-| `GEPA-FLOOR-REJECT` | Candidate below documented quality floor | **AUTO_RESOLVE** | Reject; log scores |
-| `GEPA-CREATE-OR-ALTER` | Updating existing production SV while preserving materialization | **AUTO_REMEDIATE** | Use `CREATE OR ALTER SEMANTIC VIEW` to preserve MAX_STALENESS and materialization settings |
 
-> **Sequencing defect corrected (GEPA):** The prior implementation gated disposable candidate
-> deployment (correctly) but had no equivalent gate before production overwrite. Correct order is:
-> 1. Deploy candidate to isolated copy (`AUTO_RESOLVE: GEPA-CANDIDATE-DEPLOY`)
-> 2. Evaluate candidate score
-> 3. If winner: snapshot production DDL/materialization (`AUTO_REMEDIATE: GEPA-PROD-SNAPSHOT`)
-> 4. Present diff to operator and wait for acceptance (`OPERATOR_REQUIRED: GEPA-PROD-OVERWRITE`)
-> 5. Only if accepted: apply to production
+### Candidate Promotion Gates
+
+| Gate ID | Description | Classification | Default (AUTONOMOUS) |
+|---|---|---|---|
+| `SV-PROMOTE` | Move a candidate's changes into use: retarget consumers, replace production, keep or discard | **OPERATOR_REQUIRED** | Always pause in both modes; show DDL diff, evaluation evidence and consumers (stated as possibly incomplete); never choose for the operator |
+| `SV-CANDIDATE-CLEANUP` | Drop candidate copies after a run | **OPERATOR_REQUIRED** | Run `candidate.py cleanup-plan`, show the exact `DROP` list, and wait; never drop by pattern; keep `winner` and `promoted` |
 
 ### VQR Gates
 
@@ -104,10 +100,8 @@ Every OPERATOR_REQUIRED gate that fires (in INTERACTIVE mode) must log the opera
 
 | Gate ID | Description | Classification | Default (AUTONOMOUS) |
 |---|---|---|---|
-| `AUDIT-REGULATED-MODE` | Regulated-mode governance check flags a structural concern | **TERMINATE** | — |
-| `AUDIT-FAN-CHASM` | Structural fan/chasm trap detected in relationship graph | **TERMINATE** | — |
 | `AUDIT-PRIVILEGE-MISSING` | Role lacks required privileges to complete audit | **TERMINATE** | — |
-| `AUDIT-RECOMMEND-APPLY` | Apply audit recommendations to SV | **AUTO_RESOLVE** | In AUTONOMOUS: apply only changes that are deterministic AND reversible (e.g., add missing FK annotation); log/defer structural changes that require judgment; do NOT apply all recommendations wholesale |
+| `AUDIT-RECOMMEND-APPLY` | Apply audit recommendations (to a candidate copy only; production via `SV-PROMOTE`) | **AUTO_RESOLVE** | In AUTONOMOUS: apply only changes that are deterministic AND reversible (e.g., add missing FK annotation); log/defer structural changes that require judgment; do NOT apply all recommendations wholesale |
 
 ### Stateful Persistence Gates
 
@@ -125,7 +119,8 @@ These gates are **hardcoded OPERATOR_REQUIRED** and cannot be overridden by any 
 1. **`SV-VQR-MUTATE`** — Mutation of any existing customer VQR. Skills may detect and report VQR health issues but must present findings as read-only observations only. Offering to fix, apply, or rewrite existing VQRs is forbidden.
 2. **`VQR-GEN-INSERT`** — Insertion of new VQRs into an existing customer SV. Requires explicit mutation authorization.
 3. **`VQR-CURATOR-PHASE6`** — Phase 6 customer approval gate in vqr-curator. This gate is permanent and must not be removed or bypassed by any optimization pass.
-4. **`GEPA-PROD-OVERWRITE`** — Production SV overwrite. No autonomous system may apply a winning candidate without explicit operator acceptance of the diff.
+4. **`SV-PROMOTE`** — Any change to a production SV, from any skill. No autonomous system may apply a winning candidate without explicit operator acceptance of the diff.
+5. **`SV-CANDIDATE-CLEANUP`** — Dropping candidate copies. Only the exact names in the run manifest, shown to the operator first.
 
 ---
 

@@ -5,10 +5,13 @@ Fetch the SV and build a complete picture before scoring begins.
 ## Step 1.1 — Quick size check
 
 ```sql
-SELECT GET_DDL('semantic_view', '<SV_FQN>') AS sv_ddl;
+DESCRIBE SEMANTIC VIEW <SV_FQN>;
+SELECT COUNT(DISTINCT "object_name") AS vqr_count
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "object_kind" = 'AI_VERIFIED_QUERY';
 ```
 
-Count `AI_VERIFIED_QUERY` rows in DESCRIBE output. Print immediately:
+Print immediately:
 
 ```
 SV:    <SV_FQN>
@@ -16,8 +19,7 @@ VQRs:  <N>  [Healthy ≤10 | Acceptable 10–20 | ⚠ Review >20]
 ```
 
 If VQR count > 20:
-> "VQR count exceeds 20. This often signals an SV covering multiple semantic domains.
->  After curation, consider running sv-audit to check whether splitting is warranted."
+> "VQR count exceeds 20. Check each VQR's value against the rubric before adding more."
 
 ## Step 1.2 — Fetch all VQRs
 
@@ -26,7 +28,8 @@ DESCRIBE SEMANTIC VIEW <SV_FQN>;
 ```
 
 Parse into `VQR_LIST`: list of `{ name, question, sql }`.
-Parse into `SV_SCHEMA`: `{ tables: [{logical_name, physical_fqn}], metrics: [...], dimensions: [...] }`.
+Parse into `SV_SCHEMA`: `{ tables: [{logical_name, physical_fqn}], metrics: [...], dimensions: [...], facts: [...] }`,
+keeping each dimension and fact `EXPRESSION` (the dry-run in Phase 2 needs them).
 
 If VQR_LIST is empty:
 > "No verified queries found on <SV_FQN>. Nothing to curate.
@@ -36,8 +39,8 @@ If VQR_LIST is empty:
 ## Step 1.3 — Token footprint
 
 ```sql
-SELECT LENGTH(GET_DDL('semantic_view', '<SV_FQN>')) AS ddl_chars,
-       ROUND(LENGTH(GET_DDL('semantic_view', '<SV_FQN>')) / 4) AS estimated_tokens;
+SELECT LENGTH(GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')) AS ddl_chars,
+       ROUND(LENGTH(GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')) / 2.5) AS estimated_tokens;  -- ~2.5 chars/token for DDL
 ```
 
 Store as `SV_TOKEN_FOOTPRINT`. Print:
@@ -51,10 +54,11 @@ Token footprint:  ~<N> tokens   (VQRs account for ~<VQR_N * 300> tokens estimate
 DESCRIBE AGENT <AGENT_FQN>;
 ```
 
-Extract `experimental.EnableVQRFastPath`. If false or absent:
+Extract `experimental.EnableVQRFastPath` (undocumented flag; observed behavior, verify before
+relying on this). If false or absent:
 ```
 ⚠ EnableVQRFastPath is not set on <AGENT_FQN>.
-  ALL VQRs will be ignored for fast-path regardless of SQL quality.
+  Fast-path is not expected to trigger; VQRs still act as few-shot examples and eval ground truth.
   Fix: ALTER AGENT ... MODIFY LIVE VERSION SET SPECIFICATION with
        "experimental": {"EnableVQRFastPath": true}
   Continuing with static audit — fast-path activation check (Phase 4) will be skipped.

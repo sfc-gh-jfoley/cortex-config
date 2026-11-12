@@ -12,7 +12,10 @@ From `VQR_LIST`, collect all column names referenced in VQR SQL.
 ```
 covered_columns   = columns referenced in at least one VQR SQL
 uncovered_columns = SV_SCHEMA columns NOT in covered_columns
+sole_coverage[v]  = true if VQR v is the only VQR referencing some metric or dimension
 ```
+
+Phases 3 and 6 use `sole_coverage`.
 
 ## Step 5.2 — Report gaps by category
 
@@ -46,14 +49,15 @@ Report only HIGH and MEDIUM gaps unless user asks for full coverage.
 For each HIGH-priority gap, suggest a VQR question and skeleton SQL:
 
 ```
-Gap: metric TOTAL_COST on REQUESTS table
+Gap: metric total_revenue on ORDERS table
 Suggested VQR:
-  Question: "What is the total cost per agent including AI function credits?"
+  Question: "What was total revenue by region in 2024?"
   SQL skeleton:
-    SELECT r.agent_name, SUM(r.token_credits + COALESCE(r.ai_function_credits, 0)) AS total_cost
-    FROM __requests r
-    WHERE r.start_time >= '2024-01-01'
-    GROUP BY r.agent_name ORDER BY total_cost DESC
+    SELECT o.region, SUM(o.order_total) AS total_revenue
+    FROM __orders o
+    WHERE o.order_date >= '2024-01-01' AND o.order_date < '2025-01-01'
+    GROUP BY o.region ORDER BY total_revenue DESC
 ```
 
-Present as suggestions — user accepts or modifies in Phase 6.
+Present as suggestions — user accepts or modifies in Phase 6. New VQRs are created through
+vqr-generator Phase 4–5 (dry-run, then candidate copy).

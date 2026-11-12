@@ -65,24 +65,26 @@ Before recommending new SVs, check what already exists:
 SHOW SEMANTIC VIEWS IN DATABASE <DISCOVERY_DB>;
 ```
 
-> **Note:** `DESCRIBE SEMANTIC VIEW` returns DDL text, not a result set. Do NOT attempt
-> to parse it for structured metadata — it will produce inconsistent results. Use the
-> queries below for structured coverage data instead.
-
-For table coverage, query `OBJECT_DEPENDENCIES`:
+For table coverage, run `DESCRIBE SEMANTIC VIEW` for each SV returned above. It returns structured
+rows (`object_kind`, `object_name`, `parent_entity`, `property`, `property_value`) in real time:
 
 ```sql
-SELECT
-    REFERENCING_OBJECT_DATABASE || '.' || REFERENCING_OBJECT_SCHEMA || '.' || REFERENCING_OBJECT_NAME AS sv_fqn,
-    REFERENCED_OBJECT_DATABASE || '.' || REFERENCED_OBJECT_SCHEMA || '.' || REFERENCED_OBJECT_NAME AS table_fqn
-FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
-WHERE REFERENCING_OBJECT_DOMAIN = 'SEMANTIC VIEW'
-  AND REFERENCING_OBJECT_DATABASE = '<DISCOVERY_DB>'
-ORDER BY sv_fqn, table_fqn;
+DESCRIBE SEMANTIC VIEW <sv_fqn>;
+SELECT "object_name" AS logical_table,
+       MAX(CASE WHEN "property" = 'BASE_TABLE_DATABASE_NAME' THEN "property_value" END) || '.' ||
+       MAX(CASE WHEN "property" = 'BASE_TABLE_SCHEMA_NAME'   THEN "property_value" END) || '.' ||
+       MAX(CASE WHEN "property" = 'BASE_TABLE_NAME'          THEN "property_value" END) AS table_fqn
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "object_kind" = 'TABLE'
+GROUP BY "object_name";
 ```
 
+A logical table defined as a SQL query has a `DEFINITION` property instead of `BASE_TABLE_*`;
+record it as "query-defined" and do not count it as covering a base table. Use `GET_DDL` only when
+you need the full DDL text.
+
 Extract from each existing SV:
-- Which tables it references (from OBJECT_DEPENDENCIES above)
+- Which tables it references (from the DESCRIBE rows above)
 
 Store as:
 - `EXISTING_SVS` — list of `{sv_fqn, tables_covered[]}`
@@ -112,39 +114,26 @@ No existing semantic views found in <DISCOVERY_DB>. All tables are discovery can
 
 ## Step 1.4: Enumerate All Queryable Objects
 
-Count objects by type (not just BASE TABLEs — see `../../references/queryable-objects.md`):
+Count objects by type (not just BASE TABLEs — see `../../../references/queryable-objects.md`):
 
 ```sql
--- Base tables and materialized views
+-- One query for all types. Dynamic, Iceberg and hybrid tables are TABLE_TYPE = 'BASE TABLE'
+-- rows; classify them with the IS_DYNAMIC / IS_ICEBERG / IS_HYBRID flags (each 'YES'/'NO').
 SELECT
     TABLE_SCHEMA,
-    TABLE_TYPE,
+    CASE
+        WHEN IS_DYNAMIC = 'YES' THEN 'DYNAMIC TABLE'
+        WHEN IS_ICEBERG = 'YES' THEN 'ICEBERG TABLE'
+        WHEN IS_HYBRID  = 'YES' THEN 'HYBRID TABLE'
+        ELSE TABLE_TYPE
+    END AS OBJECT_TYPE,
     COUNT(*) AS OBJECT_COUNT
 FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA')
-    AND TABLE_TYPE IN ('BASE TABLE', 'EXTERNAL TABLE', 'MATERIALIZED VIEW')
-GROUP BY TABLE_SCHEMA, TABLE_TYPE
-ORDER BY TABLE_SCHEMA, TABLE_TYPE;
-```
-
-```sql
--- Views (separate query since they may reference other databases)
-SELECT
-    TABLE_SCHEMA,
-    COUNT(*) AS VIEW_COUNT
-FROM <DISCOVERY_DB>.INFORMATION_SCHEMA.VIEWS
-WHERE TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA')
-GROUP BY TABLE_SCHEMA;
-```
-
-```sql
--- Dynamic tables (INFORMATION_SCHEMA.DYNAMIC_TABLES does not exist)
-SHOW DYNAMIC TABLES IN DATABASE <DISCOVERY_DB>
-  ->> SELECT
-        "schema_name" AS SCHEMA_NAME,
-        COUNT(*) AS DT_COUNT
-      FROM $1
-      GROUP BY "schema_name";
+WHERE TABLE_SCHEMA <> 'INFORMATION_SCHEMA'
+    AND TABLE_TYPE IN ('BASE TABLE', 'EXTERNAL TABLE', 'VIEW', 'MATERIALIZED VIEW')
+    -- AND TABLE_SCHEMA IN ('<SCHEMA1>', '<SCHEMA2>')   -- when DISCOVERY_SCHEMAS was given in Step 1.1
+GROUP BY 1, 2
+ORDER BY 1, 2;
 ```
 
 Present comprehensive summary:
@@ -152,13 +141,13 @@ Present comprehensive summary:
 ```
 Database: ANALYTICS_DB
 
-Schema          | Base Tables | Views | Dynamic Tables | External | Mat Views | Total
-----------------|-------------|-------|----------------|----------|-----------|------
-SALES           |          15 |     5 |              2 |        0 |         1 |   23
-MARKETING       |          10 |     3 |              1 |        0 |         1 |   15
-STAGING         |           8 |     0 |              0 |        0 |         0 |    8
-DATA_LAKE       |           0 |     2 |              0 |        5 |         0 |    7
-                                                                          Total: 53
+Schema          | Base Tables | Views | Dynamic | Iceberg | External | Mat Views | Total
+----------------|-------------|-------|---------|---------|----------|-----------|------
+SALES           |          15 |     5 |       2 |       0 |        0 |         1 |   23
+MARKETING       |          10 |     3 |       1 |       0 |        0 |         1 |   15
+STAGING         |           8 |     0 |       0 |       0 |        0 |         0 |    8
+DATA_LAKE       |           0 |     2 |       0 |       3 |        2 |         0 |    7
+                                                                                Total: 53
 
 Already covered by existing SVs: 8 tables
 Discovery candidates: 45 objects

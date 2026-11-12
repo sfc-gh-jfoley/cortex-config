@@ -8,8 +8,8 @@ description: Present prioritized audit findings with improvement recommendations
 ## Purpose
 Compile all findings from Phase 11 into a structured audit report, rank recommendations by impact, and present to the user for approval before any modifications are made.
 
-**Inputs required from Phase 10:** `SV_FQN`, `SV_TABLES`, `SV_COLUMNS`, `SV_RELATIONSHIPS`, `TOTAL_SV_COLUMNS`, `TOTAL_SOURCE_COLUMNS`, `VQR_HEALTH_FINDINGS`, `TOPOLOGY_FINDINGS`, `METRIC_INTEGRITY_FINDINGS`, `METADATA_QUALITY_FINDINGS`
-**Inputs required from Phase 11:** `MISSING_TABLE_CANDIDATES`, `SUBQUERY_FILTER_CANDIDATES`, `MISSING_COLUMNS`, `UNUSED_COLUMNS`, `RELATIONSHIP_GAPS`, `FILTER_COLUMNS`, `GROUPBY_COLUMNS`, `AGGREGATE_COLUMNS`, `NEIGHBORING_TABLES`, `ACCESS_HISTORY_AVAILABLE`, `QUERY_COUNT`, `DISTINCT_USERS`
+**Inputs required from Phase 10:** `SV_FQN`, `SV_TABLES`, `SV_COLUMNS`, `SV_RELATIONSHIPS`, `TOTAL_SV_COLUMNS`, `TOTAL_SOURCE_COLUMNS`, `VQR_HEALTH_FINDINGS`, `TOPOLOGY_FINDINGS`, `JOIN_TYPE_FINDINGS`, `METRIC_INTEGRITY_FINDINGS`, `METADATA_QUALITY_FINDINGS`
+**Inputs required from Phase 11:** `MISSING_TABLE_CANDIDATES`, `SUBQUERY_FILTER_CANDIDATES`, `MISSING_COLUMNS`, `UNUSED_COLUMNS`, `RELATIONSHIP_GAPS`, `FILTER_COLUMNS`, `GROUPBY_COLUMNS`, `AGGREGATE_COLUMNS`, `NEIGHBORING_TABLES`, `SV_TABLE_SIZES`, `ACCESS_HISTORY_AVAILABLE`, `QUERY_COUNT`, `DISTINCT_USERS`
 
 ---
 
@@ -25,19 +25,31 @@ Build the full audit report. Use the exact structure below, omitting any section
 
 ---
 
+## 0. Join Type Mismatches (Priority 0 — BLOCKING)
+
+**Only include this section if `JOIN_TYPE_FINDINGS` is non-empty.** Always list it first.
+
+| # | Relationship | Left column (type) | Right column (type) | Severity |
+|---|---|---|---|---|
+| 1 | `<rel_name>` | `<left_table>.<left_col>` (`<left_type>`) | `<right_table>.<right_col>` (`<right_type>`) | CRITICAL / HIGH / MEDIUM / LOW |
+
+**Fix:** Use the resolution options from Phase 10 Step 10.4f (correct join column, bridge
+table, or a view that casts at source). Any CRITICAL item blocks recommending the SV for
+production use until it is fixed.
+
+---
+
 ## 1. Structural Topology
 
-**Only include this section if `TOPOLOGY_FINDINGS` contains issues.**
+**Only include this section if `TOPOLOGY_FINDINGS` contains issues.** Fan and chasm traps are not
+reported: semantic SQL rejects dimensions at a coarser grain than the metric's table (see Phase 10
+Step 10.4b).
 
 | Issue Type | Severity | Details |
 |---|---|---|
-| Fan trap | CRITICAL | Metric `<table>` inflated when grouped by `<dim_table>` dims (bridge: `<bridge>`) |
-| Chasm trap | CRITICAL | Metrics `<m1>` and `<m2>` double-count when joined through `<shared_table>` |
-| Orphan table | HIGH | `<table>` has no RELATIONSHIP — queries against its columns will fail at runtime |
+| Orphan table | MEDIUM | `<table>` has no RELATIONSHIP — its fields cannot be combined with other tables |
 | Missing USING | HIGH | Table pair `<A>↔<B>` has 2+ relationship paths — metrics need USING clause |
 
-**Fan trap fix:** Move the metric to the bridge-table grain, or pre-aggregate.
-**Chasm trap fix:** Pre-aggregate each fact to the shared dimension grain separately in CTEs before joining.
 **Orphan fix:** Add the missing RELATIONSHIP or remove the orphaned table.
 **USING fix:** Add `USING (<rel_name>)` to every metric on the ambiguous table.
 
@@ -65,16 +77,25 @@ Checked <N> verified queries for structural compliance with the [Snowflake VQR s
 
 | Issue Type | Severity | Count | VQRs Affected |
 |---|---|---|---|
-| FQN table references (use `__logical_name` instead) | HIGH | <N> | <list> |
-| Bare physical table names (use `__logical_name` instead) | MEDIUM | <N> | <list> |
-| Columns not in SV | MEDIUM | <N> | <list> |
+| CA extension column-drop (Ref Check 3) | CRITICAL | <N> | <list> |
+| Physical FQN table references (Ref Check 1) | HIGH | <N> | <list> |
+| Columns not in SV (Ref Check 2) | HIGH | <N> | <list> |
+| Aggregation mismatch vs metric definition (Ref Check 7) | HIGH | <N> | <list> |
+| Uncovered metrics — no VQR exercises them (Ref Check 5) | MEDIUM | <N> | <metric list> |
+| GROUP BY alias (Ref Check 4) | MEDIUM | <N> | <list> |
+| Nested subquery, unverified heuristic (Ref Check 8) | MEDIUM | <N> | <list> |
+| Bare logical table names, prefer `__` (Ref Check 1) | LOW | <N> | <list> |
 | Duplicate VQR name keys | LOW | <N> | <list> |
 
 **Why this matters:**  
-Per the Snowflake VQR spec, SQL in verified queries must reference logical table names with the `__` prefix (e.g., `__FCT_TRANSACTIONS`), not physical FQNs (`DB.SCHEMA.FCT_TRANSACTIONS`) or bare table names. Non-compliant VQR SQL can cause Cortex Analyst to generate SQL that bypasses the SV's defined relationships, leading to incorrect joins or missing filter logic.
+VQR SQL that references physical tables or non-existent columns, or aggregates differently from
+the SV metric, produces ground truth that a correct answer cannot match. Uncovered metrics have no
+eval signal at all.
 
 **Fix:**  
-Replace every `DB.SCHEMA.table_name` or bare `table_name` table reference in VQR SQL with `__TABLE_LOGICAL_NAME`, where `TABLE_LOGICAL_NAME` is the `name:` field defined for that table in the semantic view. Column names do not change if the SV `expr` matches the column name.
+Use the fix guidance in `../../../references/vqr-eval-health.md` for each check. VQR changes are
+customer-VQR mutations (gate `SV-VQR-MUTATE`); route new VQRs for uncovered metrics to
+`vqr-generator`. Report these findings as observations.
 
 ---
 
@@ -96,8 +117,9 @@ Replace every `DB.SCHEMA.table_name` or bare `table_name` table reference in VQR
 
 ## 4b. Snippet Pattern Gaps
 
-Run the snippet pattern scorer against the current SV DDL (from `SELECT GET_DDL('semantic_view', '<SV_FQN>')`)
-and the source table schemas. Read `../../../references/sv-snippet-patterns.md`.
+Run the `sv-snippet-suggester` skill (detection and scoring only, Steps 1–3) against the current SV
+DDL (from `SELECT GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')`) and the source table schemas. It reads the
+index of `../../../references/sv-snippet-patterns.md` and only the matching pattern sections.
 
 For each pattern that is MATCH or POSSIBLE but NOT already implemented in the SV, surface it here.
 
@@ -106,14 +128,13 @@ For each pattern that is MATCH or POSSIBLE but NOT already implemented in the SV
 | # | Pattern | Signal | Impact | Recommendation |
 |---|---------|--------|--------|----------------|
 | 1 | `semi_additive_metric` | BALANCE_USD + BALANCE_DATE; SUM metric on snapshot table | Queries without date filter return inflated grand totals | Add `NON ADDITIVE BY (balance_date)` + separate `avg_daily_balance AS AVG(...)` |
-| 2 | `range_join` | VALID_FROM + VALID_TO on CUSTOMER_SEGMENTS; current join is on latest record only | Revenue attributed to current tier, not historical tier at time of purchase | Add `CONSTRAINT DISTINCT RANGE BETWEEN VALID_FROM AND VALID_TO EXCLUSIVE` |
+| 2 | `range_join` (Preview) | VALID_FROM + VALID_TO on CUSTOMER_SEGMENTS; current join is on latest record only | Revenue attributed to current tier, not historical tier at time of purchase | Add `CONSTRAINT DISTINCT RANGE BETWEEN VALID_FROM AND VALID_TO EXCLUSIVE` |
 | … | … | … | … | … |
 
 **Only report patterns the SV clearly should implement.** Do not flag `variables` or
 `inline_sv` without strong evidence the user needs them — prefer specific to exhaustive.
 
-For each gap: offer to implement it (if sv-ddl is authorized) or add it to the
-recommendation list for the user to act on manually.
+Add each gap to the recommendation list. Implementation happens only on a candidate copy (Step 12D).
 
 ---
 
@@ -165,10 +186,10 @@ Columns frequently accessed by users but not defined in the SV.
 
 Suggested role logic:
 - Column appears in GROUP BY or WHERE → **DIMENSION**
-- Column appears in WHERE only with equality checks → **DIMENSION** with `label: filter`
-- Column appears in SUM/AVG/COUNT → **FACT** (with corresponding default_aggregation)
+- Boolean column used only as a WHERE predicate → **DIMENSION** or **FACT** with `LABELS = (FILTER)`
+- Column appears in SUM/AVG/COUNT → **FACT**, plus a **METRIC** with that aggregation
 - Column appears in GROUP BY AND aggregate → **DIMENSION** (grouping takes precedence)
-- DATE/TIMESTAMP type used in filters → **TIME_DIMENSION**
+- DATE/TIMESTAMP type used in filters → **DIMENSION** (time grain)
 
 ---
 
@@ -178,11 +199,12 @@ Columns defined in the SV but with zero access in the last 30 days.
 
 | # | Column | Table | SV Role | Recommendation |
 |---|--------|-------|---------|----------------|
-| 1 | <COL> | <TABLE> | <ROLE> | REMOVE / KEEP |
+| 1 | <COL> | <TABLE> | <ROLE> | REVIEW / KEEP |
 ...
 
 Recommendation logic:
-- **REMOVE** — zero access AND not part of a relationship key
+- **REVIEW** — zero direct access AND not part of a relationship key. Operator decides; access via
+  the semantic view or Cortex Analyst may not show up in ACCESS_HISTORY for base tables.
 - **KEEP** — zero access BUT is a relationship key or primary key (note: "relationship key — keep")
 
 > Note: Unused columns are low priority. Removing them reduces SV surface area
@@ -200,7 +222,10 @@ JOIN patterns observed in user queries that have no corresponding RELATIONSHIP i
 | 1 | <TABLE> | <COL> | <TABLE> | <COL> | <N> queries | MANY_TO_ONE | ADD RELATIONSHIP |
 ...
 
-All relationship gaps are recommended as **ADD** — without relationships, Cortex Analyst cannot auto-join tables to answer cross-table questions.
+Recommend **ADD RELATIONSHIP** only when the referenced (`To`) side has a declared PRIMARY KEY or
+UNIQUE constraint in the SV, or the Phase 10 cardinality check shows the `To` column is unique.
+Otherwise mark **REVIEW — referenced side not proven unique** (many-to-many joins cannot be
+relationships).
 
 ---
 
@@ -223,11 +248,11 @@ Aggregate patterns found in user queries that could be defined as SV metrics.
 ## 9b. Materialization Opportunities
 
 **Only include this section if `AGGREGATE_COLUMNS` contains high-frequency patterns AND at least one
-SV source table is large (> 100M rows or > 10GB from Phase 11 INFORMATION_SCHEMA data).**
+SV source table is large (> 100M rows or > 10GB in `SV_TABLE_SIZES`).**
 
-> **Scope note:** Materializations benefit Semantic SQL only — queries via `SEMANTIC_VIEW()` or
-> direct SQL against the SV. Cortex Analyst and Cortex Agents are NOT accelerated.
-> Only recommend if the user has Semantic SQL consumers.
+> **Scope note:** Materializations (Preview) benefit queries executed as Semantic SQL. Queries from
+> Cortex Analyst, Cortex Agents and Snowflake CoWork that run physical SQL against the underlying
+> tables do not benefit. Only recommend if the user has Semantic SQL consumers.
 
 Identify the strongest materialization candidate from the audit findings:
 
@@ -248,7 +273,6 @@ The following pattern appears in <N> queries and could benefit from a materializ
   Suggested grain:    <top GROUPBY_COLUMNS> 
   Suggested metrics:  <top additive AGGREGATE_COLUMNS>
   Largest table:      <TABLE> (<N>M rows, <N>GB)
-  Potential speedup:  Queries scanning this table could be 10x–100x faster
 
   Prerequisite: Only useful if consumers query via SEMANTIC_VIEW() or direct SQL against
   the SV. Cortex Analyst queries are not accelerated by materializations.
@@ -272,7 +296,7 @@ off to `sv-materialize` for eligibility classification, design, and creation.
 | Columns missing COMMENT | MEDIUM | `<N>` | >30% of facts/dims/metrics uncovered |
 | VARCHAR dims missing SAMPLE\_VALUES | MEDIUM | `<N>` | Requires DDL inspection: `GET_DDL('SEMANTIC VIEW', ...)` |
 
-**AI\_SQL\_GENERATION fix:** Add via `CREATE OR ALTER SEMANTIC VIEW` with guidance on: which date column to use, gross vs net revenue distinction, filters to always/never apply, column disambiguation rules. For YAML models: use `module_custom_instructions.sql_generation` (modern) or `custom_instructions` (legacy).
+**AI\_SQL\_GENERATION fix:** Add to the candidate DDL with guidance on: which date column to use, gross vs net revenue distinction, filters to always/never apply, column disambiguation rules. For YAML models: use `module_custom_instructions.sql_generation` (modern) or `custom_instructions` (legacy).
 
 **COMMENT fix:** Add COMMENT to every table and key column. Prioritize tables first, then facts/metrics, then dimensions.
 
@@ -290,38 +314,11 @@ off to `sv-materialize` for eligibility classification, design, and creation.
 | VQRs | <N> | — |
 | Coverage | <X>% | <Y>% |
 
-**Column-count guidance:**
-
-Column count is a signal for domain coherence investigation, not a split trigger on its own. A single clear domain can have many columns; a muddled domain should be split even at 30 columns.
-
-- **Compact** (< 30 columns): Good for focused use cases
-- **Standard** (30-80 columns): Typical for department-level SVs
-- **Large** (80-150 columns): Investigate domain coherence — apply the subject-consistency test below
-- **Oversized** (> 150 columns): Strong signal for mixed domains — run subject-consistency test and check for multiple fact tables over shared dimensions
-
-**VQR-count guidance:**
-- **≤ 10 VQRs**: Healthy — focused SV, single domain
-- **10–20 VQRs**: Acceptable — multi-dimensional SV with distinct question categories
-- **> 20 VQRs**: Strong split signal — SV likely covers 2+ semantic domains
-
-When column count > 80 OR VQR count > 20, apply the subject-consistency test: write the subject of every VQR
-question (e.g., "which agent", "which user", "what revenue"). If more than two distinct
-subjects appear, the SV is doing too much and should be split along subject lines.
-
-Also check for the primary split signal: **multiple fact tables covering the same dimensional tables** from different analytical angles (e.g., ORDERS and SESSIONS both joining CUSTOMERS and PRODUCTS). That is two domains, not one, regardless of column or table count.
-
-If the subject-consistency test or multi-fact check triggers, add a split recommendation note:
-
-```
-Size Warning: The recommended changes would bring the SV to <N> columns
-across <M> tables. Consider splitting into domain-specific semantic views:
-
-  - <SV_NAME>_ORDERS — order and transaction tables
-  - <SV_NAME>_CUSTOMERS — customer and demographic tables
-  - <SV_NAME>_PRODUCTS — product and inventory tables
-
-This improves Cortex Analyst accuracy and reduces token overhead per query.
-```
+**Sizing:** Do not recommend a split from column, table, fact-table or VQR counts. Apply the
+single sizing policy in `../../sv-discovery/phases/03_analyze.md` Step 3B (prefer the fewest SVs;
+split only for excessive estimated context size, unresolved relationship ambiguity or genuinely
+independent workloads). If the changes would push the SV toward the ~100,000-token guideline, note
+it and point to that step; label any accuracy benefit of splitting as an assumption.
 
 ---
 
@@ -333,10 +330,12 @@ Order all recommendations by impact, highest first:
 Priority Ranking
 ════════════════
 
- PRIORITY 1 — Structural Topology  [CRITICAL — wrong numbers or runtime errors]
-   Fan traps inflate metrics by the cardinality of the bridge table.
-   Chasm traps double-count metrics sharing a dimension.
-   Orphan tables cause runtime query failures ("must be related to...").
+ PRIORITY 0 — Join Type Mismatches  [BLOCKING]
+   Relationship join columns with incompatible types.
+   → See Section 0
+
+ PRIORITY 1 — Structural Topology  [HIGH/MEDIUM]
+   Multi-path table pairs without USING; orphan tables whose fields cannot be combined.
    → See Section 1
 
  PRIORITY 2 — Source Object Accessibility  [CRITICAL — SV silently breaks]
@@ -344,15 +343,15 @@ Priority Ranking
    at query time even though DESCRIBE SEMANTIC VIEW succeeds.
    → See Section 2
 
- PRIORITY 3 — VQR Format Issues  [HIGH — spec violation, bypasses SV relationships]
-   VQR SQL using FQN or bare physical table names violates the VQR specification.
-   Reproducible fix: replace table refs with __LOGICAL_TABLE_NAME.
+ PRIORITY 3 — VQR Health  [CRITICAL/HIGH — eval ground truth cannot be matched]
+   CA extension column-drop, physical FQN refs, unknown columns, aggregation mismatches,
+   uncovered metrics.
    → See Section 3
 
  PRIORITY 4 — Metric Integrity  [HIGH — silent wrong results]
    Semi-additive SUM metrics on snapshot data inflate numbers across time.
    FILTER facts on non-boolean expressions produce runtime errors.
-   PK declared on a non-unique column disables fan-trap guards silently.
+   PK declared on a non-unique column makes a relationship's cardinality wrong.
    → See Section 4
 
  PRIORITY 5 — Missing Tables (ADD-classified)  [HIGH — users bypass the SV]
@@ -373,7 +372,7 @@ Priority Ranking
    → See Section 6
 
  PRIORITY 8 — Metadata Quality  [MEDIUM — degrades question matching]
-   Missing AI_SQL_GENERATION, COMMENTs, SYNONYMS, SAMPLE_VALUES.
+   Missing AI_SQL_GENERATION, COMMENTs, SAMPLE_VALUES.
    → See Section 10
 
  PRIORITY 9 — Metric Opportunities  [MEDIUM]
@@ -381,7 +380,7 @@ Priority Ranking
    → See Section 9
 
  PRIORITY 9b — Materialization Opportunities  [MEDIUM — Semantic SQL consumers only]
-   Repeated additive-metric query patterns on large tables; potential 10x–100x speedup.
+   Repeated additive-metric query patterns on large tables.
    Does NOT help Cortex Analyst queries.
    → See Section 9b; route to sv-materialize for implementation
 
@@ -400,8 +399,8 @@ Present the full report from Steps 12A and 12B, then ask:
 What would you like to do?
 
   A) Apply all recommendations
-     → I'll generate ALTER SEMANTIC VIEW / CREATE OR REPLACE DDL
-        using $semantic-view-ddl with these modifications
+     → sv-ddl builds a candidate copy <SV>__CAND__<run> with these changes;
+        production is untouched until you accept it at SV-PROMOTE
 
    B) Apply selected recommendations
       → Tell me which items to include/exclude by section number
@@ -417,13 +416,12 @@ What would you like to do?
 
 **GATE (INTERACTIVE (default)): Do NOT proceed with any DDL changes until the user explicitly selects A or B.**
 
-**AUTONOMOUS mode:** before applying anything, snapshot the current DDL
-(`GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')` to a timestamped local file — this is the
-rollback point since SV DDL has no built-in undo). Then select **Option A (Apply all
-recommendations)** and proceed. Log the decision and the snapshot file path. This
-gate stays a genuine block only if Step 12A/12B found zero recommendations (nothing
-to apply) or a recommendation the audit itself flagged as uncertain/conflicting —
-those still require Option B/D judgment and are not auto-resolved.
+**AUTONOMOUS mode:** never select Option A. Select **Option C (Export report)**. If the report
+contains additive, deterministic items (relationship additions whose referenced side is proven
+unique, column additions, missing COMMENTs), you may also take **Option B restricted to those
+items**, which builds a candidate copy only. Never include REVIEW items, removals,
+relationship-type changes or metric restructuring. The run then stops at `SV-PROMOTE`, which is
+OPERATOR_REQUIRED in both modes.
 
 ---
 
@@ -446,18 +444,20 @@ Approved changes:
 Then advise the user:
 
 ```
-To apply these changes, invoke $semantic-view-ddl with:
+To apply these changes, invoke $sv-ddl with:
 
-  Semantic view: <SV_FQN>
-  Mode: Modify existing (CREATE OR REPLACE)
-
+  Source semantic view: <SV_FQN>
+  Target: candidate copy (candidate.py name --kind cand) built from GET_DDL
   Modifications:
     <list of approved changes as natural language instructions>
+  End state: evaluate the candidate, then gate SV-PROMOTE
 
-The semantic-view-ddl skill will generate and execute the DDL.
+sv-ddl deploys only the candidate. Production changes happen only at SV-PROMOTE.
 ```
 
-Do NOT generate the DDL directly in this phase — hand off to `$semantic-view-ddl` which has the full DDL generation, validation, and self-check pipeline.
+Do NOT generate the DDL directly in this phase — hand off to `$sv-ddl`, which has the full DDL
+generation, validation and self-check pipeline. The candidate workflow, promotion options and
+cleanup are defined in `../../../references/candidate-promotion.md`.
 
 **If user selects C:**
 
@@ -490,7 +490,7 @@ Audit complete for <SV_FQN>.
     <L> low-priority cleanups suggested
 
   Next steps:
-    → Invoke $semantic-view-ddl to rebuild the SV with approved improvements
+    → Invoke $sv-ddl to build a candidate with the approved improvements, then SV-PROMOTE
     → Re-run $sv-audit in 30 days to measure improvement
 ```
 
@@ -502,4 +502,4 @@ Audit complete for <SV_FQN>.
 |----------|----------|
 | `AUDIT_REPORT` | Full markdown audit report |
 | `APPROVED_CHANGES` | List of user-approved modifications (empty if cancelled/export only) |
-| `HANDOFF_INSTRUCTIONS` | Natural language modification instructions for $semantic-view-ddl |
+| `HANDOFF_INSTRUCTIONS` | Natural language modification instructions for $sv-ddl (candidate copy) |

@@ -102,15 +102,15 @@ For each domain where action is `EXTEND_EXISTING`:
 
 ### Instruction for sv-ddl
 
-Snowflake has no `ALTER SEMANTIC VIEW ADD TABLE` syntax. The only path is
-`CREATE OR REPLACE SEMANTIC VIEW` with the full merged DDL.
-
-Protocol:
-1. Run `GET_DDL('SEMANTIC VIEW', '<existing_sv_fqn>')` to retrieve the current DDL
-2. Parse the DDL to extract existing tables, relationships, dimensions, metrics, and VQRs
-3. Merge in the new tables and relationships from the specification above
-4. Emit a complete `CREATE OR REPLACE SEMANTIC VIEW` statement containing all existing + new content
-5. Present the merged DDL to the user for review before executing
+`ALTER SEMANTIC VIEW` cannot add tables. Build the extension as a candidate copy, never in place
+(see `references/candidate-promotion.md` in the toolkit):
+1. Run `GET_DDL('SEMANTIC_VIEW', '<existing_sv_fqn>')` to retrieve the full current DDL
+2. Merge in the new tables and relationships from the specification above
+3. Create the candidate `<SV>__CAND__<run>` with plain `CREATE SEMANTIC VIEW`
+   (`candidate.py name` + `rewrite-ddl`)
+4. Validate and evaluate the candidate
+5. Hand off to gate `SV-PROMOTE` (OPERATOR_REQUIRED). Replacing production there applies the full
+   merged DDL with `CREATE OR ALTER`, which unsets anything the statement omits.
 ```
 
 ---

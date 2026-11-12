@@ -1,9 +1,7 @@
----
-name: multitenant-sv-guidance
-description: How row access policies on base tables propagate through semantic views to Cortex Agents
----
-
 # Multi-Tenant Semantic View Guidance
+
+How row access policies (RAPs) on base tables scope queries that Cortex Agents generate over a
+semantic view. Loaded from sv-ddl when Phase 3 sets `IS_MTT = true`.
 
 ## Key Insight: RAPs Propagate Automatically
 
@@ -52,7 +50,8 @@ Results returned (tenant-scoped)
 | B: Role-per-tenant | `CURRENT_ROLE()` | `tenant_id = CURRENT_ROLE()` | RBAC-heavy orgs, role hierarchy |
 | C: Session attribute | `SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')` | `tenant_id = SYS_CONTEXT('SNOWFLAKE$SESSION_ATTRIBUTES', 'tenant_id')` | API gateways, connection pools, SaaS apps |
 
-For full implementation details of each pattern, see **agent-ddl Phase 4b**.
+For agent-side wiring of each pattern, see the `agent-ddl` skill (Phase 4b) in the separate
+cortex-agent-toolkit plugin, if installed.
 
 ## SV Design Considerations for MTT
 
@@ -82,6 +81,9 @@ FROM TABLE(INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
     'my_db.my_schema', 'SEMANTIC VIEW'))
 WHERE TAG_NAME = 'TENANT_BOUNDARY';
 ```
+
+Verify before relying on this: whether `TAG_REFERENCES_ALL_COLUMNS` accepts `'SEMANTIC VIEW'`
+as the object domain was not confirmed against the docs.
 
 ## Security Warnings
 

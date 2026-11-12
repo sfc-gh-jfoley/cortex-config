@@ -1,30 +1,27 @@
 # Phase 6: Verdicts and Report
 
 Combine all phase findings into a per-VQR verdict and present the full report.
-Optionally apply fixes (rewrite VQR SQL) after user confirmation.
+Optionally apply approved changes to a candidate copy after user confirmation.
 
 ## Step 6.1 — Assign verdicts
 
 Apply verdict logic in this priority order (first match wins):
 
 ```
-if T1 or T2 violation AND dry_run FAIL:
-    → REMOVE (broken and incorrectly formed)
+if dry_run FAIL:
+    → REVIEW (translation or VQR may be wrong; never removed on this evidence alone)
 
 elif T1 or T2 violation:
     → FIX_SQL (good question, fixable SQL)
 
-elif dry_run FAIL:
-    → REMOVE (broken SQL, likely stale after schema change)
+elif DEDUPLICATE flag (Phase 3):
+    → DEDUPLICATE (a partner covering the same pattern is kept)
 
-elif DEDUPLICATE flag:
-    → DEDUPLICATE (keep higher-scoring partner, remove this one)
+elif sole_coverage (Phase 5):
+    → KEEP (only VQR covering a metric or dimension: eval ground truth)
 
-elif complexity_score == 0 AND activation_result == LLM_SV_CORRECT:
+elif complexity_score == 0 AND activation_result in (LLM_CORRECT, NOT_RUN):
     → SIMPLIFY (trivially generatable; move to ai_sql_generation hint)
-
-elif complexity_score == 0 AND no_eval_coverage_partner:
-    → SIMPLIFY (low value, no unique eval role)
 
 else:
     → KEEP
@@ -45,7 +42,7 @@ VERDICTS
   FIX_SQL      <N> VQRs — good question, fixable SQL issues
   DEDUPLICATE  <N> VQRs — near-duplicate of another VQR
   SIMPLIFY     <N> VQRs — trivial SQL; better as ai_sql_generation hint
-  REMOVE       <N> VQRs — broken, stale, or pure bloat
+  REVIEW       <N> VQRs — dry-run failed or inconclusive; operator decides
 
 DETAILS
 ─────────────────────────────────────────────────
@@ -53,7 +50,7 @@ DETAILS
 [FIX_SQL]      <name>: T1 violation — FROM <FQN> → FROM __<LOGICAL>
 [DEDUPLICATE]  <name>: duplicate of <other_name> (similarity=<score>) → remove
 [SIMPLIFY]     <name>: complexity=0, trivial aggregate — move to hint
-[REMOVE]       <name>: dry-run FAIL — <error>
+[REVIEW]       <name>: dry-run FAIL — <error>
 
 COVERAGE GAPS
 ─────────────────────────────────────────────────
@@ -65,18 +62,18 @@ COVERAGE GAPS
 SIZE ASSESSMENT
 ─────────────────────────────────────────────────
   Current:          <N> VQRs
-  After curation:   <N> VQRs  (remove <X>, add <Y> for gap coverage)
+  After curation:   <N> VQRs  (deduplicate/simplify <X>, add <Y> for gap coverage)
   Token saving:     ~<N> tokens from removals
 
-  <Healthy | Acceptable | ⚠ Run sv-audit — VQR count suggests SV scope review>
+  <Healthy | Acceptable | ⚠ Review — more than 20 VQRs>
 ```
 
-## Step 6.3 — User approval gate
+## Step 6.3 — User approval gate (`VQR-CURATOR-PHASE6`, always OPERATOR_REQUIRED)
 
 ```
 Actions available:
-  A) Apply all FIX_SQL rewrites + REMOVE verdicts   (recommended)
-  B) Apply selected verdicts only
+  A) Apply all FIX_SQL, DEDUPLICATE and SIMPLIFY verdicts (REVIEW items excluded)
+  B) Apply selected verdicts only (REVIEW items only after you inspect them)
   C) Export report only — no changes
   D) Cancel
 ```
@@ -89,34 +86,36 @@ Actions available:
 
 ## Step 6.4 — Apply approved changes
 
+All approved changes go into **one candidate copy** (`candidate.py name --kind cand`), built from
+the full `GET_DDL('SEMANTIC_VIEW', '<SV_FQN>')`, per `../../../references/candidate-promotion.md`.
+
 For FIX_SQL verdicts:
-- Rewrite VQR SQL replacing FQN/bare physical names with `__logical_name`
+- Rewrite VQR SQL replacing physical FQN/bare physical names with logical names (prefer `__`)
 - Present diff before applying
 
-For REMOVE and DEDUPLICATE verdicts:
-- Generate updated `CREATE OR REPLACE SEMANTIC VIEW` DDL with those VQRs omitted
-- Hand off to sv-ddl for execution
-
-For SIMPLIFY verdicts:
-- Extract the SQL pattern as a one-line `ai_sql_generation` hint
-- Present the hint text; user adds it to the SV manually or via sv-ddl
+For DEDUPLICATE and SIMPLIFY verdicts, and REVIEW items the operator chose to remove:
+- Omit those entries from the candidate's `AI_VERIFIED_QUERIES` block
+- For SIMPLIFY, add the one-line hint to the candidate's `AI_SQL_GENERATION`
 
 For gap-coverage additions:
 - Present VQR candidates from Phase 5
-- User approves question text and SQL
-- Add to the CREATE OR REPLACE DDL
+- User approves question text and SQL; add them to the same candidate
+
+Then deploy the candidate with plain `CREATE SEMANTIC VIEW` (after `candidate.py guard`), evaluate
+it with sv-evaluation, and stop at gate `SV-PROMOTE`. Replacing production there applies the full
+approved DDL with `CREATE OR ALTER`, which unsets anything the statement omits.
 
 ## Step 6.5 — Final summary
 
 ```
 Curation complete for <SV_FQN>.
 
-  Applied:     <N> FIX_SQL | <N> REMOVE | <N> DEDUPLICATE | <N> SIMPLIFY
+  Applied to candidate: <N> FIX_SQL | <N> DEDUPLICATE | <N> SIMPLIFY | <N> REVIEW→removed
+  Candidate:   <SV>__CAND__<run>  (awaiting SV-PROMOTE)
   VQRs before: <N> → after: <N>
   Token reduction: ~<N> tokens
 
   Next steps:
-    → Run sv-audit if VQR count was >20 (check SV scope)
-    → Re-run sv-evaluation after changes to verify accuracy impact
-    → Run vqr-curator again in 30 days as VQR set evolves
+    → Compare candidate and production eval scores (same pinned metric version, ≥2 repeats)
+    → SV-PROMOTE to accept or discard the candidate
 ```

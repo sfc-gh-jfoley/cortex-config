@@ -2,6 +2,16 @@
 
 Two composition patterns for building complex analytical systems from multiple semantic views.
 
+> **Verification status.** Pattern 2 (multi-SV agent) uses documented features: `CREATE AGENT ...
+> FROM SPECIFICATION` with one `cortex_analyst_text_to_sql` tool per semantic view.
+> Pattern 1 (`IMPORTS`) is only partly documented: the docs describe the
+> `SNOWFLAKE.ACCOUNT_USAGE.SEMANTIC_VIEW_IMPORTS` view ("a semantic view that uses the IMPORTS clause
+> to compose with another semantic view"), but the public CREATE SEMANTIC VIEW syntax has no
+> `IMPORTS` clause, and DESCRIBE / SHOW / YAML docs do not mention imports. Everything in Pattern 1
+> below — syntax, selective imports, diamond handling, privileges, introspection, YAML, and the
+> Cortex Analyst / Snowsight / replication limits — is observed or reported behavior, **not
+> verified against the docs. Verify on the target account before relying on it.**
+
 ## Pattern 1: Nested Semantic Views
 
 ### Concept
@@ -10,17 +20,16 @@ A semantic view can import another semantic view via the `IMPORTS` clause, pulli
 
 ### Syntax
 
-> ⚠️ **Cortex Analyst does not support IMPORTS-based composed views.** Queries sent through
-> Cortex Analyst or Cortex Agents that reference a composed semantic view will fail.
-> Use Pattern 2 (Multi-SV Agent Composition) for any Analyst/Agent workflow.
-> Pattern 1 is valid only for direct `SEMANTIC_VIEW()` function queries.
+> ⚠️ **Unverified:** reported that Cortex Analyst / Cortex Agents cannot query IMPORTS-based
+> views. Until confirmed on the target account, use Pattern 2 for Analyst/Agent workflows and
+> Pattern 1 only for direct `SEMANTIC_VIEW()` queries.
 
 ```sql
 -- Base SV: shared account dimension (standalone — no IMPORTS needed)
-CREATE OR REPLACE SEMANTIC VIEW analytics.shared.sv_account_dimension
+CREATE SEMANTIC VIEW analytics.shared.sv_account_dimension
   TABLES (
     accounts AS analytics.core.accounts
-      PRIMARY KEY (d_account_id)
+      PRIMARY KEY (account_id)
       COMMENT = 'Account master data'
   )
   DIMENSIONS (
@@ -41,12 +50,15 @@ CREATE OR REPLACE SEMANTIC VIEW analytics.shared.sv_account_dimension
 ;
 
 -- Domain SV: imports the shared account dimension via IMPORTS clause
-CREATE OR REPLACE SEMANTIC VIEW analytics.sales.sv_sales
-  IMPORTS (sv_account_dimension)           -- ← brings in ALL entities from sv_account_dimension
+CREATE SEMANTIC VIEW analytics.sales.sv_sales
+  IMPORTS (analytics.shared.sv_account_dimension)  -- ← brings in ALL entities from it
   TABLES (
     sales AS analytics.core.sales
       PRIMARY KEY (sale_id)
       COMMENT = 'Sales transactions'
+  )
+  RELATIONSHIPS (
+    sales_to_accounts AS sales (account_id) REFERENCES accounts
   )
   DIMENSIONS (
     sales.d_sale_date AS sale_date
@@ -59,9 +71,6 @@ CREATE OR REPLACE SEMANTIC VIEW analytics.sales.sv_sales
       COMMENT = 'Total revenue from sales',
     sales.m_deal_count AS COUNT(sale_id)
       COMMENT = 'Number of deals'
-  )
-  RELATIONSHIPS (
-    sales_to_accounts AS sales (d_account_id) REFERENCES accounts
   )
 ;
 
@@ -113,14 +122,14 @@ SELECT * FROM SEMANTIC_VIEW(
 2. **One level of nesting:** Base → Domain (avoid Base → Intermediate → Domain)
 3. **Clear naming:** Prefix shared SVs with `shared_` or place in dedicated schema
 4. **Document dependencies:** Note which SVs depend on which base SVs
-5. **Privilege setup:** Creating a composed view requires both `REFERENCES` and `SELECT` on each imported SV. At query time, imported base tables resolve under the source SV's owner role — users don't need direct access to the underlying tables.
+5. **Privilege setup (unverified):** reported that creating a composed view needs `REFERENCES` on each imported SV plus `SELECT` on the composing view's own base tables, and that imported base tables resolve under the source SV owner's role at query time. sv-rearchitect states a different rule; confirm on the target account.
 
 ### Selective Imports
 
 To import only specific calculations from a source SV, list them by name using FACTS, DIMENSIONS, and METRICS sub-clauses inside IMPORTS:
 
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW sv_subset
+CREATE SEMANTIC VIEW sv_subset
   IMPORTS (
     sv_large
       DIMENSIONS ( nation.d_nation_name )
@@ -212,72 +221,81 @@ User Question
 
 ### Agent DDL
 
+Agents are created with `CREATE AGENT ... FROM SPECIFICATION` (see "Create and manage agents" in
+the Cortex Agents docs). Each semantic view is a `cortex_analyst_text_to_sql` tool; its semantic
+view and warehouse go in `tool_resources`, keyed by tool name. Creating or changing an agent is
+the `agent-ddl` skill's job (cortex-agent-toolkit); this toolkit only produces the hand-off below.
+
 ```sql
-CREATE OR REPLACE CORTEX AGENT my_analytics_agent
-  TOOLS = (
-    cortex_analyst_text_to_sql(
-      SEMANTIC_VIEW => 'analytics.sales.order_analytics',
-      DESCRIPTION => 'Answer questions about sales orders, revenue, and customer purchases'
-    ),
-    cortex_analyst_text_to_sql(
-      SEMANTIC_VIEW => 'analytics.marketing.campaign_analytics',
-      DESCRIPTION => 'Answer questions about marketing campaigns, conversions, and ad spend'
-    ),
-    cortex_analyst_text_to_sql(
-      SEMANTIC_VIEW => 'analytics.finance.budget_analytics',
-      DESCRIPTION => 'Answer questions about budgets, forecasts, and financial actuals'
-    )
-  )
-  DESCRIPTION = 'Multi-domain analytics agent covering sales, marketing, and finance'
-;
+CREATE AGENT analytics.agents.my_analytics_agent
+  COMMENT = 'Multi-domain analytics agent covering sales and marketing'
+  FROM SPECIFICATION
+  $$
+  instructions:
+    orchestration: "Use sales_analyst for orders and revenue; marketing_analyst for campaigns and ad spend. Ask when 'spend' is ambiguous."
+  tools:
+    - tool_spec:
+        type: "cortex_analyst_text_to_sql"
+        name: "sales_analyst"
+        description: "Answers questions about sales orders, revenue, and customer purchases"
+    - tool_spec:
+        type: "cortex_analyst_text_to_sql"
+        name: "marketing_analyst"
+        description: "Answers questions about marketing campaigns, conversions, and ad spend"
+  tool_resources:
+    sales_analyst:
+      semantic_view: "analytics.sales.order_analytics"
+      execution_environment: {type: "warehouse", warehouse: "<WAREHOUSE>"}
+    marketing_analyst:
+      semantic_view: "analytics.marketing.campaign_analytics"
+      execution_environment: {type: "warehouse", warehouse: "<WAREHOUSE>"}
+  $$;
 ```
 
-### Hand-Off Document Format
+### Hand-Off Document Format (canonical)
 
-When the semantic-view-toolkit produces SVs intended for multi-SV agent composition, it generates a structured hand-off document that can be consumed by `cortex-agent-toolkit`'s `agent-ddl` skill:
+This is the single hand-off schema for the toolkit (sv-rearchitect and any other producer emit
+this shape) consumed by `cortex-agent-toolkit`'s `agent-ddl` skill. Fields map to the agent
+specification as noted; the rest are toolkit metadata that `agent-ddl` may use for instructions
+and sample questions but does not copy into the spec verbatim.
 
 ```json
 {
-  "agent_composition": {
-    "agent_name": "analytics.agents.my_analytics_agent",
-    "description": "Multi-domain analytics agent",
-    "tools": [
-      {
-        "type": "cortex_analyst_text_to_sql",
-        "semantic_view": "analytics.sales.order_analytics",
-        "tool_description": "Answer questions about sales orders, revenue, and customer purchases",
-        "domain": "sales",
-        "tables_covered": ["orders", "order_items", "customers"],
-        "key_metrics": ["total_revenue", "avg_order_value", "customer_count"],
-        "example_questions": [
-          "What was total revenue last quarter?",
-          "Who are our top 10 customers by spend?"
-        ]
-      },
-      {
-        "type": "cortex_analyst_text_to_sql",
-        "semantic_view": "analytics.marketing.campaign_analytics",
-        "tool_description": "Answer questions about marketing campaigns, conversions, and ad spend",
-        "domain": "marketing",
-        "tables_covered": ["campaigns", "conversions", "ad_spend"],
-        "key_metrics": ["conversion_rate", "cpa", "roas"],
-        "example_questions": [
-          "What is our best performing campaign?",
-          "What's the cost per acquisition this month?"
-        ]
-      }
-    ],
-    "routing_hints": {
-      "overlap_handling": "If question spans domains, route to the domain with most relevant metrics",
-      "ambiguous_terms": {
-        "revenue": "sales",
-        "spend": "marketing (ad_spend) or finance (budget_spend) — ask for clarification",
-        "customers": "sales (customer purchases) or marketing (customer acquisition)"
-      }
+  "agent_name": "analytics.agents.my_analytics_agent",
+  "comment": "Multi-domain analytics agent covering sales and marketing",
+  "instructions": {
+    "orchestration": "Use sales_analyst for orders and revenue; marketing_analyst for campaigns and ad spend."
+  },
+  "tools": [
+    {
+      "name": "sales_analyst",
+      "type": "cortex_analyst_text_to_sql",
+      "description": "Answers questions about sales orders, revenue, and customer purchases",
+      "semantic_view": "analytics.sales.order_analytics",
+      "warehouse": "<WAREHOUSE>",
+      "domain": "sales",
+      "tables_covered": ["orders", "order_items", "customers"],
+      "key_metrics": ["total_revenue", "avg_order_value", "customer_count"],
+      "example_questions": ["What was total revenue last quarter?"]
+    }
+  ],
+  "routing_hints": {
+    "ambiguous_terms": {
+      "spend": "marketing (ad_spend) or finance (budget_spend) — ask for clarification"
     }
   }
 }
 ```
+
+| Hand-off field | Agent specification |
+|---|---|
+| `agent_name`, `comment` | `CREATE AGENT <agent_name> COMMENT = ...` |
+| `instructions.*` | `instructions.*` |
+| `tools[].name`, `type`, `description` | `tools[].tool_spec.name`, `.type`, `.description` |
+| `tools[].semantic_view` | `tool_resources.<name>.semantic_view` |
+| `tools[].warehouse` | `tool_resources.<name>.execution_environment` (`type: warehouse`) |
+| `tools[].example_questions` | candidates for `instructions.sample_questions` |
+| `domain`, `tables_covered`, `key_metrics`, `routing_hints` | toolkit metadata; fold into `instructions.orchestration` if useful |
 
 ### Design Guidance: When to Nest vs When to Keep Separate
 

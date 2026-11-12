@@ -24,7 +24,7 @@ Detection uses SQL signature comparison (no direct access to confidence field vi
 
 For each VQR:
 1. Invoke agent with exact VQR question via `SNOWFLAKE.CORTEX.DATA_AGENT_RUN`
-2. Extract the SQL from the `TelemetryAnalytics` (or relevant tool) tool_result
+2. Extract the SQL from the Cortex Analyst tool's `tool_result` for this SV
 3. Compare returned SQL to registered VQR SQL:
    - If SQL matches VQR SQL (same structure, column aliases, table refs) → `FAST_PATH_HIT`
    - If SQL uses `SELECT * FROM SEMANTIC_VIEW(...)` → `LLM_SV` (LLM generated, SV syntax)
@@ -44,10 +44,14 @@ For each VQR:
 
 For VQRs that did NOT trigger fast-path:
 
-| SQL type returned | Likely cause | Recommendation |
-|-------------------|-------------|----------------|
-| LLM_SV or LLM_CTE with CORRECT SQL | Question phrasing too far from VQR | Update VQR question text to match user phrasing |
-| LLM_SV or LLM_CTE with WRONG SQL | VQR miss AND LLM error | High-value VQR — fix phrasing AND keep as eval ground truth |
-| NO_TOOL_CALL | Agent routing problem — unrelated to VQR | Check orchestration instructions (Agent Check A) |
+Compare each LLM-generated result to the VQR's expected result (same rows for the fixed dates)
+to label it correct or wrong.
 
-Record `activation_result` per VQR.
+| SQL type returned | `activation_result` | Likely cause | Recommendation |
+|-------------------|---------------------|-------------|----------------|
+| VQR SQL | `FAST_PATH_HIT` | — | — |
+| LLM_SV or LLM_CTE with CORRECT SQL | `LLM_CORRECT` | Question phrasing too far from VQR, or SQL is easy | Update question text, or consider SIMPLIFY |
+| LLM_SV or LLM_CTE with WRONG SQL | `LLM_WRONG` | VQR miss AND LLM error | High-value VQR — fix phrasing AND keep as eval ground truth |
+| NO_TOOL_CALL | `NO_TOOL_CALL` | Agent routing problem — unrelated to VQR | Check the agent's orchestration instructions |
+
+Record `activation_result` per VQR (`NOT_RUN` when this phase is skipped).

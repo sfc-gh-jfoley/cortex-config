@@ -28,6 +28,9 @@ triggers:
 >
 > If your workload is Analyst-driven, this skill will not help you. Use `sv-iterative-optimizer` to
 > improve Analyst accuracy instead.
+>
+> Semantic view materializations are a **Preview feature (Open, available to all accounts)** per
+> the materializations guide. Re-check the status before relying on them in production.
 
 # SV Materialize Skill
 
@@ -45,6 +48,43 @@ Materializations pay off when **all** of these hold:
 - Base tables are large enough that scans are slow (typically > 100M rows)
 - Repeated queries share the same dimension/metric patterns
 - You can tolerate staleness bounded by `MAX_STALENESS`
+
+---
+
+## Execution Mode and Gates
+
+Inherits the session mode declared at the toolkit router. Never re-asks.
+
+| Action | Where | Gate |
+|---|---|---|
+| Phase 1 assess, Phase 2 design, Phase 4 verify, Phase 5 diagnose (`SHOW`, `DESCRIBE`, history queries) | Any SV | None — read-only |
+| Trial: copy the SV, set `MAX_STALENESS`, add materializations, measure | `mat` candidate only | Guarded write (`candidate.py guard`); runs in both modes. Refreshes bill the named warehouse until cleanup |
+| Any change to the **production** SV: `SET`/`UNSET MAX_STALENESS`, `ADD`/`DROP`/`SUSPEND`/`RESUME`/`REFRESH MATERIALIZATION`, `ALTER MATERIALIZATION ... SET LOG_EVENT_LEVEL`, the YAML sync procedure | Production | `SV-PROMOTE` — OPERATOR_REQUIRED in **both** modes |
+| Drop trial candidates | Candidates | `SV-CANDIDATE-CLEANUP` — OPERATOR_REQUIRED |
+
+At `SV-PROMOTE`, show: the exact production statements to run, the trial evidence (query times
+and bytes scanned with and without the trial), the current `SHOW MATERIALIZATIONS` output, and the
+warehouse that will be billed. Never choose for the operator.
+
+**Never apply `materializations: []` (or any YAML that omits existing materializations) to
+production without `SV-PROMOTE`.** The YAML procedure drops every existing materialization that
+the spec does not list. Show the list of materializations it will drop.
+
+### Trial on a `mat` candidate
+
+Follow `../../references/candidate-promotion.md` §2 with `--kind mat`:
+
+```bash
+RUN=$(python3 <toolkit-root>/scripts/candidate.py new-run | jq -r .run)
+CAND=$(python3 <toolkit-root>/scripts/candidate.py name --source <SV_FQN> --kind mat --run "$RUN" | jq -r .candidate)
+# SELECT GET_DDL('SEMANTIC_VIEW', '<SV_FQN>') -> prod.sql, then:
+python3 <toolkit-root>/scripts/candidate.py rewrite-ddl --source <SV_FQN> --candidate "$CAND" < prod.sql > cand.sql
+python3 <toolkit-root>/scripts/candidate.py register <manifest.json> --run "$RUN" --source <SV_FQN> --candidate "$CAND" --ddl-file cand.sql
+python3 <toolkit-root>/scripts/candidate.py guard --source <SV_FQN> --target "$CAND"
+```
+
+Create `cand.sql` (plain `CREATE SEMANTIC VIEW`; stop if the name exists). Candidates do not
+inherit materializations. Run Phase 3 statements against `<CAND>`, then Phase 4 against `<CAND>`.
 
 ---
 
@@ -149,6 +189,9 @@ LIMIT 30;
 
 From the results, extract the dimension + metric patterns that repeat. These are your materialization candidates.
 
+The `ILIKE` match is approximate: it misses quoted or fully qualified SV references and can match
+unrelated objects with the same name. Review the matched query text before using it.
+
 ### Step 1E: Assessment verdict
 
 | Signal | Weight |
@@ -191,8 +234,8 @@ Include all dimensions that appear together frequently in query patterns. Finer 
 > Snowflake suspends the materialization. Start conservatively (higher value) and tighten later.
 > Minimum is 120 seconds.
 
-> **Note:** The DDL reference syntax uses an integer (seconds). Snowflake's user guide examples
-> also show a string form (`'1 hour'`). Use the integer form to match the formal SQL reference.
+> **Format:** the SQL reference uses an integer (seconds). The user guide also shows a string
+> form (`'1 hour'`). Use the integer form.
 
 ### Add IMMUTABLE WHERE (strongly recommended)
 
@@ -200,7 +243,7 @@ Snowflake's docs strongly recommend specifying `IMMUTABLE WHERE` to reduce refre
 
 Use a historical date cutoff:
 ```sql
-IMMUTABLE WHERE (order_date < '2025-01-01')  -- historical rows never change
+IMMUTABLE WHERE (order_date < '<cutoff_date>')  -- historical rows never change
 ```
 
 Use unqualified column names (without the entity prefix). The condition is evaluated on the SV query result, which uses unqualified names.
@@ -224,12 +267,15 @@ These are independent and can be combined.
 | Mode | Use when |
 |---|---|
 | `AUTO` (default) | Let Snowflake decide — recommended starting point |
-| `FULL` | All metrics are non-additive or SV joins multiple entities |
+| `FULL` | Rarely needed: for multi-entity materializations `AUTO` already resolves to FULL |
 | `INCREMENTAL` | Force incremental even for multi-entity joins (fails if not supported) |
 
 ---
 
 ## Phase 3: Create
+
+Run these on the `mat` candidate (`<CAND>`). Running them on the production SV is a
+production change and waits at `SV-PROMOTE`.
 
 ```sql
 -- Step 1: Set MAX_STALENESS on the SV (integer seconds, min 120)
@@ -257,13 +303,13 @@ ALTER SEMANTIC VIEW revenue_analysis
   ADD MATERIALIZATION cust_year_rollup
   WAREHOUSE = reporting_wh
   REFRESH_MODE = AUTO
-  IMMUTABLE WHERE (order_year < 2025)
+  IMMUTABLE WHERE (order_year < <cutoff_year>)
 AS
   DIMENSIONS customers.customer_name, orders.order_year
   METRICS orders.total_revenue, orders.order_count;
 ```
 
-**To update an existing materialization:** re-run `ADD MATERIALIZATION` with the same name and a different definition. Same definition = no-op; different definition = drop + replace.
+**To update an existing materialization:** re-run `ADD MATERIALIZATION` with the same name. Same definition = no-op. A different definition (metrics, dimensions, WHERE) triggers a full reinitialize; the materialization stays usable for rewrite meanwhile. Moving the `IMMUTABLE WHERE` boundary forward (larger immutable region) refreshes without reinitializing; shrinking or removing it reinitializes.
 
 **YAML-based management (declarative / CI/CD):**
 ```sql
@@ -286,13 +332,23 @@ CALL SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML(
   $$
 );
 
--- Drop all materializations:
--- CALL SYSTEM$MANAGE_SEMANTIC_VIEW_MATERIALIZATIONS_FROM_YAML('<sv>', 'materializations: []');
+-- An empty spec ('materializations: []') drops ALL materializations. Production: SV-PROMOTE only.
 ```
 
-The YAML proc is idempotent and declarative — run it twice with the same spec and the second call is a no-op.
+The YAML proc is declarative: it creates missing materializations, reinitializes changed ones,
+leaves identical ones alone, and **drops any existing materialization not in the spec**.
 
-**IMPORTANT:** Use `CREATE OR ALTER SEMANTIC VIEW` (not `CREATE OR REPLACE`) when modifying the SV after materializations exist. `CREATE OR REPLACE` drops all materializations.
+**Changing the SV definition when materializations exist.** Replace-in-place DDL (`OR REPLACE`)
+drops all materializations immediately; the toolkit never uses it. `CREATE OR ALTER SEMANTIC VIEW`
+keeps them, with two caveats from the docs:
+- Any property the statement omits is **unset**. Include `MAX_STALENESS = <n>` (and COMMENT, AI
+  instructions, VQRs) in the full definition. `MAX_STALENESS` cannot be unset while
+  materializations exist; whether the statement then errors was not verified — include it.
+- Changing or deleting a dimension, metric, logical table or relationship that a materialization
+  uses **suspends that materialization immediately**. Recover by reverting and `RESUME`, or by
+  dropping and re-adding it.
+
+In this toolkit `CREATE OR ALTER` on production runs only at `SV-PROMOTE`.
 
 ---
 
@@ -315,7 +371,7 @@ Expected output after creation: one `INITIALIZE` action with `state = 'ACTIVE'`.
 
 Subsequent refreshes show `REFRESH` or `NO_DATA` (no new data since last refresh) actions.
 
-**Confirm planner is using it:** Run a representative query before and after materialization creation. Compare `TOTAL_ELAPSED_TIME` from `QUERY_HISTORY`. A 10x+ speedup on large tables confirms the planner is rewriting to the materialization.
+**Check whether the planner uses it:** run a representative query against the SV with and without the trial (production vs `<CAND>`) and compare `TOTAL_ELAPSED_TIME` and `BYTES_SCANNED` from `QUERY_HISTORY`. A large drop in bytes scanned suggests a rewrite; it is a heuristic, not proof. Inspect the query profile to confirm.
 
 ```sql
 SELECT query_text, total_elapsed_time, bytes_scanned
@@ -329,22 +385,27 @@ ORDER BY START_TIME DESC;
 
 ## Phase 5: Manage & Diagnose
 
+Every statement in this phase that starts with `ALTER SEMANTIC VIEW` changes the SV. On
+production it waits at `SV-PROMOTE`; diagnose first, then present the statements.
+
 ### Check current materialization state
 
 ```sql
 SHOW MATERIALIZATIONS IN SEMANTIC VIEW <db>.<schema>.<sv_name>;
+-- "state" (ACTIVE / SUSPENDED), "suspend_reason", "stale_by", "refresh_mode", "refresh_mode_reason"
 ```
 
 ### Diagnose auto-suspend
 
-If `state = 'SUSPENDED'` in refresh history:
+If `state = 'SUSPENDED'`, read `suspend_reason` first, then the refresh history (Phase 4).
 
 **Common causes (check in order):**
 1. `MAX_STALENESS` too low — refreshes can't complete within the window
 2. Non-additive metrics in a multi-entity join — AUTO resolves to FULL refresh, which may be slow
-3. Base table too large for the warehouse size — scale up the refresh warehouse
+3. Base table too large for the warehouse size — a larger refresh warehouse costs more; present it as an option with its cost, never apply it without the operator
+4. A `CREATE OR ALTER` changed a calc the materialization uses (suspends immediately)
 
-**Fix:**
+**Fix (production: `SV-PROMOTE`):**
 ```sql
 -- Raise MAX_STALENESS
 ALTER SEMANTIC VIEW <sv_name> SET MAX_STALENESS = 7200;  -- double it
@@ -392,53 +453,19 @@ ALTER SEMANTIC VIEW <sv_name> DROP MATERIALIZATION <mat_name>;
 ALTER SEMANTIC VIEW <sv_name> UNSET MAX_STALENESS;
 ```
 
----
+### Alerting with event tables
 
-## DDL Reference
-
-### ALTER SEMANTIC VIEW — full materialization syntax
+To get refresh failure and suspension events in an event table (a production change: `SV-PROMOTE`):
 
 ```sql
--- Set / unset staleness (integer seconds; minimum 120)
-ALTER SEMANTIC VIEW <name> SET MAX_STALENESS = <integer>;
-ALTER SEMANTIC VIEW <name> UNSET MAX_STALENESS;  -- only allowed when no materializations exist
-
--- Add or replace materialization
-ALTER SEMANTIC VIEW <name> ADD MATERIALIZATION <mat_name>
-  WAREHOUSE = <wh>
-  [ REFRESH_MODE = { AUTO | FULL | INCREMENTAL } ]
-  [ IMMUTABLE WHERE ( <refresh_hint_condition> ) ]
-AS
-  DIMENSIONS <dim> [ , ... ]
-  METRICS <metric> [ , ... ]
-  [ WHERE ( <row_filter> ) ];
-
--- Lifecycle
-ALTER SEMANTIC VIEW <name> DROP MATERIALIZATION <mat_name>;
-ALTER SEMANTIC VIEW <name> SUSPEND MATERIALIZATION <mat_name>;
-ALTER SEMANTIC VIEW <name> RESUME MATERIALIZATION <mat_name>;
-ALTER SEMANTIC VIEW <name> REFRESH MATERIALIZATION <mat_name>;
+ALTER SEMANTIC VIEW <sv_name> ALTER MATERIALIZATION <mat_name> SET LOG_EVENT_LEVEL = 'INFO';
 ```
 
-> **MAX_STALENESS format:** The DDL reference specifies `<integer>` (seconds). Snowflake's user
-> guide examples also show a string form (`'1 hour'`). Use the integer form for reliability.
+### Cleanup after a trial
 
-### Monitoring
-
-```sql
--- Refresh history for a specific materialization
-SELECT * FROM TABLE(INFORMATION_SCHEMA.SEMANTIC_VIEW_MATERIALIZATION_REFRESH_HISTORY(
-  NAME => '<mat_name>'
-));
--- Columns: name, schema_name, database_name, state (ACTIVE/SUSPENDED),
---          state_message, refresh_start_time, refresh_end_time,
---          warehouse, refresh_action (INITIALIZE/REINITIALIZE/REFRESH/NO_DATA)
-
--- SV-level staleness setting
-SELECT semantic_view_name, max_stalesness_sec
-FROM SNOWFLAKE.ACCOUNT_USAGE.SEMANTIC_VIEWS
-WHERE semantic_view_database_name = '<DB>';
-```
+Mark the trial candidate `discarded` or `winner`, then offer gate `SV-CANDIDATE-CLEANUP` with
+`candidate.py cleanup-plan`. Dropping the candidate drops its materializations and stops their
+refreshes.
 
 ---
 
@@ -489,4 +516,4 @@ Queries fall back to base table scan (materialization is NOT used) when:
 - **After sv-iterative-optimizer**: when Analyst accuracy is maximized and query latency is the next concern
 - **Flagged by sv-audit**: Section 9b surfaces repeated query patterns with additive metrics on large tables as materialization candidates
 - **Monitored by sv-watch**: Check 6 surfaces auto-suspended materializations
-- **Preserved by sv-ddl / sv-iterative-optimizer**: use `CREATE OR ALTER` not `CREATE OR REPLACE` when materializations exist
+- **Other skills that promote DDL** (sv-ddl, sv-iterative-optimizer, sv-gepa-optimizer): at `SV-PROMOTE`, the full `CREATE OR ALTER` definition must carry `MAX_STALENESS` and must not change materialized calcs unless the operator accepts the suspension

@@ -36,9 +36,7 @@ Use this skill when:
 Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
 
 - **INTERACTIVE**: Phase 4 STOP Gate blocks for operator approval of candidates before any SV mutation.
-- **AUTONOMOUS**: Phase 4 auto-selects only `VALID` candidates (discards `INVALID`, holds `NEEDS_FIX` for review), logs selections, and proceeds. **Phase 5 (applying VQRs to an existing customer SV) requires separate explicit mutation authorization in BOTH modes** — this is an OPERATOR_REQUIRED gate. Auto-generation of candidates is allowed; auto-insertion into a customer SV is not.
-
-**Size note — VQRs count toward the SV's token budget.** Every VQR adds its question + SQL to the serialized SV definition. Keep the SV under ~100,000 tokens total (tables + columns + metrics + relationships + VQRs): above that, Cortex Agents prunes the SV to fit the context window, adding latency and reducing answer quality. This is why "more VQRs is better" is wrong past a point — 10–20 well-chosen VQRs beat 40 trivial ones. Curate hard; don't bulk-add.
+- **AUTONOMOUS**: Phase 4 auto-selects only `VALID` candidates (discards `INVALID`, holds `NEEDS_FIX` for review), logs selections, and proceeds. **Phase 5 builds a candidate copy only after explicit mutation authorization (`VQR-GEN-INSERT`) in BOTH modes, and production changes only at `SV-PROMOTE`.** Auto-generation of candidates is allowed; auto-insertion into a customer SV is not.
 
 ---
 
@@ -53,7 +51,7 @@ Phase 3: Synthesize Candidates      → generate question + SQL pairs
     ↓
 Phase 4: Validate                   → execute each candidate SQL, verify it works
     ↓ [STOP: user approves candidates]
-Phase 5: Apply                      → CREATE OR ALTER SEMANTIC VIEW with new VQRs
+Phase 5: Apply                      → candidate copy with new VQRs → evaluate → SV-PROMOTE
 ```
 
 ---
@@ -139,26 +137,24 @@ For each pattern type, generate 2-3 VQR candidates:
 ### VQR Format
 
 ```sql
--- VQR SQL must use LOGICAL column names (the SV's AS aliases), not physical column names.
--- VQR SQL table references MUST use the __ prefix on the logical table alias
--- (e.g., FROM __orders, not FROM orders). The Snowsight UI adds the prefix
--- automatically; raw DDL and CREATE OR ALTER do NOT. Columns stay plain (no __).
-SELECT SUM(O_TOTALPRICE) AS total_revenue
+-- Logical column names only (the names defined in DIMENSIONS/FACTS), never physical columns.
+-- Here the SV defines orders.order_total AS o_totalprice and orders.order_date AS o_orderdate.
+SELECT SUM(order_total) AS total_revenue
 FROM __orders
-WHERE O_ORDERDATE >= '2024-01-01' AND O_ORDERDATE < '2025-01-01';
+WHERE order_date >= '2024-01-01' AND order_date < '2025-01-01';
 ```
 
 ### Generation rules
 
 1. **Use logical column names**: Column names as defined in the SV (the `AS` alias), not physical column names. Columns stay plain — no `__` prefix on columns.
-2. **Use `__`-prefixed logical table names**: Table references in VQR SQL should use the `__` prefix (e.g., `FROM __orders`). This is the spec-compliant form. Bare logical names (e.g., `FROM orders`) also bind and trigger correctly — tested empirically Aug 2026 — but FQN references (`FROM PROD_DB.PUBLIC.ORDERS`) will NOT bind. Prefer `__` for clarity and forward-compatibility. The Snowsight UI adds `__` automatically; raw DDL (`CREATE SEMANTIC VIEW` / `CREATE OR ALTER`) stores VQR SQL verbatim, so explicitly include it.
+2. **Use logical table names, preferably `__`-prefixed**: The YAML verified-query docs use `FROM __sales_data`; the `CREATE SEMANTIC VIEW` example uses the bare logical name (`FROM orders AS o`). Prefer `__`. Never reference physical FQNs (`FROM PROD_DB.PUBLIC.ORDERS`).
 3. **Use absolute dates**: Never `CURRENT_DATE` or relative dates — always fixed dates for reproducibility
 4. **Target specific capabilities**: Each VQR should test a different SV feature (metric, dimension, relationship, filter)
-5. **Keep SQL simple**: 1-3 lines. VQRs are teaching examples, not complex analytics.
+5. **Keep SQL minimal**: write the smallest SQL that exercises the target capability. Simple is good; a single-table aggregate is still worth registering when it is the only VQR covering that metric (see `references/vqr-strategy.md`).
 6. **Alias output to metric name, aggregate the row-level fact column**: If the SV defines `total_revenue = SUM(amount)`, write `SUM(amount) AS total_revenue` in the VQR — NOT `SUM(total_revenue)`. Metric names are not columns; referencing them inside an aggregate creates SQL that the engine expands into a broken CTE. The pattern is always `SUM(<fact_column>) AS <metric_name>`, where `<fact_column>` is the logical fact name exposed by the SV (matching the `AS` alias in the FACTS clause). See the code example above.
-7. **Validate filter alignment**: If VQR SQL aggregates a raw column (e.g., `SUM(sales_exc_tax_usd)`) rather than a logical metric name, verify the SQL applies the same `CASE WHEN` or `WHERE` filter used in the metric definition. If `TOTAL_NET_REVENUE_USD` is defined as `SUM(CASE WHEN REFUNDED_IND = 0 THEN SALES_EXC_TAX_USD ELSE 0 END)`, the VQR SQL must include the same filter.
-8. **Cross-VQR filter consistency**: If any existing VQR for the same metric already applies a filter (e.g., `refunded_ind = 0`), all new VQRs targeting that metric must apply the same filter. Inconsistent filter coverage creates contradictory ground truth.
-9. **No subquery SQL**: Cortex Analyst cannot generate subquery-based semantic queries (`WHERE col IN (SELECT ...)`, `WHERE EXISTS (SELECT ...)`, DIMENSIONS ad-hoc subquery expressions). VQR SQL containing subqueries creates a benchmark Analyst can structurally never match, permanently poisoning the eval baseline. If cross-filtering against another table is needed, add that table as an SV relationship and express the filter as a JOIN-based dimension condition instead.
+7. **Validate filter alignment**: If VQR SQL aggregates a fact column rather than relying on a metric, apply the same `CASE WHEN` or `WHERE` filter used in the metric definition. If `net_revenue` is defined as `SUM(CASE WHEN status <> 'CANCELLED' THEN amount END)`, the VQR SQL must include the same filter.
+8. **Cross-VQR filter consistency**: If any existing VQR for the same metric already applies a filter, all new VQRs targeting that metric must apply the same filter. Inconsistent filter coverage creates contradictory ground truth.
+9. **Avoid nested subqueries** (unverified heuristic): Analyst may rarely generate `WHERE col IN (SELECT ...)` or `EXISTS (SELECT ...)` shapes, so such a VQR may score poorly regardless of SV quality. No documentation states this; see Check 8 in `../../references/vqr-eval-health.md`. CTEs (for example the self-join CTEs in `vqr-strategy.md`) are fine. For cross-table filters, prefer an SV relationship and a JOIN-based condition.
 
 ### Present candidates
 
@@ -175,16 +171,13 @@ WHERE O_ORDERDATE >= '2024-01-01' AND O_ORDERDATE < '2025-01-01';
 
 ## Phase 4: Validate
 
-For each candidate, execute the SQL to verify:
-
-```sql
--- Translate logical names to physical for validation
--- (The SV handles this at runtime, but we validate manually)
-<translated SQL using physical table/column names>
-```
+For each candidate, run the shared dry-run procedure in `../../references/vqr-eval-health.md`
+("VQR Dry-Run"), which maps logical names to physical ones via DESCRIBE `EXPRESSION` rows. A
+dry-run `FAIL` marks the candidate `NEEDS_FIX`, not `INVALID`: the translation itself may be at
+fault.
 
 Check:
-- ✓ Query executes without error
+- ✓ Dry-run result is `PASS`
 - ✓ Returns non-empty results
 - ✓ Results are reasonable (not NULL, not obviously wrong)
 - ✓ Uses correct logical column names from SV definition
@@ -205,47 +198,31 @@ Mark each candidate: VALID / INVALID / NEEDS_FIX
 > authorization is required before executing this phase, regardless of mode.
 > Present the selected candidates and the DDL diff; do not apply until confirmed.
 
-For approved candidates, add VQRs to the SV:
+For approved candidates, add the VQRs to a **candidate copy**, never to production in place. Follow
+`../../references/candidate-promotion.md`:
 
-```sql
--- ALTER SEMANTIC VIEW ... ADD VERIFIED QUERY is not supported — returns syntax error.
--- The only working path is CREATE OR REPLACE with the full DDL + new VQRs appended.
-
--- Step 1: Get current DDL (DESCRIBE returns property rows, not DDL text — use GET_DDL)
-SELECT GET_DDL('semantic_view', '<SV_FQN>');
--- Or use CREATE OR ALTER SEMANTIC VIEW to add VQRs without replacing the full DDL.
-
--- Step 2: Add new VQRs to the AI_VERIFIED_QUERIES block and rebuild:
-CREATE OR REPLACE SEMANTIC VIEW <SV_FQN>
-  TABLES ( ... )          -- unchanged from current DDL
-  RELATIONSHIPS ( ... )   -- unchanged
-  FACTS ( ... )           -- unchanged
-  DIMENSIONS ( ... )      -- unchanged
-  METRICS ( ... )         -- unchanged
-  COMMENT = '...'         -- unchanged
-  AI_SQL_GENERATION '...' -- unchanged if present
-  AI_VERIFIED_QUERIES (
-    -- existing VQRs preserved here
-    existing_vqr_1 AS (
-      QUESTION '...'
-      SQL '...'
-    ),
-    -- new VQRs appended:
-    <vqr_name> AS (
-      QUESTION '<natural language question>'
-      ONBOARDING_QUESTION TRUE
-      SQL '<the verified SQL using logical table alias names>'
-    )
-  );
-```
-
-> **Note:** Always preserve existing `AI_VERIFIED_QUERIES` entries when adding new ones — `CREATE OR REPLACE` replaces the entire object. Fetch the current DDL from `DESCRIBE SEMANTIC VIEW` first, then append new entries to the existing `AI_VERIFIED_QUERIES` block.
-
-After adding, verify:
-```sql
-DESCRIBE SEMANTIC VIEW <SV_FQN>;
--- Check VQRs appear in output
-```
+1. `RUN=$(python3 scripts/candidate.py new-run | jq -r .run)`;
+   `CAND=$(python3 scripts/candidate.py name --source <SV_FQN> --kind cand --run "$RUN" | jq -r .candidate)`.
+2. `SELECT GET_DDL('SEMANTIC_VIEW', '<SV_FQN>');` and save the full DDL. `DESCRIBE` returns
+   property rows, not DDL text, and `ALTER SEMANTIC VIEW` cannot add verified queries.
+3. Append the new entries inside the existing `AI_VERIFIED_QUERIES ( ... )` block; keep every
+   existing entry and every other clause unchanged:
+   ```sql
+   <vqr_name> AS (
+     QUESTION '<natural language question>'
+     VERIFIED_AT <epoch seconds>
+     ONBOARDING_QUESTION FALSE
+     VERIFIED_BY '(<purpose> = <contact>)'
+     SQL '<verified SQL using logical names>'
+   )
+   ```
+   The SQL is a string literal: double every single quote inside it (`'2024-01-01'` becomes
+   `''2024-01-01''`). Use `ONBOARDING_QUESTION TRUE` only for questions meant to be suggested to end
+   users.
+4. `candidate.py rewrite-ddl` + `register`, then `candidate.py guard`, then deploy with plain
+   `CREATE SEMANTIC VIEW <CAND>`. Verify with `DESCRIBE SEMANTIC VIEW <CAND>` that the VQRs appear.
+5. Evaluate the candidate (sv-evaluation), then stop at gate `SV-PROMOTE`. Replacing production
+   there applies the full approved DDL with `CREATE OR ALTER`, which unsets anything omitted.
 
 ---
 

@@ -1,9 +1,9 @@
 ---
 name: sv-evaluation
 description: >
-  Evaluate semantic view accuracy using Cortex Analyst's native EXECUTE_AI_EVALUATION API.
-  Measures sql_correctness by generating SQL from VQRs and comparing results against
-  verified queries.
+  Evaluate semantic view accuracy with Cortex Analyst evaluation (EXECUTE_AI_EVALUATION).
+  Measures sql_correctness by regenerating SQL for the view's verified queries (VQRs) and
+  comparing results with the verified SQL. Use for baselines, regression checks, and failure analysis.
 triggers:
   - evaluate semantic view
   - eval sv
@@ -19,671 +19,158 @@ triggers:
 
 # sv-evaluation
 
-**Prerequisites:**
-- CORTEX_USER database role granted to active role
-- EXECUTE TASK ON ACCOUNT privilege
-- CREATE TASK and CREATE DATASET on target schema
-- SELECT on the semantic view and all underlying tables
-- MONITOR on the semantic view
-- At least 1 verified query (VQR) embedded in the SV
+Config, polling, results, privileges and known errors live in `../../references/eval-polling.md`
+(canonical). A quick end-to-end check is in `../../references/eval-smoke-test.md`. VQR pre-flight checks
+are in `../../references/vqr-eval-health.md`.
 
----
+**Evaluation contract (all runs):**
+- Config uses `analyst_params` + `source_metadata.type: verified_queries`; metric `sql_correctness` with `version: "v3"` pinned. Unversioned resolves to `v1`, whose judge is legacy since 2026-08-12.
+- Scores from different metric versions are not comparable. Record `metric_version` with every run.
+- SQL generation is non-deterministic: run the **same question list at least twice** before gating on a threshold, and compare only runs with the same question list and metric version.
+- Never modify the production view to evaluate or to fix it. Fixes happen on a candidate copy (`../../references/candidate-promotion.md`) and reach production only through gate `SV-PROMOTE`.
+
+**Prerequisites:** the privileges in the table in `eval-polling.md` (all on one primary role) and at least one VQR embedded in the SV.
 
 ## Execution Mode
 
-Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+Inherits the session mode from the toolkit router (root `SKILL.md`). Never re-asks.
 
-- **INTERACTIVE**: All `STOP Gate (INTERACTIVE mode)` labels block for user input.
-- **AUTONOMOUS**: Judgment and courtesy gates resolve to their documented defaults and log the resolution. Permanent blockers (missing grants, zero VQRs, redacted ground truth) still terminate in both modes.
-
----
+- **INTERACTIVE**: `STOP Gate (INTERACTIVE mode)` labels block for user input.
+- **AUTONOMOUS**: judgment gates resolve to their documented defaults and log the resolution. Permanent blockers (missing grants, zero VQRs) terminate in both modes. SV-PROMOTE is never auto-resolved.
 
 ## Workflow
 
-### Phase 1: Connect & Validate
+### Phase 1: Connect and validate
 
-**Step 1: Get SV Identity**
+**Step 1: Identify the SV.** Ask for the fully qualified name (or take it from prior skill output).
+Size check: if the serialized `GET_DDL('SEMANTIC_VIEW', '<fqn>')` is very large (roughly > 100,000 tokens; estimate by character count, treat as approximate), warn that results on an oversized SV may not reflect production behaviour and suggest splitting it first (`sv-discovery` / `sv-rearchitect`). Guideline, not a block.
 
-Ask the user for the semantic view fully-qualified name (or infer from context/prior skill output):
+**Step 2: Validate access.** `DESCRIBE SEMANTIC VIEW <fqn>`; on permission error report missing grants and stop.
 
-```
-Which semantic view do you want to evaluate?
-```
+**Step 3: Count VQRs.** Count distinct `object_name` where `"object_kind" = 'AI_VERIFIED_QUERY'` in the DESCRIBE output. If 0: report that evaluation needs VQRs, offer `vqr-generator`, and stop.
 
-**Size check before evaluating.** Estimate the SV's token size (~1 token per ~2.5 chars of serialized DDL via `GET_DDL('SEMANTIC VIEW', '<fqn>')`). If it exceeds ~100,000 tokens, warn the user: in production Cortex Agents may prune the SV to fit the context window (latency + reduced accuracy), and eval results on an oversized SV may not reflect production behavior accurately. Recommend splitting the SV (see `sv-discovery` / `sv-rearchitect`) before investing in eval. This is a guideline, not a hard block — eval will still run.
+**Step 4: VQR health pre-check (read-only).** Run Checks 1-8 from `../../references/vqr-eval-health.md` (table reference format, column existence, CA-extension completeness, GROUP BY alias, coverage, aggregation mismatch, subquery SQL). For each metric with a conditional filter, flag VQRs that aggregate the same source column without that filter as **CONTAMINATED** (see `references/failure-analysis.md` category 8).
+- INTERACTIVE (STOP Gate): offer (A) proceed and flag contaminated failures as REFERENCE_CONTAMINATED, (B) exclude them from this run.
+- AUTONOMOUS default: A. Log `[AUTO-RESOLVED: EVAL-CONTAMINATED-VQR -> A]`.
 
-**Step 2: Validate Access**
+If Check 3 finds a `with extension (CA='...')` block (column-drop risk): (A) evaluate a DDL-only **candidate** built by the Check 3 procedure, created and named through `candidate.py` (kind `cand`) and deployed with plain `CREATE SEMANTIC VIEW`; (B) proceed and mark results RESULTS_MAY_BE_UNRELIABLE; (C) abort. AUTONOMOUS default: A. Evaluation history is keyed by the evaluated view's name, so record both the candidate name and the source view.
 
-```sql
-DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
-```
+**Step 5: VQR SQL dry-run.** VQR SQL is written against **logical** names, so it cannot run directly against physical tables. Never wrap the raw VQR SQL in a CTE and run it; that fails for valid VQRs.
 
-If this fails with permission error → report missing grants and stop.
+Logical-name rule (per the CREATE SEMANTIC VIEW docs example): VQR SQL selects from the logical table (`FROM orders AS o`) and references logical dimension/fact names (`o.order_year`), not the physical column behind them. A physical column name appearing in VQR SQL is the defect. Whether to prefix logical tables with `__`: the DDL docs example uses bare names and the YAML form uses `__`; treat bare logical names as acceptable (style at most) and flag FQN/physical table references. This is the canonical statement; `vqr-eval-health.md` Checks 1-2 must agree with it. Verify against current docs before changing severity.
 
-**Step 3: Check VQRs Exist**
+Recipe: run the shared **VQR Dry-Run** procedure in `references/vqr-eval-health.md` (it translates logical names through `DESCRIBE SEMANTIC VIEW`, then compiles and counts rows). Outcomes `PASS`, `EMPTY` and `FAIL` map to executes, empty result and review.
+- Gate `EVAL-COMPILE-ERROR-VQR`: a dry-run failure is evidence, not a verdict: never auto-skip. If more than half of the VQRs fail, the translation is probably wrong; stop and report instead of excluding them.
+- INTERACTIVE (STOP Gate): confirm when any VQR fails. AUTONOMOUS: continue with all VQRs, log the list, and flag the failures in the report.
 
-Count VQRs from the DESCRIBE output by filtering for `"object_kind" = 'AI_VERIFIED_QUERY'` rows. If 0 VQRs:
-- Report: "No verified queries found. Evaluation requires VQRs as ground truth."
-- Offer: "Route to vqr-generator to create VQRs first?"
-- STOP (cannot evaluate without VQRs)
+**Step 6: Confirm prerequisites** (gate `EVAL-NO-PERMISSION` terminates when a required privilege is missing). Check the privileges listed in `eval-polling.md` with `SHOW GRANTS TO ROLE <role>` (direct-grant checks miss inherited and PUBLIC grants, such as the default `USE AI FUNCTIONS`). The session must run on a single primary role that holds all of them. Show remediation `GRANT` statements for gaps; do not run them without confirmation.
 
-**Step 3b: VQR Health Pre-Check**
+Summarise (view, source tables, VQR count, health, dry-run results) and, in INTERACTIVE mode, wait for confirmation.
 
-Before launching evaluation, scan each VQR's reference SQL against the SV's metric filter map to detect contaminated baselines.
+### Phase 2: Configure
 
-For each metric with a conditional filter (e.g., `SUM(CASE WHEN REFUNDED_IND = 0 THEN col)`), check every VQR that aggregates the same source column. Flag as **CONTAMINATED** if the VQR SQL omits the required filter.
+**Step 7: Choose VQR scope.** All VQRs (recommended baseline), a subset, or exclude some. Fix the list: you will reuse the same list for repeat runs and for any later comparison.
 
-Classify each VQR:
-- **HEALTHY**: VQR SQL filter logic matches the metric definition
-- **CONTAMINATED**: VQR SQL aggregates the column without the required filter
-- **REVIEW**: VQR uses complex multi-table logic that cannot be auto-validated
+**Step 8: Write the config** exactly as in `eval-polling.md` (`analyst_params`, `verified_queries`, pinned `v3`), then create the stage with `CREATE STAGE IF NOT EXISTS` and `PUT` the file with `snow sql`. Use one uniquely named file per run.
 
-Report before proceeding:
-```
-VQR Health Summary:
-  HEALTHY:      N VQRs
-  CONTAMINATED: N VQRs → [list names]
-  REVIEW:       N VQRs → [list names]
+### Phase 3: Execute
 
-⚠ Warning: N contaminated VQR(s) detected. Eval will penalize correct model
-  behavior on these VQRs. Consider fixing before running eval.
-```
+**Step 9: Run name.** `<SV_NAME>_eval_<YYYYMMDD_HHMMSS>_r<k>` where `<k>` is the repeat number. Names must be unique per view; use `EXECUTE_AI_EVALUATION('DELETE', ...)` to clear a collision.
 
-If CONTAMINATED VQRs exist, offer:
-```
-A) Proceed and flag contaminated VQR failures as REFERENCE_CONTAMINATED (read-only analysis)
-B) Exclude contaminated VQRs from this eval run
-```
+**Step 10: Launch** with `EXECUTE_AI_EVALUATION('START', ...)`.
 
-**INTERACTIVE mode (STOP Gate):** Wait for user choice before proceeding.
-**AUTONOMOUS mode default:** Proceed with option A — flag CONTAMINATED VQRs as REFERENCE_CONTAMINATED and continue. Log: `[AUTO-RESOLVED: EVAL-CONTAMINATED-VQR → option A (flag and continue)]`
+**Step 11: Poll** with `'STATUS'` every ~30 s, up to 15 minutes (details and failure states in `eval-polling.md`). On timeout report the status and stop; do not use partial rows as a result.
 
----
+**Step 12: Repeat.** Run the same config at least a second time (new run name). Report each run and the spread between them; a pass/fail threshold is meaningful only once the normal range is known.
 
-**Step 3d: Full VQR and SV Health Check**
+### Phase 4: Analyse
 
-> **Naming Convention for SV Columns in VQR SQL**
->
-> In a semantic view DIMENSIONS clause: `TABLE.logical_name AS physical_expr`
-> - **logical_name**: used internally by the SV for relationships and metrics
-> - **physical_expr**: the actual column name (or expression) VQR SQL must reference
->
-> `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG`
-> → VQR SQL uses `DELETED_FLAG` (right side), not `IS_DELETED` (left side)
->
-> DESCRIBE SEMANTIC VIEW shows property `EXPRESSION` per dimension.
-> Always cross-check VQR SQL column references against EXPRESSION, not the logical name.
+**Step 13: Read results and compute metrics** with the queries in `eval-polling.md`: mean `EVAL_AGG_SCORE`, counts at 1.0 / partial / 0.0, per-run and averaged over repeats.
 
-Run all pre-flight checks from `../../references/vqr-eval-health.md` (Checks 1–8). This catches
-every known category of silent eval failure before any compute is spent.
-
-```
-Checks to run:
-  Check 1 — VQR table reference format (FQN vs logical alias)
-  Check 2 — VQR column existence (logical name vs physical)
-  Check 3 — CA extension presence + column completeness  ← CRITICAL if found
-  Check 4 — GROUP BY alias (breaks CTE expansion)
-  Check 5 — Metric coverage (metrics with no VQR)
-  Check 6 — Table/dimension coverage
-  Check 7 — Aggregation mismatch (VQR agg ≠ SV metric expression)
-  Check 8 — Subquery SQL in VQRs (Analyst cannot generate; poisons baseline)
-```
-
-- **Check 2 — physical column name mismatch**: The SV DIMENSIONS clause uses syntax
-  `LOGICAL_TABLE.logical_column_name AS physical_expr`. VQR SQL must reference the
-  **physical_expr** (right side of AS), not the logical name (left side).
-  Example: `OUTAGE_SITE_DETAIL.IS_DELETED AS DELETED_FLAG` → VQR SQL must use `DELETED_FLAG`.
-`DESCRIBE SEMANTIC VIEW` exposes an `EXPRESSION` property per dimension — cross-check
-all VQR SQL column references against `EXPRESSION` values, not the logical names.
-
-**STOP Gate — Check 3 CRITICAL:**
-When `with extension (CA='...')` is found in GET_DDL output:
-
-  A) Create a DDL-only eval copy (recommended):
-     Follow the inline procedure in `../../references/vqr-eval-health.md` Check 3,
-     "Remediation — create a DDL-only eval copy". It starts with `validate_fqn()`
-     and covers: bound-parameter GET_DDL, CA block strip with a post-strip guard,
-     and validated/quoted identifiers for the eval copy name.
-     There is no `strip_ca_extension()` helper — the procedure is inline script.
-
-     Eval against `<SV_NAME>_EVAL`. Drop it after eval completes.
-
-  B) Proceed — flag all results with RESULTS_MAY_BE_UNRELIABLE.
-     Columns absent from CA extension will score 0 regardless of model quality.
-     Do NOT interpret score differences between VQR styles as accuracy signals.
-
-  C) Abort.
-
-  **INTERACTIVE mode:** Pause here and present options A/B/C to the user.
-  **AUTONOMOUS mode:** Default to A, log the clone FQN, and continue.
-
-**INTERACTIVE mode (STOP Gate):** Wait for user choice on CRITICAL findings. Warn and continue for HIGH/MEDIUM.
-**AUTONOMOUS mode:** Auto-resolve CRITICAL findings using the documented default above; warn and continue for HIGH/MEDIUM.
-
----
-
-**Step 3e: VQR SQL Dry-Run**
-
-Before launching eval, execute each VQR's SQL directly against the SV to confirm
-it compiles and returns rows without error. Failures here will silently inflate
-eval scores downward — the eval framework counts execution errors as score 0.
+**Step 14: Regression detection.** Compare a current run with a previous run only when both used the same `metric_version` and the same question list. Join on question text with a FULL OUTER JOIN so renamed, added or removed questions are reported as such rather than as unchanged:
 
 ```sql
--- Compile-check: wrap VQR SQL in a CTE and select nothing — validates syntax without data scan
-WITH vqr_check AS (<vqr_sql>)
-SELECT 1 FROM vqr_check WHERE FALSE;
-```
-
-Classify each VQR:
-- **EXECUTES**: dry-run returned without error
-- **COMPILE_ERROR**: SQL fails to compile (fix before launching)
-- **EMPTY_RESULT**: compiled but no rows (check time window / filters)
-
-Report before launching:
-```
-Dry-run summary:
-  EXECUTES:      N VQRs
-  COMPILE_ERROR: N VQRs → [list names + errors]
-  EMPTY_RESULT:  N VQRs → [list names]
-```
-
-If any COMPILE_ERROR: offer to skip them or abort eval.
-**INTERACTIVE mode (STOP Gate):** Wait for user confirmation if COMPILE_ERROR > 0.
-**AUTONOMOUS mode default:** Skip COMPILE_ERROR VQRs, log them, and proceed with EXECUTES VQRs only. Log: `[AUTO-RESOLVED: EVAL-COMPILE-ERROR-VQR → skip N VQR(s): <names>]`
-
----
-
-**Step 4: Validate Eval Prerequisites**
-
-Run grant checks:
-
-```sql
--- Check CORTEX_USER database role is granted to current role
-SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_USER;
-SELECT "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-WHERE "grantee_name" = CURRENT_ROLE();
--- If 0 rows: GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <ROLE>;
-
--- Check USE AI FUNCTIONS privilege on account
-SHOW GRANTS ON ACCOUNT;
-SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-WHERE "grantee_name" = CURRENT_ROLE()
-  AND "privilege" = 'USE AI FUNCTIONS';
--- If 0 rows: GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE <ROLE>;
-
--- Check EXECUTE TASK on account
-SHOW GRANTS ON ACCOUNT;
-SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-WHERE "grantee_name" = CURRENT_ROLE()
-  AND "privilege" = 'EXECUTE TASK';
--- If 0 rows: GRANT EXECUTE TASK ON ACCOUNT TO ROLE <ROLE>;
-
--- Check CREATE TASK and CREATE DATASET on schema
-SHOW GRANTS ON SCHEMA <DB>.<SCHEMA>;
-SELECT "privilege", "grantee_name" FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-WHERE "grantee_name" = CURRENT_ROLE()
-  AND "privilege" IN ('CREATE TASK', 'CREATE DATASET');
--- If fewer than 2 rows: GRANT CREATE TASK, CREATE DATASET ON SCHEMA <DB>.<SCHEMA> TO ROLE <ROLE>;
-
--- Check SELECT on semantic view and underlying tables
-SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
--- Must include SELECT for current role
-
--- Check MONITOR on semantic view
-SHOW GRANTS ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
--- Must include MONITOR for current role
-```
-
-> Note: This check only verifies direct grants to the current role. Inherited grants from
-> parent roles and PUBLIC grants are not detected. A false negative here does not necessarily
-> mean the privilege is missing — verify with `SHOW GRANTS TO ROLE` if a direct grant check
-> returns empty.
-
-**⚠️ Primary Role Warning:** EXECUTE_AI_EVALUATION can only be called from a primary role. If your current role is not primary (e.g., a secondary role or a role in a role hierarchy), you must switch to a primary role with evaluation privileges before proceeding.
-
-Report any missing grants with remediation DDL:
-```sql
--- Example remediation
-GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE <ROLE>;
-GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE <ROLE>;
-GRANT EXECUTE TASK ON ACCOUNT TO ROLE <ROLE>;
-GRANT CREATE TASK, CREATE DATASET ON SCHEMA <DB>.<SCHEMA> TO ROLE <ROLE>;
-GRANT SELECT ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME> TO ROLE <ROLE>;
-GRANT MONITOR ON SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME> TO ROLE <ROLE>;
-```
-
-**Step 5: Present Summary**
-
-```
-Semantic View: <DB>.<SCHEMA>.<SV_NAME>
-Tables: N source tables
-VQRs: M verified queries available
-Status: Ready for evaluation
-```
-
-**STOP Gate (INTERACTIVE mode only):** Wait for user confirmation before proceeding.
-
----
-
-### Phase 2: Configure Evaluation
-
-**Step 6: Choose VQR Scope**
-
-Ask user (or auto-select all in AUTONOMOUS):
-
-```
-VQR selection:
-A) Evaluate ALL M verified queries (recommended for baseline)
-B) Select a subset (useful for focused testing)
-C) Exclude specific VQRs
-```
-
-**Step 7: Generate Eval Config YAML**
-
-Build the evaluation configuration:
-
-```yaml
-evaluation:
-  agent_params:
-    agent_name: "<DB>.<SCHEMA>.<SV_NAME>"
-    agent_type: "SEMANTIC VIEW"
-  source_metadata:
-    type: "dataset"
-    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
-
-metrics:
-  - "sql_correctness"
-```
-
-### Ground Truth Format
-
-The `ground_truth_output` value in your evaluation dataset determines answer_correctness scoring.
-The v3 judge compares the agent's full streamed response against this value.
-
-**Use actual expected values, not prose descriptions:**
-- GOOD: `"Music ($925.79B), Shoes ($924.22B), Sports ($923.09B)... Total across 10 categories is ~$9.19T"`
-- BAD: `"Returns net sales broken down by the 10 item categories"`
-
-**Include:**
-- Specific numbers, names, and counts the response must contain
-- Tolerance guidance when exact values may vary ("within ±2%", "rounding to nearest billion acceptable")
-- Expected row count and column structure for tabular answers
-- Scoping ("for year 2001 only", "California stores only")
-
-**For out-of-scope questions:**
-- `"The response should state this is outside the agent's scope and suggest what it can help with"`
-
-Prose rubrics that describe what the answer *should look like* without stating actual values
-will score 0.0 on answer_correctness because the judge cannot match the agent's data tables
-against a structural description.
-
-**Step 7a: SV Eval Target Check**
-
-Confirm which SV you are evaluating against:
-
-- **Original SV (no CA extension):** proceed to Step 8.
-- **Original SV (has CA extension / Snowsight-built):** Step 3d should have routed you to a
-  DDL-only eval copy. If you chose to proceed anyway, note results may be unreliable.
-- **Variant / test SV (created for A/B comparison):** Confirm it was created using the strip
-  procedure from `../../references/vqr-eval-health.md` Check 3. A variant SV that retains a CA
-  extension from the original will have the same column-drop bug.
-
-> If the variant SV was created by hand (not from the strip procedure), run the CA extension
-> detection check now before proceeding:
-> ```sql
-> SELECT CASE WHEN REGEXP_INSTR(LOWER(GET_DDL('SEMANTIC VIEW', '<db>.<schema>.<sv_name>')),
->   'with extension') > 0 THEN 'CA_EXTENSION_PRESENT' ELSE 'CLEAN' END AS ca_status;
-> ```
-
-**Step 8: Create Stage and Upload Config**
-
-```sql
--- Create eval config stage (idempotent — does not destroy existing configs)
-CREATE STAGE IF NOT EXISTS <DB>.<SCHEMA>.SV_EVAL_CONFIGS
-  ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE');
-```
-
-Write config to local temp file, then upload:
-
-```sql
--- Upload config YAML
-PUT file:///tmp/sv_eval_config_<run_name>.yaml
-  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
-  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
-```
-
----
-
-### Phase 3: Execute Evaluation
-
-**Step 9: Generate Run Name**
-
-Format: `<SV_NAME>_eval_<YYYYMMDD_HHMMSS>`
-
-Example: `REVENUE_SV_eval_20260522_143022`
-
-**Step 9b: Pre-Launch Dry-Run Gate**
-
-Spot-check 3–5 VQRs before committing compute. For each, substitute logical table aliases with
-physical FQNs (from DESCRIBE `BASE_TABLE_*` properties) and run EXPLAIN:
-
-```sql
--- Substitute __LOGICAL_ALIAS → DB.SCHEMA.TABLE, then:
--- ⚠️ This substitution only replaces table aliases, not logical column names. If a VQR uses
--- renamed/derived columns (e.g., `order_year` which maps to `YEAR(o_orderdate)`), the simple
--- alias replacement won't expand the expression. For full validation, use the SV's own query
--- engine rather than manual substitution.
-EXPLAIN USING TABULAR <vqr_sql_with_fqn_substituted>;
-```
-
-Also validate CA extension JSON if present (from `../../references/vqr-eval-health.md` Check 3 strip
-procedure):
-```sql
-SELECT PARSE_JSON('<ca_json_here>') IS NOT NULL AS ca_json_valid;
-```
-
-Abort and fix if any VQR EXPLAIN fails — a bad VQR scores 0 without consuming meaningful compute,
-but a run where most VQRs fail wastes the full eval budget before you see a single real comparison.
-
-> **EXECUTE_AI_EVALUATION status (updated 2026-08-07):** The 392700 SV-type bug is resolved.
-> The standard path now works. Use `analyst_name` as a 3-part FQN and include
-> `source_metadata: {type: "verified_queries"}` inside the `evaluation:` block.
-> See `references/eval-polling.md` for the working config format, polling loop, and known errors.
-
-**Step 10: Launch Evaluation**
-
-```sql
-CALL EXECUTE_AI_EVALUATION(
-    'START',
-    OBJECT_CONSTRUCT('run_name', '<run_name>'),
-    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config_filename>.yaml'
-);
-```
-
-**Step 11: Poll for Completion**
-
-Follow the polling pattern from `references/eval-polling.md` (use new STATUS pattern):
-
-```sql
--- Poll every 30 seconds (up to 15 minutes)
-CALL EXECUTE_AI_EVALUATION(
-    'STATUS',
-    OBJECT_CONSTRUCT('run_name', '<run_name>'),
-    '@<DB>.<SCHEMA>.SV_EVAL_CONFIGS/<config_filename>.yaml'
-);
-```
-
-Status progression: `CREATED → INVOCATION_IN_PROGRESS → INVOCATION_COMPLETED → COMPUTATION_IN_PROGRESS → COMPLETED`
-
-In INTERACTIVE mode, report progress at each status change.
-
-**Timeout handling:**
-- After 15 minutes without COMPLETED → report current status
-- If partial results exist (>80% scored), use those
-- Otherwise report timeout and suggest retrying with smaller VQR subset
-
----
-
-### Phase 4: Analyze Results
-
-**Step 12: Query Raw Results (Normalized Pattern)**
-
-Use the normalized CTE from `references/eval-polling.md`:
-
-```sql
-WITH raw AS (
-  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR,
-         EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
-  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
-  ))
-  WHERE METRIC_NAME = 'sql_correctness'
-)
-SELECT
-  INPUT           AS question,
-  OUTPUT          AS generated_output,
-  GROUND_TRUTH    AS reference_output,
-  EVAL_AGG_SCORE  AS sql_correctness,
-  ERROR           AS error_message,
-  METRIC_STATUS,
-  METRIC_CALLS
-FROM raw;
-```
-
-**Step 13: Calculate Metrics**
-
-```sql
--- Overall accuracy (use normalized CTE pattern)
-WITH raw AS (
-  SELECT EVAL_AGG_SCORE
-  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
-  ))
-  WHERE METRIC_NAME = 'sql_correctness'
-)
-SELECT
-    AVG(EVAL_AGG_SCORE) AS mean_score,
-    COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count,
-    SUM(CASE WHEN EVAL_AGG_SCORE > 0.0 AND EVAL_AGG_SCORE < 1.0 THEN 1 ELSE 0 END) AS partial_count
-FROM raw;
-```
-
-**Step 14: Regression Detection**
-
-If a previous evaluation exists (check `_SV_TOOLKIT_META.EVAL_HISTORY` or ask user for prior run name):
-
-```sql
--- Compare with previous run (use normalized CTE pattern)
-WITH current AS (
-    SELECT INPUT AS question, EVAL_AGG_SCORE AS current_score
-    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-      '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<current_run>'
-    ))
-    WHERE METRIC_NAME = 'sql_correctness'
-),
-previous AS (
-    SELECT INPUT AS question, EVAL_AGG_SCORE AS prev_score
-    FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-      '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<previous_run>'
-    ))
-    WHERE METRIC_NAME = 'sql_correctness'
-)
+WITH cur AS (
+  SELECT INPUT AS question, EVAL_AGG_SCORE AS cur_score
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA('<DB>','<SCHEMA>','<SV_NAME>','SEMANTIC VIEW','<current_run>'))
+  WHERE METRIC_NAME = 'sql_correctness'),
+prev AS (
+  SELECT INPUT AS question, EVAL_AGG_SCORE AS prev_score
+  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA('<DB>','<SCHEMA>','<SV_NAME>','SEMANTIC VIEW','<previous_run>'))
+  WHERE METRIC_NAME = 'sql_correctness')
 SELECT * FROM (
-    SELECT
-        c.question,
-        p.prev_score,
-        c.current_score,
-        CASE
-            WHEN p.prev_score = 1.0 AND c.current_score < 1.0 THEN 'REGRESSION'
-            WHEN p.prev_score < 1.0 AND c.current_score = 1.0 THEN 'IMPROVEMENT'
-            ELSE 'UNCHANGED'
-        END AS change_type
-    FROM current c
-    LEFT JOIN previous p ON c.question = p.question
-)
-WHERE change_type != 'UNCHANGED';
+  SELECT COALESCE(c.question, p.question) AS question, p.prev_score, c.cur_score,
+         CASE WHEN p.question IS NULL THEN 'NEW_QUESTION'
+              WHEN c.question IS NULL THEN 'MISSING_NOW'
+              WHEN p.prev_score = 1.0 AND c.cur_score < 1.0 THEN 'REGRESSION'
+              WHEN p.prev_score < 1.0 AND c.cur_score = 1.0 THEN 'IMPROVEMENT'
+              ELSE 'UNCHANGED' END AS change_type
+  FROM cur c FULL OUTER JOIN prev p ON c.question = p.question)
+WHERE change_type <> 'UNCHANGED';
 ```
 
-> `change_type` is a SELECT alias, and Snowflake supports SELECT aliases in WHERE for scalar
-> expressions, but complex expressions may need wrapping. Keep the outer filter pattern above
-> when you want to avoid alias-resolution edge cases.
+If the evaluated view is a candidate, its results are stored under the candidate's name; query that name. Treat a single-run flip as noise unless it repeats.
 
-**Step 15: Categorize Failures**
+**Step 15: Categorise failures** for each question with `sql_correctness < 1.0`: structural EXPLAIN diff first, then the categories and fixes in `references/failure-analysis.md`.
 
-For each VQR with `sql_correctness < 1.0`:
+### Phase 5: Report and persist
 
-1. **Run structural EXPLAIN diff first** (see `references/failure-analysis.md → Automated Structural Analysis`):
-   - `EXPLAIN USING TABULAR <generated_sql>` (from `OUTPUT` column)
-   - `EXPLAIN USING TABULAR <reference_sql>` (from `GROUND_TRUTH` column)
-   - Auto-classify: **FAN_TRAP** | **CHASM_TRAP** | **JOIN_HALLUCINATION** | **GRANULARITY_MISMATCH** | **WRONG_TABLE** | **DATA_FILTER_ERROR**
+**Step 16: Summary report.** Run name(s), metric version, accuracy and mean score per run and across repeats, perfect/partial/failed counts, regressions against the previous comparable run, failing questions with category, and ranked recommendations.
 
-2. **Fall back to manual SQL comparison** only when EXPLAIN fails (invalid SQL or timeout)
+**Step 17: Next steps.** Offer: optimise (`sv-iterative-optimizer` for 1-3 specific failures, `sv-gepa-optimizer` for broad issues, below ~70%), fix failures on a candidate (`failure-analysis.md`), re-run with a different subset, export, or stop. Fixes always go to a candidate; promotion only through `SV-PROMOTE`.
 
-Failure categories:
-
-| Category | Signal | Fix (Mutation Operator) |
-|----------|--------|-------------------------|
-| Wrong table/join | Different FROM/JOIN clauses | `change_relationship` |
-| Wrong column | Correct table, wrong column selected | `improve_description`, `add_synonym` |
-| Wrong aggregation | Wrong AGG function or GROUP BY | `add_metric`, `refine_metric_expr` |
-| Wrong filter | Missing or incorrect WHERE | `add_filter` |
-| Wrong time handling | Date logic errors | `add_time_dimension` |
-| SQL syntax error | Query doesn't compile | Manual DDL fix |
-| Empty result / Analyst refuses | Out-of-scope question | `add_vqr` |
-
----
-
-### Phase 5: Present Results & Recommendations
-
-**Step 16: Summary Report**
-
-```
-╔══════════════════════════════════════════════════════╗
-║  Evaluation Results: <DB>.<SCHEMA>.<SV_NAME>        ║
-╠══════════════════════════════════════════════════════╣
-║  Run: <run_name>                                    ║
-║  Accuracy: X% (N/M VQRs correct)                   ║
-║  Mean Score: 0.XX                                   ║
-║  Perfect (1.0): N  |  Partial: N  |  Failed (0.0): N║
-║  Regressions: N (vs <previous_run>)                 ║
-╚══════════════════════════════════════════════════════╝
-
-Passing VQRs:
-  ✓ "What is total revenue by region?"          (1.0)
-  ✓ "Show top customers by order count"         (1.0)
-
-Failing VQRs:
-  ✗ "Revenue trend by quarter" → Wrong time handling  (0.0)
-  ✗ "Active customer count"    → Wrong filter         (0.3)
-
-Top Recommendations:
-  1. add_time_dimension on orders.ORDER_DATE (fixes time-based queries)
-  2. add_filter for CUSTOMER_STATUS = 'ACTIVE' (fixes active count)
-  3. improve_description on REVENUE column (ambiguity with GROSS_REVENUE)
-```
-
-**Step 17: Offer Next Steps**
-
-```
-What would you like to do next?
-A) Optimize this SV (→ sv-iterative-optimizer / sv-gepa-optimizer)
-B) Fix specific failures manually (show DDL changes)
-C) Re-run evaluation with a different VQR subset
-D) Export report to a table
-E) Done for now
-```
-
-**Step 18: Persist Results (Optional)**
-
-If `_SV_TOOLKIT_META` schema exists, persist for future regression tracking:
-
-> **DDL/DML safety gate**: Per account mutation policy, before creating `_SV_TOOLKIT_META`
-> objects ask the user: "Want me to create a rollback clone first so we can undo this?
-> (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
-> If yes, create the clone before proceeding. This gate covers the schema and both
-> tables (EVAL_HISTORY and EVAL_RESULTS) — ask once, not again for the second table.
+**Step 18: Persist (optional).** If `_SV_TOOLKIT_META` exists (or the user wants it), confirm once with the user that you may create two metadata tables in that schema, then:
 
 ```sql
+-- gate EVAL-METADATA-CREATE: additive, no prompt in any mode
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_HISTORY (
-    run_name VARCHAR,
-    sv_fqn VARCHAR,
+    run_name VARCHAR, sv_fqn VARCHAR, source_sv_fqn VARCHAR,
+    metric_name VARCHAR, metric_version VARCHAR,
     run_timestamp TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-    total_vqrs INTEGER,
-    mean_score FLOAT,
-    perfect_count INTEGER,
-    failed_count INTEGER,
-    regressions INTEGER,
-    config_yaml VARCHAR,
-    PRIMARY KEY (run_name)
-);
+    total_vqrs INTEGER, mean_score FLOAT, perfect_count INTEGER, failed_count INTEGER,
+    regressions INTEGER, repeat_index INTEGER, config_yaml VARCHAR);
 
-INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_HISTORY
-    (run_name, sv_fqn, total_vqrs, mean_score, perfect_count, failed_count, regressions, config_yaml)
-VALUES
-    ('<run_name>', '<DB>.<SCHEMA>.<SV_NAME>', M, 0.XX, N, N, N, '<yaml_content>');
-```
-
-Also persist per-VQR results (using normalized schema):
-
-```sql
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.EVAL_RESULTS (
-    run_name VARCHAR,
-    question VARCHAR,
-    generated_output VARCHAR,
-    reference_output VARCHAR,
-    raw_output VARCHAR,        -- new: raw OUTPUT column
-    raw_ground_truth VARCHAR,   -- new: raw GROUND_TRUTH column
-    sql_correctness FLOAT,
-    failure_category VARCHAR,
-    error_message VARCHAR,
-    metric_status VARCHAR,
-    metric_calls INTEGER,
-    PRIMARY KEY (run_name, question)
-);
+    run_name VARCHAR, metric_version VARCHAR, question VARCHAR,
+    generated_output VARCHAR, reference_output VARCHAR,
+    sql_correctness FLOAT, failure_category VARCHAR, error_message VARCHAR,
+    metric_status VARIANT, metric_calls ARRAY);
 
 INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_RESULTS
-WITH raw AS (
-  SELECT INPUT, OUTPUT, GROUND_TRUTH, ERROR,
-         EVAL_AGG_SCORE, METRIC_STATUS, METRIC_CALLS
-  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<run_name>'
-  ))
-  WHERE METRIC_NAME = 'sql_correctness'
-)
-SELECT
-    '<run_name>' AS run_name,
-    INPUT AS question,
-    OUTPUT AS generated_output,
-    GROUND_TRUTH AS reference_output,
-    OUTPUT AS raw_output,
-    GROUND_TRUTH AS raw_ground_truth,
-    EVAL_AGG_SCORE AS sql_correctness,
-    NULL AS failure_category,  -- populated by analysis
-    ERROR AS error_message,
-    METRIC_STATUS,
-    METRIC_CALLS
-FROM raw;
+SELECT '<run_name>', '<metric_version>', INPUT, OUTPUT, GROUND_TRUTH,
+       EVAL_AGG_SCORE, NULL, ERROR, METRIC_STATUS, METRIC_CALLS
+FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA('<DB>','<SCHEMA>','<SV_NAME>','SEMANTIC VIEW','<run_name>'))
+WHERE METRIC_NAME = 'sql_correctness';
 ```
 
----
+`sv_fqn` is the evaluated view (a candidate name for candidate runs); `source_sv_fqn` is the production view it derives from. Primary keys are not enforced in Snowflake, so none are declared; deduplicate on `(run_name, question)` when reading. Insert the EVAL_HISTORY row with the aggregates from Step 13.
 
-## Error Handling
+## Error handling
 
 | Error | Cause | Recovery |
-|-------|-------|----------|
-| "Semantic view not found" | Wrong FQN or no access | Verify name, check grants |
-| "No verified queries" | SV has no VQRs | Route to vqr-generator |
-| Eval FAILED status | Invalid SV DDL or config | Check DDL compiles, verify config YAML |
-| Eval CANCELLED | System issue or manual cancel | Retry once |
-| Permission denied on EXECUTE_AI_EVALUATION | Missing CORTEX_USER or EXECUTE TASK | Run grant remediation |
-| Timeout (>15min) | Too many VQRs or system load | Use subset, retry later |
-| Near-zero mean score across all VQRs | CA extension column-drop bug, FQN table refs, or wrong SV target | Run failure diagnosis — see `../../references/vqr-eval-health.md` Patterns A–C |
-| `invalid identifier` in ground-truth errors | CA extension drops columns from CTE construction | Check 3 in vqr-eval-health.md — create DDL-only eval copy |
-| Score asymmetry between VQR styles (e.g. 34% vs 6% pre-scoring failure rate) | CA extension column-drop, not a naming-style signal | Do not interpret as model accuracy difference — see Pattern A in vqr-eval-health.md |
+|---|---|---|
+| Semantic view not found | Wrong FQN or no access | Verify name and grants |
+| No verified queries (gate `EVAL-NO-VQR`) | SV has no VQRs | Terminate and route to `vqr-generator` |
+| Run FAILED | Invalid SV DDL, config, or judge model unavailable | Check DDL compiles, config, pinned version |
+| Run CANCELLED | System issue or manual cancel | Retry once |
+| Permission denied on EXECUTE_AI_EVALUATION | Missing grants or secondary role | Table in `eval-polling.md` |
+| Timeout (> 15 min) | Many VQRs or load | Use a subset, retry later |
+| Near-zero mean score | VQR SQL not executable, CA-extension column drop, or wrong target | `vqr-eval-health.md` Patterns A-C |
+| `invalid identifier` in ground-truth errors | CA extension drops columns | Check 3: candidate without the extension |
+| Large score asymmetry between VQR styles | Pre-scoring failures, not model quality | Do not read it as accuracy; see `vqr-eval-health.md` |
 
----
+## Routing
 
-## Integration with Other Skills
-
-| Scenario | Route to |
-|----------|----------|
-| No VQRs available | → vqr-generator |
-| Accuracy < 70% (broad issues) | → sv-gepa-optimizer (population-based) |
-| 1-3 specific failures | → sv-iterative-optimizer (sequential mutation) |
-| Missing relationships detected | → sv-discovery (re-scan) |
-| Want to monitor over time | Persist to EVAL_HISTORY + set up recurring eval |
-
----
+| Scenario | Route |
+|---|---|
+| No VQRs | `vqr-generator` |
+| Broad accuracy problems | `sv-gepa-optimizer` |
+| 1-3 specific failures | `sv-iterative-optimizer` |
+| Missing relationships | `sv-discovery` |
+| Monitor over time | Persist to EVAL_HISTORY and re-run on a schedule with the same question list and metric version |
 
 ## Notes
 
-- **Holdout method:** The evaluation API temporarily removes evaluated VQRs from the SV copy to prevent the model from "cheating" by looking up the answer. This is handled automatically by the API.
-- **Cost:** Each evaluation invokes Cortex Analyst once per VQR. Budget approximately: N VQRs × (analyst inference + SQL execution for correctness check).
-- **Idempotency:** Run names must be unique. Re-running with the same name will fail. Always generate a fresh timestamp-based name.
-- **Concurrency:** Only one evaluation can run against the same SV at a time. Wait for completion before launching another.
-- **AVG() on TEXT column fails**: Some SVs declare a column as `data_type: text` but the
-  physical column contains numeric strings (e.g., `GEN_FUELLEVEL VARCHAR`). Calling
-  `AVG(col)` directly fails. Use `AVG(TRY_CAST(col AS NUMBER))` or `AVG(col::NUMBER)`.
-  Catch this in the VQR SQL dry-run (Step 3e) before it causes silent eval failures.
+- Holdout: the evaluation copies the view without the selected VQRs, so selected questions cannot be looked up; unselected VQRs still guide generation.
+- Cost: one Analyst generation plus one judge call per VQR per run; repeats multiply it.
+- Only one evaluation per view at a time (observed; see `eval-polling.md`).

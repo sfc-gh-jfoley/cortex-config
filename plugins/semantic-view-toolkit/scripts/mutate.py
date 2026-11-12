@@ -1,20 +1,20 @@
-#!/usr/bin/env python3
 """SV-specific mutation engine for GEPA optimization.
 
-Provides operator selection, LLM prompt generation, and mutation validation.
+Single source of truth for the operator list and prompt templates.
 
 Usage:
   python mutate.py select-operator --weights-file <state_path>
-  python mutate.py get-prompt <operator> <sv_ddl_path>
-  python mutate.py validate <original_ddl_path> <mutated_ddl_path>
+  python mutate.py get-prompt <operator> <candidate_ddl_path> [--failures-file F] [--wins-file W]
+                              [--source DB.SCH.SV --target DB.SCH.CANDIDATE]
+  python mutate.py validate <original_ddl_path> <mutated_ddl_path> [--source ... --target ...]
 
-Run with: python3 scripts/mutate.py
+The mutated DDL is a body only: the header name is rewritten by candidate.py rewrite-ddl and
+deployed as a plain candidate create. This script never touches a production view; when
+--source/--target are given, candidate.check_guard rejects a target that is the source or is not a
+toolkit candidate name.
 
-Note on deploy: generated mutated DDL uses `CREATE OR REPLACE SEMANTIC VIEW` by default.
-If the target SV has materializations, switch the deploy to `CREATE OR ALTER SEMANTIC VIEW`
-to preserve them (CREATE OR REPLACE drops all materializations — see ddl_syntax.md).
-The mutation output preserves the full SV definition; substitute CREATE OR ALTER for
-CREATE OR REPLACE in the deployed DDL when materializations exist.
+failures-file JSON: [{"question": "...", "expected_sql": "...", "generated_sql": "...", "failure_class": "..."}]
+wins-file JSON:     [{"candidate": "...", "operator": "...", "summary": "..."}]
 """
 
 import argparse
@@ -24,6 +24,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import candidate as candidate_contract  # noqa: E402
 
 OPERATORS = [
     "add_synonym",
@@ -48,14 +50,18 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Identify columns where users might use different terminology than the column name
-2. Add synonyms using the `synonyms` property (list of strings)
+2. Add synonyms with `WITH SYNONYMS = ('a', 'b')` on the column
 3. Do not equate revenue, income, earnings, or sales without evidence that definitions match; check other names and synonyms for ambiguity
 4. Only add synonyms that are genuinely used in business contexts
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "improve_description": """You are mutating a semantic view to improve column discoverability.
 
@@ -66,9 +72,13 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Find columns with missing, generic, or unhelpful descriptions
-2. Rewrite descriptions to clearly explain:
+2. Rewrite the `COMMENT = '...'` text to clearly explain:
    - What the column represents in business terms
    - What values it typically contains
    - When/why an analyst would use this column
@@ -76,7 +86,7 @@ INSTRUCTIONS:
 4. Do NOT change column names, types, or other properties
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "add_filter": """You are mutating a semantic view to add commonly-needed filters.
 
@@ -87,9 +97,13 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Identify dimensions that would benefit from pre-defined filters
-2. Add filters using the `filters` property with clear names
+2. Express a filter as a BOOLEAN fact marked `LABELS = (FILTER)`; give it a clear name
 3. Common patterns to consider:
    - Date ranges (last 30 days, current year, YTD)
    - Status filters (active only, completed, pending)
@@ -97,7 +111,7 @@ INSTRUCTIONS:
 4. Name filters with natural language users would say ("recent orders", "active customers")
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "add_vqr": """You are mutating a semantic view by adding a new verified query representation (VQR).
 
@@ -108,6 +122,10 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Analyze the existing VQRs (if any) to identify gaps in coverage
 2. Create a new VQR that tests a different analytical pattern:
@@ -116,13 +134,13 @@ INSTRUCTIONS:
    - Multi-table joins
    - Metric calculations
    - Ranking or top-N queries
-3. The VQR must have:
+3. Add it to the `AI_VERIFIED_QUERIES` clause, following the shape of existing entries; it must have:
    - A natural language question (what a user would ask)
    - A verified SQL answer that correctly answers the question
 4. Ensure the SQL is valid against the tables in this semantic view
 5. Return the complete modified DDL with the new VQR added
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "add_metric": """You are mutating a semantic view to add a new aggregate metric.
 
@@ -133,13 +151,16 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Review existing metrics and identify gaps
 2. Define a new metric with:
    - Clear name matching business terminology
    - Appropriate expression (SUM, AVG, COUNT, COUNT DISTINCT, etc.)
-   - default_aggregation setting
-   - Description explaining what it measures
+   - `COMMENT = '...'` explaining what it measures
 3. Consider metrics like:
    - Conversion rates (ratio metrics)
    - Growth metrics (period-over-period)
@@ -147,7 +168,7 @@ INSTRUCTIONS:
 4. Ensure the metric references valid columns from the semantic view's tables
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "refine_metric_expr": """You are mutating a semantic view to fix a metric that produces wrong results.
 
@@ -158,6 +179,10 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Review each metric's expression for correctness:
    - Is the aggregation function appropriate? (SUM vs AVG vs COUNT)
@@ -165,11 +190,10 @@ INSTRUCTIONS:
    - Is the denominator correct for ratio metrics?
    - Does it account for duplicates from joins?
 2. Fix any metric with an incorrect or suboptimal expression
-3. Update the default_aggregation if it doesn't match the expression
-4. Do NOT remove metrics — only refine their expressions
-5. Return the complete modified DDL
+3. Do NOT remove metrics — only refine their expressions
+4. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "add_metric_description": """You are mutating a semantic view to improve metric descriptions.
 
@@ -180,17 +204,21 @@ SEMANTIC VIEW DDL:
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
 1. Find metrics with missing or unclear descriptions
 2. Add descriptions that explain:
    - What the metric measures in plain English
    - How it's calculated (briefly)
    - When to use this metric vs similar ones
-3. Add 2-3 synonyms for each metric (alternative names users might say)
+3. Add 2-3 `WITH SYNONYMS = (...)` entries for each metric (alternative names users might say)
 4. Do NOT change metric expressions or aggregations
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "change_relationship": """You are mutating a semantic view to fix join relationships.
 
@@ -200,6 +228,10 @@ SEMANTIC VIEW DDL:
 ```sql
 {ddl}
 ```
+
+{failures}
+
+{prior_wins}
 
 INSTRUCTIONS:
 1. Review existing relationships for correctness:
@@ -213,28 +245,32 @@ INSTRUCTIONS:
 3. Ensure referential integrity direction is correct (FK → PK)
 4. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
-    "add_time_dimension": """You are mutating a semantic view to add time dimension support.
+    "add_time_dimension": """You are mutating a semantic view to make date columns easier to use.
 
-TASK: Promote DATE/TIMESTAMP columns to proper time dimensions.
+TASK: Make sure DATE/TIMESTAMP columns are exposed as dimensions with clear comments and synonyms.
 
 SEMANTIC VIEW DDL:
 ```sql
 {ddl}
 ```
 
+{failures}
+
+{prior_wins}
+
 INSTRUCTIONS:
-1. Find DATE or TIMESTAMP columns not yet marked as time dimensions
-2. Promote them using `kind: time_dimension` with appropriate properties
+1. Find DATE or TIMESTAMP columns not yet exposed in DIMENSIONS (the DDL has no separate time-dimension kind)
+2. Add them to DIMENSIONS with `COMMENT = '...'` and `WITH SYNONYMS = (...)` as appropriate
 3. Consider:
    - Which date column is the primary time axis for analysis?
    - Should it support drill-down (year → quarter → month → day)?
    - Are there multiple time dimensions (order_date, ship_date)?
-4. Ensure only genuinely temporal columns are promoted (not IDs that happen to contain dates)
+4. Ensure only genuinely temporal columns are added (not IDs that happen to contain dates)
 5. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 
     "remove_column": """You are mutating a semantic view to reduce noise by removing confusing columns.
 
@@ -244,6 +280,10 @@ SEMANTIC VIEW DDL:
 ```sql
 {ddl}
 ```
+
+{failures}
+
+{prior_wins}
 
 INSTRUCTIONS:
 1. Identify columns that might cause the analyst to pick the wrong column:
@@ -258,7 +298,7 @@ INSTRUCTIONS:
    - Columns used in verified queries
 4. Return the complete modified DDL
 
-Return ONLY the modified CREATE OR REPLACE SEMANTIC VIEW DDL, no explanation.""",
+Return ONLY the complete modified semantic view DDL, no explanation. Keep the header as given; it is rewritten afterwards.""",
 }
 
 
@@ -281,8 +321,8 @@ def cmd_select_operator(args: argparse.Namespace) -> None:
         # Fallback to uniform
         selected = random.choice(OPERATORS)
     else:
-        operators = list(weights.keys())
-        probs = list(weights.values())
+        operators = [o for o in OPERATORS if o in weights]
+        probs = [weights[o] for o in operators]
         selected = random.choices(operators, weights=probs, k=1)[0]
 
     # Suggest target based on operator type
@@ -295,7 +335,7 @@ def cmd_select_operator(args: argparse.Namespace) -> None:
         "refine_metric_expr": "existing metrics with incorrect expressions",
         "add_metric_description": "metrics missing descriptions or synonyms",
         "change_relationship": "relationships with wrong join type or missing joins",
-        "add_time_dimension": "DATE/TIMESTAMP columns not yet marked as time dimensions",
+        "add_time_dimension": "DATE/TIMESTAMP columns not yet exposed as dimensions",
         "remove_column": "noisy/confusing columns causing analyst errors",
     }
 
@@ -307,10 +347,60 @@ def cmd_select_operator(args: argparse.Namespace) -> None:
     print(json.dumps(result))
 
 
+def _load_json_list(path):
+    if not path:
+        return []
+    data = json.loads(Path(path).read_text())
+    if not isinstance(data, list):
+        raise ValueError(f"{path} must contain a JSON array")
+    return data
+
+
+def render_failures(failures) -> str:
+    if not failures:
+        return "RECENT FAILURES: none supplied. Choose targets from the DDL alone."
+    lines = ["RECENT FAILURES (address these; the failure class says what went wrong):"]
+    for i, f in enumerate(failures, 1):
+        lines.append(f"{i}. Question: {f.get('question', '?')}")
+        lines.append(f"   Failure class: {f.get('failure_class', 'unknown')}")
+        lines.append(f"   Expected SQL: {f.get('expected_sql', 'n/a')}")
+        lines.append(f"   Generated SQL: {f.get('generated_sql', 'n/a')}")
+    return "\n".join(lines)
+
+
+def render_prior_wins(wins) -> str:
+    if not wins:
+        return "PRIOR WINS: none yet."
+    lines = ["PRIOR WINS (changes already shown to help; do not undo these):"]
+    for w in wins:
+        lines.append(f"- {w.get('operator', '?')}: {w.get('summary', '')} ({w.get('candidate', '?')})")
+    return "\n".join(lines)
+
+
+def render_prompt(operator: str, ddl: str, failures=None, wins=None) -> str:
+    return PROMPT_TEMPLATES[operator].format(
+        ddl=ddl, failures=render_failures(failures), prior_wins=render_prior_wins(wins)
+    )
+
+
+def _guard_args(args) -> None:
+    source, target = getattr(args, "source", None), getattr(args, "target", None)
+    if bool(source) != bool(target):
+        print("Error: --source and --target must be given together", file=sys.stderr)
+        sys.exit(1)
+    if source:
+        try:
+            candidate_contract.check_guard(source, target)
+        except candidate_contract.ContractError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
 def cmd_get_prompt(args: argparse.Namespace) -> None:
     """Generate LLM prompt for a given operator."""
     operator = args.operator
     ddl_path = Path(args.sv_ddl_path)
+    _guard_args(args)
 
     if operator not in PROMPT_TEMPLATES:
         print(f"Error: Unknown operator '{operator}'. Valid: {OPERATORS}", file=sys.stderr)
@@ -320,14 +410,20 @@ def cmd_get_prompt(args: argparse.Namespace) -> None:
         print(f"Error: DDL file not found: {ddl_path}", file=sys.stderr)
         sys.exit(1)
 
-    ddl = ddl_path.read_text()
-    prompt = PROMPT_TEMPLATES[operator].format(ddl=ddl)
+    try:
+        failures = _load_json_list(args.failures_file)
+        wins = _load_json_list(args.wins_file)
+    except (OSError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
+    prompt = render_prompt(operator, ddl_path.read_text(), failures, wins)
     print(json.dumps({"operator": operator, "prompt": prompt}))
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
     """Validate a mutated DDL against anti-patterns."""
+    _guard_args(args)
     original_path = Path(args.original_ddl_path)
     mutated_path = Path(args.mutated_ddl_path)
 
@@ -389,9 +485,11 @@ def cmd_validate(args: argparse.Namespace) -> None:
     if original.strip() == mutated.strip():
         errors.append("Mutation is a no-op: mutated DDL is identical to original")
 
-    # Check 5: DDL starts with CREATE OR REPLACE SEMANTIC VIEW
-    if not re.match(r"\s*CREATE\s+OR\s+REPLACE\s+SEMANTIC\s+VIEW", mutated, re.IGNORECASE):
-        errors.append("DDL must start with CREATE OR REPLACE SEMANTIC VIEW")
+    # Check 5: header must be a plain create (candidate.py rewrites the name; no OR REPLACE / OR ALTER)
+    if re.match(r"\s*CREATE\s+OR\s+", mutated, re.IGNORECASE):
+        errors.append("DDL header must be a plain CREATE SEMANTIC VIEW (no OR REPLACE / OR ALTER)")
+    elif not re.match(r"\s*CREATE\s+SEMANTIC\s+VIEW", mutated, re.IGNORECASE):
+        errors.append("DDL must start with CREATE SEMANTIC VIEW")
 
     if errors:
         result = {"status": "FAIL", "errors": errors}
@@ -415,12 +513,18 @@ def main() -> None:
     # get-prompt
     p_prompt = subparsers.add_parser("get-prompt", help="Generate LLM prompt for operator")
     p_prompt.add_argument("operator", choices=OPERATORS, help="Mutation operator name")
-    p_prompt.add_argument("sv_ddl_path", help="Path to semantic view DDL file")
+    p_prompt.add_argument("sv_ddl_path", help="Path to candidate/parent DDL file")
+    p_prompt.add_argument("--failures-file", help="JSON array of failed questions")
+    p_prompt.add_argument("--wins-file", help="JSON array of winning-candidate change summaries")
+    p_prompt.add_argument("--source", help="Production FQN (enables candidate guard)")
+    p_prompt.add_argument("--target", help="Candidate FQN to be written")
 
     # validate
     p_validate = subparsers.add_parser("validate", help="Validate mutated DDL")
     p_validate.add_argument("original_ddl_path", help="Path to original DDL")
     p_validate.add_argument("mutated_ddl_path", help="Path to mutated DDL")
+    p_validate.add_argument("--source", help="Production FQN (enables candidate guard)")
+    p_validate.add_argument("--target", help="Candidate FQN to be written")
 
     args = parser.parse_args()
 

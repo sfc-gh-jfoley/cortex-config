@@ -16,23 +16,31 @@ Take the relationship graph from Phase 2 and identify coherent business areas. B
 
 ## Step 3A: Connected Components (Initial Clusters)
 
-Identify connected components in the relationship graph using edge traversal. Each connected component becomes an initial domain candidate.
+Identify shared dimensions **first**, then cluster the rest. Merging every MEDIUM+ edge directly
+would fuse all facts through a shared dimension such as `DIM_DATE` into one component, and bridge
+detection could then never fire.
 
-**Algorithm (greedy BFS):**
+**Algorithm:**
 
 ```
-1. Sort edges by combined_confidence DESC
-2. Initialize: each table is its own cluster
-3. For each edge (table_a, table_b, confidence):
-   - If table_a and table_b are in different clusters:
-     - If confidence >= 0.60 (MEDIUM or higher):
-       - Merge the two clusters
-     - If confidence < 0.60 (LOW):
-       - Mark as "weak edge" — don't merge yet
-4. After processing all edges:
-   - Each remaining distinct cluster = one domain candidate
-   - Weak edges between clusters = potential cross-domain relationships
+Let STRONG = edges with combined_confidence >= 0.60 (MEDIUM or higher).
+
+1. Find hubs (shared dimensions):
+   - T is a hub if it is the referenced side (the PK/UNIQUE or "to" column) of STRONG edges
+     from >= 2 distinct tables.
+   - For co-occurrence-only edges (no direction), T is a hub if it has STRONG edges to >= 3
+     tables that have no STRONG edge to each other.
+2. Remove hubs and their edges; union-find the remaining STRONG edges into core clusters.
+   Tables left with no edges are singletons (see "Too Small" below).
+3. Re-attach each hub to every core cluster it has a STRONG edge to:
+   - attached to 1 cluster  → ordinary member of that cluster
+   - attached to >= 2       → BRIDGE_TABLES entry; include it in each of those clusters
+4. Edges with combined_confidence < 0.60 between clusters are recorded as weak external edges.
+5. Edges with needs_join_key = true may join tables into a cluster but stay flagged (Step 3G).
 ```
+
+Core clusters are domain *candidates*. Step 3B decides SV boundaries, and may keep clusters that
+share bridge tables in one SV.
 
 **Output:**
 ```
@@ -40,6 +48,7 @@ INITIAL_DOMAINS = [
   {domain_id: 1, tables: [table_a, table_b, table_c], internal_edges: [...], weak_external_edges: [...]}
   {domain_id: 2, tables: [table_d, table_e], internal_edges: [...], weak_external_edges: [...]}
 ]
+BRIDGE_TABLES = [{table, connected_domains: [domain_1, domain_2, ...]}]
 ```
 
 ---
@@ -72,19 +81,8 @@ Single-table "clusters" are orphans. Handle them:
 
 ### Bridge Tables
 
-Identify tables that connect two otherwise-separate clusters (high degree, linking roles):
-
-```
-For each table T in a cluster:
-  If T has edges to ≥2 OTHER clusters:
-    T is a bridge table candidate
-    Consider including T in BOTH domains (it's a shared dimension)
-```
-
-Store bridge tables separately:
-```
-BRIDGE_TABLES = [{table, connected_domains: [domain_1, domain_2, ...]}]
-```
+Bridge tables (shared dimensions) are identified in Step 3A before clustering. When Step 3B keeps
+domains separate, include each bridge table in every domain it connects.
 
 ---
 
@@ -111,10 +109,9 @@ NAMED_DOMAINS = [
 ## Step 3D: Score Domain Confidence
 
 For each domain, compute an overall confidence score using the domain-level formula
-in `../../references/confidence-scoring.md` (Domain-Level Confidence section).
+in `../../../references/confidence-scoring.md` (Domain-Level Confidence section).
 
-**Summary:** weighted average of internal edge confidences by co_query_count;
-fall back to simple average if no ACCESS_HISTORY. Zero-denominator guard applies.
+**Summary:** weighted average of internal edge confidences, weight = MAX(co_query_count, 1).
 
 **Tier assignment:**
 - ≥ 0.85 → HIGH
@@ -137,7 +134,8 @@ For each table in each domain, annotate its source type:
 | Base Table | `(base table)` | Standard source |
 | View | `(view)` | May reference other databases — check cross-DB deps |
 | Dynamic Table | `(dynamic table, lag: Xmin)` | Include TARGET_LAG context |
-| External Table | `(external/iceberg)` | Performance note: may be slower for aggregations |
+| External Table | `(external table)` | Performance note: may be slower for aggregations |
+| Iceberg Table | `(iceberg table)` | `TABLE_TYPE = 'BASE TABLE'`, `IS_ICEBERG = 'YES'` |
 | Materialized View | `(materialized view)` | Watch for double-aggregation if both source and MV included |
 
 For dynamic tables, query the lag:
@@ -174,16 +172,22 @@ For each domain:
 
 ## Step 3G: Identify Join Keys per Domain
 
-For each domain, extract the specific join keys that connect its tables (from `RELATIONSHIP_GRAPH` edges):
+For each domain, extract the specific join keys that connect its tables. Use only edges with
+resolved join columns (`needs_join_key = false`):
 
 ```
 domain.join_keys = [
   {from_table: 'ORDERS', from_column: 'CUSTOMER_ID', to_table: 'CUSTOMERS', to_column: 'CUSTOMER_ID', confidence: 0.95}
   {from_table: 'ORDER_ITEMS', from_column: 'ORDER_ID', to_table: 'ORDERS', to_column: 'ORDER_ID', confidence: 1.0}
 ]
+domain.unresolved_pairs = [
+  {table_a: 'ORDERS', table_b: 'WEB_EVENTS', co_query_count: 120, note: 'needs join key'}
+]
 ```
 
-These join keys feed directly into the `sv-ddl` skill's RELATIONSHIPS section.
+Join keys feed the `sv-ddl` skill's RELATIONSHIPS section. Never emit a join key with a NULL
+column. List `unresolved_pairs` in Phase 4 so the user can supply the columns or drop the pair;
+in AUTONOMOUS mode, leave them out of the hand-off and report them.
 
 ---
 
@@ -248,6 +252,7 @@ Fully Covered Domains (already have SVs): <N>
 | `NAMED_DOMAINS` | List of domains with name, tables, confidence, coverage status |
 | `BRIDGE_TABLES` | Tables shared across domains |
 | `ORPHAN_TABLES` | Tables with no domain affiliation |
-| `DOMAIN_JOIN_KEYS` | Join keys per domain |
+| `DOMAIN_JOIN_KEYS` | Join keys per domain (resolved columns only) |
+| `UNRESOLVED_PAIRS` | Related table pairs per domain that still need a join key |
 | `COLUMN_IMPORTANCE` | Column tier rankings per table |
 | `FULLY_COVERED_DOMAINS` | Domains already served by existing SVs |

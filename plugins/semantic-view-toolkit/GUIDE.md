@@ -32,7 +32,7 @@ With the structural gaps closed, she runs **sv-evaluation** to record a baseline
 
 She then runs **sv-iterative-optimizer**. It changes one thing per iteration, such as a description, a filter, or a synonym, reruns the evaluation, and keeps the change only if the score improves. Each decision is logged. Priya reviews the proposals at each gate. When three consecutive changes are rejected, the local search has stalled.
 
-Priya switches to **sv-gepa-optimizer**, which maintains a population of SV variants and selects winners through tournaments on mini-batches of questions. She reviews the winning configuration and accepts it deliberately. The toolkit never overwrites production on its own.
+Priya switches to **sv-gepa-optimizer**, a last resort for plateaus. It maintains a population of candidate copies of the SV and selects winners through tournaments on mini-batches of questions. Each round it feeds the failing questions and the earlier winning changes into the next round of edits. She reviews the winning candidate's diff and evidence and decides whether to promote it. Every optimizer works on candidate copies, so production is never overwritten without that decision.
 
 If the stakeholder later asks questions that span finance and sales, **sv-rearchitect** composes the existing domain SVs into a multi-SV agent or nested SV design. Deciding where to split the domains is still a design choice Priya makes.
 

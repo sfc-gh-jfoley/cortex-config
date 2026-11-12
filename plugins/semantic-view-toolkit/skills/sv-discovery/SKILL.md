@@ -106,13 +106,12 @@ All queries run on the **customer's own account**. No Snowhouse access required.
 
 | Source | What it provides | Latency |
 |--------|-----------------|---------|
-| `INFORMATION_SCHEMA.TABLE_CONSTRAINTS` | Declared PK/FK relationships | Real-time |
-| `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` | FK references between tables | Real-time |
+| `SHOW IMPORTED KEYS` / `SHOW PRIMARY KEYS` / `SHOW UNIQUE KEYS` | Declared FK and PK/UNIQUE columns | Real-time |
 | `INFORMATION_SCHEMA.COLUMNS` | Column names for FK inference | Real-time |
-| `INFORMATION_SCHEMA.TABLES` | Base tables, views, materialized views | Real-time |
-| `SHOW DYNAMIC TABLES` | Dynamic tables in scope | Real-time |
+| `INFORMATION_SCHEMA.TABLES` | All table types; `IS_DYNAMIC` / `IS_ICEBERG` / `IS_HYBRID` flags | Real-time |
+| `SHOW DYNAMIC TABLES` | Target lag for dynamic tables | Real-time |
 | `SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY` | Table co-occurrence (structured JSON) + column usage | Up to 3 hr lag |
-| `SHOW SEMANTIC VIEWS IN DATABASE` | Existing SVs for coverage detection | Real-time |
+| `SHOW SEMANTIC VIEWS IN DATABASE` + `DESCRIBE SEMANTIC VIEW` | Existing SVs and the base tables they cover | Real-time |
 
 Co-occurrence comes from `ACCESS_HISTORY.base_objects_accessed` (structured JSON, read with LATERAL FLATTEN), not from parsing `QUERY_TEXT`.
 
@@ -126,7 +125,7 @@ Summary:
 
 | Tier | Score Range | Meaning |
 |------|-------------|---------|
-| **HIGH** | 0.85–1.00 | Strong evidence — include without user confirmation |
+| **HIGH** | 0.85–1.00 | Strong evidence — include without confirmation if join columns are resolved |
 | **MEDIUM** | 0.60–0.84 | Moderate evidence — suggest for confirmation |
 | **LOW** | 0.30–0.59 | Weak evidence — mention but don't auto-include |
 
@@ -141,7 +140,8 @@ This skill discovers ALL queryable object types, not just BASE TABLEs. See `../.
 | Base Table | Yes | Primary source |
 | View | Yes | May reference other databases |
 | Dynamic Table | Yes | Include TARGET_LAG in domain context |
-| External Table (Iceberg) | Yes | Performance considerations noted |
+| External Table | Yes | Performance considerations noted |
+| Iceberg Table | Yes | `BASE TABLE` row with `IS_ICEBERG = 'YES'` |
 | Materialized View | Yes | Watch for double-aggregation |
 
 ---

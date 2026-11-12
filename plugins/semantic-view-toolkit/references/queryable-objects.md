@@ -8,9 +8,13 @@ Which Snowflake object types can be sources for semantic views, how to detect th
 |-------------|-----------------|-----------------|-------|
 | Base Table | `BASE TABLE` | Yes | Primary source type |
 | View | `VIEW` | Yes | May reference other databases |
-| Dynamic Table | — (separate view) | Yes | Has TARGET_LAG metadata |
-| External Table | `EXTERNAL TABLE` | Yes | Iceberg or non-Iceberg |
+| Dynamic Table | `BASE TABLE` with `IS_DYNAMIC = 'YES'` | Yes | Has TARGET_LAG metadata |
+| Iceberg Table | `BASE TABLE` with `IS_ICEBERG = 'YES'` | Yes | Its own object type, not an external table |
+| External Table | `EXTERNAL TABLE` | Yes | Raw/landing data; limited pushdown |
 | Materialized View | `MATERIALIZED VIEW` | Yes | Pre-aggregated |
+
+`INFORMATION_SCHEMA.TABLES` also exposes `IS_HYBRID`. Classify by the `IS_*` flags before
+`TABLE_TYPE`, otherwise dynamic and Iceberg tables count as base tables.
 
 ## Base Tables
 
@@ -70,11 +74,12 @@ ORDER BY TABLE_NAME;
 
 If a view references tables in another database:
 ```sql
--- Check view dependencies
-SELECT *
+-- Check view dependencies (ACCOUNT_USAGE latency: up to 3 hours)
+SELECT REFERENCED_DATABASE, REFERENCED_SCHEMA, REFERENCED_OBJECT_NAME, REFERENCED_OBJECT_DOMAIN
 FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
-WHERE REFERENCING_OBJECT_NAME = :view_name
-    AND REFERENCING_SCHEMA = :schema_name;
+WHERE REFERENCING_DATABASE = :database_name
+    AND REFERENCING_SCHEMA = :schema_name
+    AND REFERENCING_OBJECT_NAME = :view_name;
 ```
 
 ## Dynamic Tables
@@ -102,7 +107,7 @@ SHOW DYNAMIC TABLES IN SCHEMA <database>.<schema_name>
 
 - **TARGET_LAG matters:** Dynamic tables have a defined freshness guarantee (minimum 1 minute)
   - Include TARGET_LAG in SV description so users understand data freshness
-  - Example: `DESCRIPTION 'Aggregated daily sales (refreshed every 5 minutes)'`
+  - Example: `COMMENT = 'Aggregated daily sales (refreshed every 5 minutes)'`
 - **Cannot be altered during refresh:** If a DT is refreshing, DDL operations on it may block
   - Not an issue for SV creation (reads metadata only)
   - Could affect VQR evaluation timing
@@ -122,38 +127,26 @@ SHOW DYNAMIC TABLES IN SCHEMA <database>.<schema_name>
       FROM $1;
 ```
 
-## External Tables
+## Iceberg Tables and External Tables
 
 ### Detection SQL
 
 ```sql
--- List external tables and detect Iceberg format via TABLE_FORMAT column
-SHOW EXTERNAL TABLES IN SCHEMA <database>.<schema_name>;
--- Check the TABLE_FORMAT column: 'ICEBERG' indicates an Iceberg external table.
--- IS_ICEBERG (or equivalent) column availability varies by Snowflake version;
--- use TABLE_FORMAT as the primary signal.
-```
-
-```sql
--- Alternative: query INFORMATION_SCHEMA for external table existence
-SELECT
-    TABLE_NAME,
-    TABLE_TYPE
+SELECT TABLE_NAME,
+       CASE WHEN IS_ICEBERG = 'YES' THEN 'ICEBERG TABLE' ELSE TABLE_TYPE END AS OBJECT_TYPE
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = :schema_name
-    AND TABLE_TYPE = 'EXTERNAL TABLE'
+    AND (IS_ICEBERG = 'YES' OR TABLE_TYPE = 'EXTERNAL TABLE')
 ORDER BY TABLE_NAME;
--- Then SHOW EXTERNAL TABLES to get format details for Iceberg detection.
 ```
 
 ### SV Design Notes
 
-- **Iceberg External Tables:**
-  - Full SQL support (same as base tables for SV purposes)
-  - May have auto-refresh configured (check freshness)
+- **Iceberg tables:**
+  - Treat like base tables for SV purposes
   - Performance depends on file format and partitioning
-  
-- **Non-Iceberg External Tables:**
+
+- **External tables:**
   - May have limited pushdown capabilities
   - Large scans can be expensive
   - Consider materializing hot data into regular tables
@@ -197,7 +190,7 @@ SHOW MATERIALIZED VIEWS IN SCHEMA :database.:schema;
 
 - **Pre-aggregated data:** MVs often contain aggregations — may be metrics themselves
   - Example: An MV with `SUM(amount) GROUP BY date, product` → columns are already metrics
-  - Set `default_aggregation = SUM` carefully (avoid double-aggregation)
+  - Define metrics on them carefully (avoid double-aggregation)
 - **Automatic refresh:** MVs refresh automatically when base tables change
   - Good freshness characteristics for SV
   - No manual refresh needed
@@ -214,9 +207,9 @@ If an MV already contains aggregated data:
 -- SELECT date, product_id, SUM(revenue) as total_revenue
 -- FROM sales GROUP BY date, product_id
 
--- In SV, mark total_revenue as a fact with SUM aggregation
--- But warn: querying "total revenue by product" would SUM the already-SUMmed values
--- Solution: Use the MV's columns as facts but set DEFAULT_AGGREGATION carefully
+-- In SV, expose total_revenue as a fact and define the metric as SUM(total_revenue).
+-- That is correct only for groupings at or above the MV grain (date, product_id).
+-- Do not define AVG or COUNT metrics over the pre-aggregated column.
 ```
 
 ## Selection Guidance
@@ -228,19 +221,20 @@ If an MV already contains aggregated data:
 | Transactional data (orders, events) | Base Table |
 | Business-defined entities (active customers) | View |
 | Near-real-time aggregations | Dynamic Table |
-| Data lake / external data | External Table (Iceberg) |
+| Data lake / open table format | Iceberg Table |
+| Raw files in a stage | External Table |
 | Pre-computed summaries | Materialized View |
 
 ### Multi-Type Composition
 
 A single semantic view can mix source types:
 ```sql
-CREATE OR REPLACE SEMANTIC VIEW sales_analytics
+CREATE SEMANTIC VIEW sales_analytics
 TABLES (
     orders AS DB.SCHEMA.ORDERS,                  -- Base table (transactions)
     cust AS DB.SCHEMA.ACTIVE_CUSTOMERS,          -- View (business logic)
     metrics AS DB.SCHEMA.DAILY_METRICS,          -- Dynamic table (near-real-time)
-    products AS DB.SCHEMA.PRODUCT_CATALOG        -- External table (data lake)
+    products AS DB.SCHEMA.PRODUCT_CATALOG        -- Iceberg table (data lake)
 )
 ...
 ```
@@ -255,27 +249,8 @@ When scanning a schema for SV candidates, prioritize:
 
 ---
 
-## Domain-Specific Column Caveats
+## Column Type Caveats
 
-Some source tables have columns whose SQL type does not match their semantic type. These cause
-silent failures in VQR SQL, eval scoring, and any arithmetic query.
-
-### PSPS Domain (`PSPS_HISTORICAL`)
-
-| Column | Stored Type | Semantic Type | Symptom | Correct Usage |
-|---|---|---|---|---|
-| `GEN_FUELLEVEL` | `TEXT` | Numeric percentage | `AVG()`, comparisons return NULL or error | `TRY_TO_DECIMAL(GEN_FUELLEVEL)` |
-
-```sql
--- AVG fuel level (TEXT → DECIMAL required):
-ROUND(AVG(TRY_TO_DECIMAL(GEN_FUELLEVEL)), 1) AS avg_fuel_pct
-
--- Filter by fuel level:
-WHERE TRY_TO_DECIMAL(GEN_FUELLEVEL) < 50
-```
-
-Use `TRY_TO_DECIMAL` not `TO_DECIMAL` — returns NULL on non-numeric rows rather than erroring.
-
-If this column appears in a VQR or eval SQL, the VQR health check (Check 2 in
-`references/vqr-eval-health.md`) will not catch the type mismatch — add an explicit CAST in
-the VQR SQL.
+A column stored as `TEXT` that holds numbers makes `AVG()` and comparisons fail or return NULL.
+Wrap it in the SV expression with `TRY_TO_DECIMAL(<col>)` (NULL on non-numeric rows, rather than an
+error). VQR health checks do not detect this type mismatch.

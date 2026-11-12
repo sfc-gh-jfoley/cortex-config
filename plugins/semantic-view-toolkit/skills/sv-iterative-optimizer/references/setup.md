@@ -15,14 +15,14 @@ Ask the user:
 ```
 1. Semantic view to optimize (fully-qualified: DB.SCHEMA.SV_NAME)?
 2. Accuracy target (default: 85%)?
-3. Accept threshold — minimum improvement to accept a mutation (default: 2% absolute)?
+3. Repeats per evaluation (default 2, minimum 2). The accept threshold is derived from observed run-to-run variation (below), not fixed.
 ```
 
-Store as: `SV_FQN`, `ACCURACY_TARGET`, `ACCEPT_THRESHOLD`.
+Store as: `SV_FQN`, `ACCURACY_TARGET`, `REPEATS`.
 
 Verify the SV exists:
 ```sql
-DESCRIBE SEMANTIC VIEW <SV_FQN>;
+SELECT GET_DDL('SEMANTIC_VIEW', '<SV_FQN>');
 ```
 
 If this fails → report error and stop.
@@ -45,19 +45,27 @@ LIMIT 1;
 - Offer: "Run sv-evaluation first to establish a baseline score, then return here."
 - STOP — optimization requires a baseline.
 
-**If baseline exists:** Record `baseline_score = mean_score` from the most recent row.
+**If baseline exists:** Record `baseline_score = mean_score` from the most recent row, plus its metric version and question list. If the baseline used a different metric version or question list than this loop will (`sql_correctness` pinned to `v3`, hold-out list below), do not compare against it: re-run the baseline under the loop's settings.
+
+### Step 2b: Fix the eval question list and measure noise
+
+1. Select the hold-out VQR questions (see `SKILL.md`, VQR Split Strategy) and save them as `EVAL_QUESTIONS`.
+2. Evaluate the unchanged production SV on `EVAL_QUESTIONS` `REPEATS` times (>=2) with `sql_correctness` v3. Record the per-run means as `BASELINE_RUNS`; `BASELINE_SCORE` = their mean.
+3. `NOISE = max(BASELINE_RUNS) - min(BASELINE_RUNS)`. `ACCEPT_THRESHOLD = max(2 * NOISE, 1 / len(EVAL_QUESTIONS))`: a change must beat run-to-run variation and be at least one question's worth.
+4. Create the working candidate (kind `cand`) per `references/candidate-promotion.md` section 2 (`candidate.py new-run`, `name`, GET_DDL, `rewrite-ddl`, `register`). Store `RUN`, `CAND_FQN`. All later mutation and evaluation happen on `CAND_FQN`.
 
 ---
 
 ## Step 3: Create OPTIMIZATION_LOG
 
 > **Note (INTERACTIVE mode only):** When creating `_SV_TOOLKIT_META` objects for the first
-> time in INTERACTIVE mode, offer: "Want me to create a rollback clone first?
+> time in INTERACTIVE mode (gate `META-ROLLBACK-CLONE`), offer: "Want me to create a rollback clone first?
 > (`CREATE DATABASE <db>_RESTORE CLONE <db>`)"
 > In AUTONOMOUS mode, `CREATE SCHEMA/TABLE IF NOT EXISTS` is additive and idempotent
 > — no prompt needed.
 
 ```sql
+-- gate META-SCHEMA-CREATE: additive and idempotent
 CREATE SCHEMA IF NOT EXISTS <DB>._SV_TOOLKIT_META;
 
 CREATE TABLE IF NOT EXISTS <DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG (
@@ -85,7 +93,9 @@ Optimization Setup Complete
 SV:               <SV_FQN>
 Baseline Score:   <baseline_score> (<N> VQRs)
 Accuracy Target:  <ACCURACY_TARGET>%
-Accept Threshold: +<ACCEPT_THRESHOLD>% minimum improvement
+Accept Threshold: +<ACCEPT_THRESHOLD> (from noise <NOISE> over <REPEATS> runs)
+Candidate:        <CAND_FQN>
+Metric:           sql_correctness v3 (pinned)
 OPTIMIZATION_LOG: <DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG ✓
 ─────────────────────────────────────────
 Ready to optimize. Run: sv-iterative-optimizer → optimize (references/optimize.md)
@@ -102,5 +112,14 @@ Ready to optimize. Run: sv-iterative-optimizer → optimize (references/optimize
 | `SV_FQN` | Fully-qualified SV name |
 | `BASELINE_SCORE` | Most recent mean_score from EVAL_HISTORY |
 | `ACCURACY_TARGET` | User-defined target (default 0.85) |
-| `ACCEPT_THRESHOLD` | Minimum improvement to accept (default 0.02) |
+| `EVAL_QUESTIONS` | Fixed hold-out question list |
+| `REPEATS` | Evaluation repeats per state (>=2) |
+| `ACCEPT_THRESHOLD` | Derived from observed noise (Step 2b) |
+| `RUN`, `CAND_FQN` | Candidate run id and name |
 | `OPTIMIZATION_LOG_TABLE` | `<DB>._SV_TOOLKIT_META.OPTIMIZATION_LOG` |
+
+---
+
+## Failure summary format
+
+Defined in `references/eval-data.md` (shared with sv-gepa-optimizer's `--failures-file`).

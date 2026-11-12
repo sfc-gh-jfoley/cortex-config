@@ -5,7 +5,7 @@ Ranks candidates by fitness, selects winners/losers, updates operator weights
 and convergence tracking in the state file.
 
 Usage:
-  python tournament.py <scores_json> <state_path>
+  python tournament.py <scores_json> <state_path> --metric-version v3
 
 Input scores_json format:
   {"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55}
@@ -21,14 +21,10 @@ import sys
 from pathlib import Path
 
 
-WEIGHT_BOOST = 0.02
-WEIGHT_PENALTY = 0.01
-WEIGHT_FLOOR = 0.02
-DEFAULT_OPERATORS = [
-    "add_synonym", "improve_description", "add_filter", "add_vqr",
-    "add_metric", "refine_metric_expr", "add_metric_description",
-    "change_relationship", "add_time_dimension", "remove_column",
-]
+EARLY_STOP_DELTA = 0.10
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from population_state import apply_weight_update, check_metric_version  # noqa: E402
 
 
 def load_state(state_path: str) -> dict:
@@ -45,16 +41,6 @@ def save_state(state_path: str, state: dict) -> None:
     """Save GEPA state to JSON file."""
     with open(state_path, "w") as f:
         json.dump(state, f, indent=2)
-
-
-def extract_operator(mutations_str: str) -> str | None:
-    """Extract operator name from mutations description."""
-    if not mutations_str:
-        return None
-    for op in DEFAULT_OPERATORS:
-        if op in mutations_str:
-            return op
-    return None
 
 
 def run_tournament(scores: dict[str, float], state: dict) -> dict:
@@ -90,39 +76,13 @@ def run_tournament(scores: dict[str, float], state: dict) -> dict:
     }
 
 
-def update_operator_weights(state: dict, winners: list[str], losers: list[str]) -> None:
-    """Adjust operator weights: boost winners' ops, penalize losers' ops."""
-    candidates_by_id = {c["id"]: c for c in state["candidates"]}
-
-    for wid in winners:
-        if wid in candidates_by_id:
-            op = extract_operator(candidates_by_id[wid].get("mutations", ""))
-            if op and op in state["operator_weights"]:
-                state["operator_weights"][op] += WEIGHT_BOOST
-
-    for lid in losers:
-        if lid in candidates_by_id:
-            op = extract_operator(candidates_by_id[lid].get("mutations", ""))
-            if op and op in state["operator_weights"]:
-                state["operator_weights"][op] = max(
-                    WEIGHT_FLOOR, state["operator_weights"][op] - WEIGHT_PENALTY
-                )
-
-    # Normalize to sum to 1.0
-    total = sum(state["operator_weights"].values())
-    if total > 0:
-        state["operator_weights"] = {
-            k: round(v / total, 4) for k, v in state["operator_weights"].items()
-        }
-
-
 def check_convergence(state: dict, gen_best: float) -> bool:
     """Check if population has converged.
 
     Convergence conditions:
     - convergence_counter >= threshold (no improvement for N gens)
     - current_generation >= max_generations
-    - Population collapse (not checked here — requires score variance)
+    - generation 1 best more than 0.10 above baseline
     """
     threshold = state.get("convergence_threshold", 3)
     max_gen = state.get("max_generations", 10)
@@ -135,22 +95,24 @@ def check_convergence(state: dict, gen_best: float) -> bool:
     if state["convergence_counter"] >= threshold:
         return True
 
-    # Early termination: gen 1 winner >10% above baseline
+    # Early stop: generation 1 best is more than 0.10 (absolute) above baseline
     if state["current_generation"] == 1:
         baseline = state.get("baseline_fitness", 0.0)
-        if baseline > 0 and gen_best > baseline * 1.10:
+        if gen_best > baseline + EARLY_STOP_DELTA:
             return True
 
     return False
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        print("Usage: python tournament.py <scores_json> <state_path>", file=sys.stderr)
-        sys.exit(1)
-
-    scores_input = sys.argv[1]
-    state_path = sys.argv[2]
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("scores_json")
+    parser.add_argument("state_path")
+    parser.add_argument("--metric-version", required=True, help="sql_correctness version of these scores")
+    ns = parser.parse_args()
+    scores_input = ns.scores_json
+    state_path = ns.state_path
 
     # Parse scores — accept either a JSON string or a file path
     if Path(scores_input).exists():
@@ -169,6 +131,11 @@ def main() -> None:
         sys.exit(1)
 
     state = load_state(state_path)
+    try:
+        check_metric_version(state, ns.metric_version)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Run tournament
     result = run_tournament(scores, state)
@@ -182,15 +149,19 @@ def main() -> None:
             if candidate["id"] == cid:
                 candidate["fitness"] = score
                 candidate["status"] = "evaluated"
+                candidate["metric_version"] = ns.metric_version
                 break
 
     # Update operator weights
-    update_operator_weights(state, winners, losers)
+    apply_weight_update(state, winners, losers)
 
     # Update convergence tracking
     prev_best = state.get("best_fitness", 0.0)
     if gen_best > prev_best:
         state["best_fitness"] = gen_best
+        best = next((c for c in state["candidates"] if c["id"] == result["ranked"][0][0]), None)
+        if best:
+            state["best_candidate_fqn"] = best.get("candidate_fqn")
         state["convergence_counter"] = 0
     else:
         state["convergence_counter"] += 1
@@ -209,6 +180,7 @@ def main() -> None:
         "gen_best_fitness": gen_best,
         "convergence_counter": state["convergence_counter"],
         "converged": converged,
+        "best_candidate_fqn": state.get("best_candidate_fqn"),
     }
     print(json.dumps(output))
 

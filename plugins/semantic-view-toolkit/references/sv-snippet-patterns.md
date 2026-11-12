@@ -6,33 +6,39 @@ gotchas, and synonym discipline where relevant.
 
 Source: https://github.com/Snowflake-Labs/coco-skills/tree/main/skills/semantic-view-patterns/snippets
 
-## Live Examples (deployed to SNIPPETS.PUBLIC)
+## Index
 
-All 8 core patterns are deployed and verified in `SNIPPETS.PUBLIC`. When showing
-a user a pattern, give them a working query they can run immediately.
+Read this table first, then read only the sections you need (each section is self-contained).
 
-| Pattern | SV Name | Sample Query |
-|---------|---------|-------------|
-| `semi_additive_metric` | `SNIPPETS.PUBLIC.ACCOUNT_BALANCES_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.ACCOUNT_BALANCES_SV DIMENSIONS balances.balance_date METRICS balances.total_balance) ORDER BY balance_date;` |
-| `range_join` | `SNIPPETS.PUBLIC.ORDERS_BY_SEGMENT` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.ORDERS_BY_SEGMENT DIMENSIONS customer_segments.segment METRICS orders.total_revenue) ORDER BY total_revenue DESC;` |
-| `asof_join` | `SNIPPETS.PUBLIC.ORDERS_BY_ADDRESS` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.ORDERS_BY_ADDRESS DIMENSIONS Customer_address.zip METRICS Orders.total_revenue) ORDER BY zip;` |
-| `accumulating_snapshot` | `SNIPPETS.PUBLIC.LOAN_PIPELINE_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.LOAN_PIPELINE_SV DIMENSIONS date_dim.year, date_dim.month_num, date_dim.month_name METRICS applications.application_count, applications.review_count, applications.decision_count, applications.funding_count) ORDER BY year, month_num;` |
-| `role_playing_dimensions` | `SNIPPETS.PUBLIC.ORDERS_RPD_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.ORDERS_RPD_SV DIMENSIONS order_date_dim.order_month_name, ship_date_dim.ship_month_name METRICS orders.total_revenue) ORDER BY order_month_name, ship_month_name;` |
-| `entity_facts` | `SNIPPETS.PUBLIC.CUSTOMER_ORDERS_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.CUSTOMER_ORDERS_SV DIMENSIONS customers.value_segment METRICS orders.total_revenue, customers.customer_count) ORDER BY value_segment;` |
-| `window_metrics` | `SNIPPETS.PUBLIC.DAILY_SALES_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.DAILY_SALES_SV DIMENSIONS daily_sales.date METRICS daily_sales.total_revenue, daily_sales.rolling_7d_avg_revenue, daily_sales.ytd_revenue) ORDER BY date LIMIT 10;` |
-| `derived_metrics` | `SNIPPETS.PUBLIC.CHANNEL_SALES_SV` | `SELECT * FROM SEMANTIC_VIEW(SNIPPETS.PUBLIC.CHANNEL_SALES_SV DIMENSIONS dim_date.month METRICS store_sales.store_revenue, web_sales.web_revenue, total_revenue) ORDER BY month;` |
-
-## Known Bug in Upstream Repo
-
-**`accumulating_snapshot/semantic_view.sql`** — The canonical file uses entity-prefixed
-derived metrics (`applications.funding_rate AS DIV0(...)`) which Snowflake rejects.
-Correct syntax removes the prefix: `funding_rate AS DIV0(applications.funding_count, ...)`.
-The README documents the correct syntax; the SQL file has the bug. Tracked: tested
-2026-09-10 against SNIPPETS.PUBLIC.LOAN_PIPELINE_SV.
+| # | Pattern | Signal → construct | Section |
+|---|---|---|---|
+| 1 | `semi_additive_metric` | snapshot table (balance, headcount, inventory) → `NON ADDITIVE BY (time_col)` | [§1](#1-semi_additive_metric) |
+| 2 | `range_join` | valid_from + valid_to, SCD2 → `DISTINCT RANGE BETWEEN ... EXCLUSIVE` (Preview) | [§2](#2-range_join) |
+| 3 | `asof_join` | single effective date, no end date → `REFERENCES dim(id, ASOF date_col)` | [§3](#3-asof_join) |
+| 4 | `accumulating_snapshot` | pipeline stages with milestone dates → `USING (rel)` per metric (Preview) | [§4](#4-accumulating_snapshot) |
+| 5 | `role_playing_dimensions` | two+ FK dates in one fact table → double alias in TABLES | [§5](#5-role_playing_dimensions) |
+| 6 | `multi_path_metrics` | two paths to the same physical table → `USING (rel)` per metric (Preview) | [§6](#6-multi_path_metrics) |
+| 7 | `time_intelligence` | SPLY, YoY, MoM, prior period → shifted FACT join key + role alias | [§7](#7-time_intelligence) |
+| 8 | `window_metrics` | rolling avg, YTD, LAG, rank → `OVER (PARTITION BY EXCLUDING ...)` | [§8](#8-window_metrics) |
+| 9 | `derived_metrics` | cross-entity totals, ratios → metric with no entity prefix | [§9](#9-derived_metrics) |
+| 10 | `entity_facts` | LTV, segment from aggregate → `PRIVATE ... AS SUM(other_table.col)` | [§10](#10-entity_facts) |
+| 11 | `fact_as_relationship_key` | computed FK, no physical FK column → FACT expression + REFERENCES | [§11](#11-fact_as_relationship_key) |
+| 12 | `multi_fact_table` | multiple independent fact tables → separate TABLES + shared dims | [§12](#12-multi_fact_table) |
+| 13 | `shared_degenerate_dimension` | categorical column on several facts, no dim table → helper entity | [§13](#13-shared_degenerate_dimension) |
+| 14 | `ai_metadata` | steer SQL style, reject out-of-scope questions → `AI_SQL_GENERATION`, VQRs | [§14](#14-ai_metadata) |
+| 15 | `variables` | adjustable thresholds and weights → `VARIABLES (...) DEFAULT` | [§15](#15-variables) |
+| 16 | `scoped_dataset` | LOB/tenant filter, pre-join → SQL query as a logical table (GA) | [§16](#16-scoped_dataset) |
+| 17 | `inline_sv` | prototyping, dbt unit test → `WITH ... AS SEMANTIC VIEW` (status unverified) | [§17](#17-inline_sv) |
+| 18 | `materialization` | pre-aggregate hot Semantic SQL queries → `ADD MATERIALIZATION` (Preview) | [§18](#18-materialization) |
+| 19 | `caller_rights` | enforce base-table ACL through the SV → owner-without-table-access pattern | [§19](#19-caller_rights) |
+| 20 | `row_access_policies` | region/tenant RAP with an SV → apply RAP to the fact table | [§20](#20-row_access_policies) |
+| 21 | `introspection` | discover SV structure and lineage → `SHOW SEMANTIC ...`, `GET_LINEAGE` | [§21](#21-introspection) |
+| 22 | `sv_diagnostics` | debugging wrong numbers → pre-deploy checklist, cardinality checks | [§22](#22-sv_diagnostics) |
+| 23 | `system_explain_semantic_query` | debug generated SQL → `SYSTEM$EXPLAIN_SEMANTIC_QUERY` | [§23](#23-system_explain_semantic_query) |
+| 24 | `standard_sql` | BI/dbt queries without SEMANTIC_VIEW() → `ANY_VALUE(metric)` wrapper | [§24](#24-standard_sql) |
+| 25 | `tags` | ownership and certification governance → `WITH TAG (...)` on metrics | [§25](#25-tags) |
 
 ---
-
-
 
 ## 1. semi_additive_metric
 
@@ -77,6 +83,8 @@ METRICS (
 ---
 
 ## 2. range_join
+
+**Status:** Preview (range joins in semantic views, release note 2026-02-25).
 
 **Problem:** Dimension table has SCD2 history — each row has VALID_FROM and VALID_TO.
 Fact events must be attributed to the dimension version active at event time.
@@ -141,6 +149,8 @@ Use range_join when it has explicit start+end dates (BETWEEN ... EXCLUSIVE).
 ---
 
 ## 4. accumulating_snapshot
+
+**Status:** relies on `USING`, which is Preview (release note 2026-03-13).
 
 **Problem:** Business pipeline (loan origination, hiring, claims) where each entity
 moves through sequential milestone stages, each with its own date. Need per-stage
@@ -229,6 +239,8 @@ DIMENSIONS (
 ---
 
 ## 6. multi_path_metrics
+
+**Status:** `USING` (relationship paths) is Preview (release note 2026-03-13).
 
 **Problem:** Two FKs from the same fact table reference the same physical dimension table
 (different roles: departure city, arrival city). Need separate metrics for each path.
@@ -520,7 +532,7 @@ RELATIONSHIPS (
 )
 ```
 
-**Inline SQL alternative (Private Preview):**
+**Inline SQL alternative (SQL query as a logical table, GA):**
 ```sql
 regions AS (
   SELECT DISTINCT region FROM store_orders
@@ -601,7 +613,7 @@ DIMENSIONS (
 
 ---
 
-## 16. scoped_dataset  ⚠️ Private Preview
+## 16. scoped_dataset
 
 **Problem:** One source table contains data for multiple LOBs/regions/tenants.
 Need separate SVs scoped to each subset without creating intermediate tables.
@@ -618,13 +630,13 @@ TABLES (
 **Gotchas:**
 - Alias is REQUIRED when using `AS (...)`
 - Session variables (`$var`) cannot be used in the inline query
-- Filter is embedded in DDL — changing requires `CREATE OR REPLACE SEMANTIC VIEW`
+- Filter is embedded in DDL — changing it means redeploying the full DDL (on a candidate copy)
 - `DESCRIBE SEMANTIC VIEW` shows inline query in DEFINITION property (not BASE_TABLE_NAME)
-- ⚠️ Private Preview — requires account-team enablement
+- SQL queries as logical tables are generally available (release note, 2026-06-26)
 
 ---
 
-## 17. inline_sv  ⚠️ Private Preview
+## 17. inline_sv
 
 **Problem:** Testing DDL before committing, dbt unit tests, rapid prototyping.
 
@@ -642,7 +654,8 @@ RELATIONSHIPS (
 SELECT * FROM SEMANTIC_VIEW(adhoc_sv DIMENSIONS ... METRICS ...);
 ```
 
-**Note:** Not usable with Cortex Analyst. ⚠️ Private Preview.
+**Note:** Not usable with Cortex Analyst. Status unverified: the `WITH ... AS SEMANTIC VIEW` form
+was not found in the Snowflake docs; verify before relying on this.
 
 ---
 
@@ -671,7 +684,9 @@ ALTER SEMANTIC VIEW my_sv ADD MATERIALIZATION revenue_by_customer
 **Cannot be materialized:** Window metrics, semi-additive (NON ADDITIVE BY) metrics,
 metrics with USING clause, AVG/COUNT DISTINCT/MEDIAN/PERCENTILE.
 
-**⚠️ Private Preview — requires account-team enablement.**
+**Status:** Preview (Open, available to all accounts). Materializations benefit queries executed
+as Semantic SQL; Cortex Analyst, Cortex Agents and Snowflake CoWork queries that run physical SQL
+against the base tables do not benefit.
 
 ---
 

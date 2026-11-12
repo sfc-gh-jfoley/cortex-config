@@ -19,627 +19,239 @@ triggers:
 
 # sv-gepa-optimizer
 
-Population-based evolutionary optimization for Snowflake Semantic Views using Genetic Evaluation and Parameter Adaptation (GEPA).
+Population-based evolutionary search over semantic view (SV) DDL. Last resort after sequential optimization (sv-iterative-optimizer) has stalled. It works only on candidate copies; production changes only through gate `SV-PROMOTE`. Read `references/candidate-promotion.md` first.
 
 ## When to Use
 
-Use this skill when:
-- Sequential optimization (sv-iterative-optimizer) has stalled — 2-3 consecutive rejections indicate a local optimum
-- You want to explore the SV structure space broadly rather than greedily
-- Multiple aspects of the SV need simultaneous improvement (descriptions, metrics, relationships)
-- The SV has enough VQRs (5+) for meaningful mini-batch evaluation
+- Sequential optimization stalled (2-3 consecutive rejections) or several aspects need simultaneous change.
+- The SV has at least 5 verified queries (VQRs) and a baseline score from sv-evaluation.
 
-Do NOT use when:
-- The SV has fewer than 5 VQRs (use sv-iterative-optimizer for sequential single-mutation improvement)
-- You haven't established a baseline eval score yet (run sv-evaluation first)
-- The issue is a single known defect (use targeted sv-iterative-optimizer instead)
+Do NOT use for fewer than 5 VQRs, a single known defect, or without a baseline.
 
 ## Prerequisites
 
-- An existing semantic view with at least 5 VQRs defined
-- A baseline eval score recorded in `_SV_TOOLKIT_META.EVAL_HISTORY`
-- Eval prerequisites met:
-  - `EXECUTE TASK` privilege on the account
-  - `CREATE TASK` and `CREATE DATASET` privilege in the schema
-  - `MONITOR` privilege on the warehouse
-- `CREATE OR REPLACE SEMANTIC VIEW` privilege (for deploying candidate SVs). Note: if the target SV has materializations, prefer `CREATE OR ALTER SEMANTIC VIEW` (Preview, May 2026) to preserve them — `CREATE OR REPLACE` drops all materializations on every candidate deploy. See `skills/sv-ddl/reference/ddl_syntax.md`. The candidate DDL templates below use `CREATE OR REPLACE`; substitute `CREATE OR ALTER` when materializations exist.
-- Cortex Analyst enabled in the account
+- Eval privileges listed in `skills/sv-evaluation/SKILL.md` (primary role holds CORTEX_USER, EXECUTE TASK ON ACCOUNT, CREATE TASK and CREATE DATASET on the schema, SELECT and MONITOR on the SV).
+- Privilege to create semantic views in the SV's schema (candidates are plain `CREATE SEMANTIC VIEW`; no production privilege is used).
+- Scripts run from the toolkit root (`scripts/...`). Workspace: `/tmp/gepa_workspace`.
 
 ## Configuration
 
-| Parameter | Default | Range | Description |
-|---|---|---|---|
-| `population_size` | 6 | 4–12 | Candidates per generation |
-| `max_generations` | 10 | 3–20 | Hard generation cap |
-| `mini_batch_pct` | 0.30 | 0.20–0.50 | Fraction of VQRs evaluated per generation |
-| `convergence_threshold` | 3 | 2–5 | Generations without improvement before stopping |
+| Parameter | Default | Range |
+|---|---|---|
+| `population_size` | 6 | 4-12 |
+| `max_generations` | 10 | 3-20 |
+| `mini_batch_pct` | 0.30 | 0.10-1.0 (fewer than 5 VQRs: all are used) |
+| `convergence_threshold` | 3 | 2-5 |
+| `metric_version` | v3 | pinned for the whole run |
+| finalist repeats | 2 | >= 2 |
 
 ## Execution Mode
 
-Inherits the session mode declared at the toolkit router (see root `SKILL.md`). Never re-asks.
+Inherits the session mode from the router. `GEPA-POP-REVIEW` auto-resolves in AUTONOMOUS mode. Promotion (`SV-PROMOTE`) and candidate cleanup (`SV-CANDIDATE-CLEANUP`) are OPERATOR_REQUIRED in both modes (see `references/gate-inventory.md`).
 
-- **INTERACTIVE**: Population review gate (Step 4) and production overwrite gate (Step 12) both block for explicit operator approval.
-- **AUTONOMOUS**: Step 4 auto-proceeds after logging the population matrix. Step 12 production overwrite (`GEPA-PROD-OVERWRITE`) is **OPERATOR_REQUIRED in both modes** — AUTONOMOUS mode does not bypass it. Convergence stops are always algorithmic (never judgment calls).
+## Evaluation contract
 
-**Permanent OPERATOR_REQUIRED gate:** The production overwrite in Step 12 is `GEPA-PROD-OVERWRITE` — always pauses in both INTERACTIVE and AUTONOMOUS modes; presents the validated diff and waits for explicit acceptance. `GEPA-PROD-SNAPSHOT` (snapshot before overwrite) fires automatically in both modes before the gate.
+- Cortex Analyst evaluation uses `analyst_params` with `source_metadata.type: verified_queries`; metric `sql_correctness` is pinned to a version (`v3`). Unversioned resolves to v1; scores from different versions are not comparable, so the scripts refuse mixed versions.
+- SQL generation is non-deterministic: mini-batch scores are noisy single runs used only to rank within a generation; the winner is chosen from finalists evaluated at least twice on one question list.
+- Questions named in `verified_queries` are removed from the evaluated copy; the others keep guiding generation (see `skills/sv-evaluation/SKILL.md`). A batch therefore changes the effective view; compare scores only within one batch.
+
+Config shape (generated by `sample_batch.py --emit-eval-yaml`):
+
+```yaml
+evaluation:
+  analyst_params:
+    analyst_name: "<DB>.<SCHEMA>.<CANDIDATE>"
+    analyst_type: "SEMANTIC VIEW"
+  source_metadata:
+    type: "verified_queries"
+    verified_queries:
+      - "<question text>"
+metrics:
+  - name: "sql_correctness"
+    version: "v3"
+```
+
+Run it with `CALL EXECUTE_AI_EVALUATION('START', OBJECT_CONSTRUCT('run_name', '<run>'), '@<DB>.<SCHEMA>.<STAGE>/<config>.yaml')`; poll with `'STATUS'`; read results with `GET_ANALYST_AI_EVALUATION_DATA`. Polling pattern: `references/eval-polling.md`.
 
 ---
 
 ## Phase 1: Initialize Population
 
-### Step 1: Read Context
-
-Gather the current state of the semantic view and any prior optimization history.
+### Step 1: Read context and baseline
 
 ```sql
--- Get current DDL structure
-DESCRIBE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>;
+SELECT GET_DDL('SEMANTIC_VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
 ```
+Save to `/tmp/gepa_workspace/prod.sql` (read-only reference; production is never edited). Take `baseline_fitness` from a `sql_correctness` v3 run on production; run it at least twice on the same question list and use the mean.
 
-Save the output to a local file for the scripts to reference (e.g., `/tmp/gepa_workspace/current_sv.sql`).
+If `/tmp/gepa_workspace/gepa_state.json` exists, follow the Resume Protocol.
 
-```sql
--- Check baseline score (reads from structured EVAL_HISTORY table written by sv-evaluation)
-SELECT run_name, mean_score, run_timestamp
-FROM <DB>._SV_TOOLKIT_META.EVAL_HISTORY
-WHERE sv_fqn LIKE '%<SV_NAME>%'
-ORDER BY run_timestamp DESC
-LIMIT 5;
-```
-
-Record the most recent `mean_score` as `baseline_fitness`.
-
-Check if a previous GEPA run was interrupted:
-```bash
-ls /tmp/gepa_workspace/gepa_state.json 2>/dev/null
-```
-
-### Step 2: Resume or Initialize
-
-> **Script path note:** All `scripts/` commands below assume CWD is the toolkit
-> root — the directory containing `SKILL.md` and `scripts/`, wherever you installed
-> it. For example: `cd /path/to/semantic-view-toolkit`.
-> If running from another directory, prefix each script path with the toolkit root,
-> e.g. `python3 <toolkit-root>/scripts/population_state.py`.
-
-**If `gepa_state.json` exists → Resume Protocol** (see end of document)
-
-**If not → Initialize fresh population:**
+### Step 2: Initialize
 
 ```bash
+RUN=$(python3 scripts/candidate.py new-run | jq -r .run)
 python3 scripts/population_state.py init /tmp/gepa_workspace \
-  --pop-size 6 \
-  --agent-name "<DB>.<SCHEMA>.<SV_NAME>" \
-  --baseline-fitness <BASELINE_SCORE>
+  --pop-size 6 --agent-name <SV_NAME> --source-fqn <DB>.<SCHEMA>.<SV_NAME> \
+  --baseline-fitness <BASELINE> --metric-version v3
 ```
 
-This creates `gepa_state.json` with:
-- Uniform operator weights (10 operators)
-- Generation counter at 1
-- Convergence counter at 0
-- Empty candidate list
+### Step 3: Create the population (per slot N, generation G)
 
-### Step 3: Create Population
+1. Pick an operator: `python3 scripts/mutate.py select-operator --weights-file /tmp/gepa_workspace/gepa_state.json`
+2. Name the candidate (never a production name):
+   ```bash
+   CAND=$(python3 scripts/candidate.py name --source <DB>.<SCHEMA>.<SV_NAME> --kind gepa --run "$RUN" --gen <G> --idx <N> | jq -r .candidate)
+   ```
+3. Build the prompt from the parent DDL (`prod.sql` in generation 1; a winner's saved DDL later; `rewrite-ddl` accepts the parent candidate's header). Pass recent failures and prior wins when you have them (formats in the `mutate.py` docstring):
+   ```bash
+   python3 scripts/mutate.py get-prompt <OPERATOR> <PARENT_DDL_FILE> \
+     --failures-file /tmp/gepa_workspace/failures.json --wins-file /tmp/gepa_workspace/wins.json \
+     --source <DB>.<SCHEMA>.<SV_NAME> --target "$CAND"
+   ```
+4. Generate the mutated DDL with `SNOWFLAKE.CORTEX.COMPLETE('<COMPLETE_MODEL>', '<prompt>')`. The model name must be a literal your account has enabled; ask the operator, do not hardcode one. Save to `candidates/cand_<N>.sql`.
+5. Validate: `python3 scripts/mutate.py validate <PARENT_DDL_FILE> candidates/cand_<N>.sql --source <PROD_FQN> --target "$CAND"`. On FAIL regenerate with the errors (max 2 retries, then skip the slot).
+6. Rewrite the header and register:
+   ```bash
+   python3 scripts/candidate.py rewrite-ddl --source <PROD_FQN> --candidate "$CAND" < candidates/cand_<N>.sql > candidates/deploy_<N>.sql
+   python3 scripts/candidate.py register /tmp/gepa_workspace/manifest.json --run "$RUN" --source <PROD_FQN> --candidate "$CAND" --parent <PARENT_FQN_OR_OMIT> --ddl-file candidates/deploy_<N>.sql
+   python3 scripts/population_state.py add-candidate /tmp/gepa_workspace/gepa_state.json \
+     --id cand_<N> --generation <G> --operator <OPERATOR> --mutations "<OPERATOR>: <what changed>" \
+     --candidate-fqn "$CAND" [--parent-fqn <PARENT_FQN>] --mutation-summary "<short diff summary>"
+   ```
 
-For each candidate slot (1 to `population_size`):
+### Step 4: Population review (`GEPA-POP-REVIEW`)
 
-**3a. Select mutation operator:**
-```bash
-python3 scripts/mutate.py select-operator \
-  --weights-file /tmp/gepa_workspace/gepa_state.json
-```
-
-Returns: `{"operator": "add_synonym", "target_hint": "...", "weight": 0.12}`
-
-**3b. Generate mutation prompt:**
-```bash
-python3 scripts/mutate.py get-prompt <OPERATOR> /tmp/gepa_workspace/current_sv.sql
-```
-
-Returns: `{"operator": "...", "prompt": "<full LLM prompt>"}`
-
-**3c. Apply mutation (LLM-assisted):**
-
-Use the returned prompt with CORTEX.COMPLETE to generate the mutated DDL:
-
-```sql
--- COMPLETE needs a literal model name. Resolve one at runtime: probe candidates
--- in the quality tier (a larger reasoning model — mutation benefits from it) and
--- keep the first that returns without a "model unavailable" error. Ask the
--- operator which models their account has enabled. Do not hardcode a version.
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-    '<COMPLETE_MODEL>',
-    '<mutation_prompt_escaped>'
-) AS mutated_ddl;
-```
-
-Save the result to `/tmp/gepa_workspace/candidates/cand_<N>.sql`.
-
-**3d. Validate mutation:**
-```bash
-python3 scripts/mutate.py validate \
-  /tmp/gepa_workspace/current_sv.sql \
-  /tmp/gepa_workspace/candidates/cand_<N>.sql
-```
-
-If validation fails (`status: FAIL`), regenerate with the error feedback. Retry up to 2 times before skipping this candidate slot.
-
-**3e. Register candidate:**
-```bash
-python3 scripts/population_state.py add-candidate \
-  /tmp/gepa_workspace/gepa_state.json \
-  --id "cand_<N>" \
-  --generation 1 \
-  --mutations "<OPERATOR>: <brief description of change>"
-```
-
-### Step 4: Population Review
-
-Present the population matrix:
-
-```
-┌─────────┬──────────────────────┬──────────────────────────────────────┐
-│ Candidate│ Operator             │ Mutation Summary                     │
-├─────────┼──────────────────────┼──────────────────────────────────────┤
-│ cand_1  │ add_synonym          │ Added synonyms to REVENUE, REGION    │
-│ cand_2  │ improve_description  │ Rewrote descriptions for 3 columns   │
-│ cand_3  │ add_vqr             │ Added "top 10 customers by spend"    │
-│ cand_4  │ change_relationship  │ Changed INNER→LEFT on orders→items   │
-│ cand_5  │ add_metric          │ Added avg_order_value metric         │
-│ cand_6  │ remove_column       │ Removed INTERNAL_ID, AUDIT_TS        │
-└─────────┴──────────────────────┴──────────────────────────────────────┘
-
-Baseline fitness: 0.65 (from eval: full_eval_20250520)
-Population size: 6 | Mini-batch: 30% of VQRs | Max generations: 10
-```
-
-**INTERACTIVE mode:** Wait for user approval before deploying candidates.
-**AUTONOMOUS mode:** Log the population matrix and proceed to Phase 2 automatically.
-`[AUTO-RESOLVED: GEPA-POP-REVIEW → proceed (population validated, autonomous mode)]`
+Show a table of candidate, operator, mutation summary, plus baseline, population size, batch size and max generations. INTERACTIVE waits for approval; AUTONOMOUS logs and continues.
 
 ---
 
 ## Phase 2: Evaluate Generation
 
-### Step 5: Deploy Candidate SVs
-
-For each validated candidate, deploy as a separate semantic view:
-
-```sql
-CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>
-  <DDL from /tmp/gepa_workspace/candidates/cand_<N>.sql>
-;
-```
-
-Verify deployment:
-```sql
-SHOW SEMANTIC VIEWS LIKE '%_GEPA_CAND_%' IN SCHEMA <DB>.<SCHEMA>;
-```
-
-### Step 6: Create Mini-Batch
-
-Select a stratified subset of VQRs for this generation's evaluation:
+### Step 5: Deploy candidates (`GEPA-CANDIDATE-DEPLOY`)
 
 ```bash
-# First, extract VQR questions from current SV (pipe as JSON)
-echo '<vqr_json_array>' | python3 scripts/sample_batch.py \
-  --from-stdin \
-  --batch-pct 0.30 \
-  --generation <G> \
-  --history-file /tmp/gepa_workspace/gepa_state.json
+python3 scripts/candidate.py guard --source <PROD_FQN> --target "$CAND"
 ```
-
-Input VQR JSON format:
-```json
-[
-  {"question": "What is total revenue?", "previously_passed": true},
-  {"question": "Show top customers by region", "previously_passed": false}
-]
+```sql
+-- contents of candidates/deploy_<N>.sql: plain CREATE SEMANTIC VIEW <CAND> ...
 ```
+If the name already exists, stop; never replace. Candidates do not inherit materializations. Confirm with `SHOW SEMANTIC VIEWS IN SCHEMA <DB>.<SCHEMA>` and check for the exact candidate name.
 
-The script returns a JSON array of selected question strings and records the batch in state.
+### Step 6: Mini-batch
 
-### Step 7: Fire Evaluations
-
-For each candidate, write the mini-batch eval config to a file, upload to stage, and launch:
+Batch sizing and the fewer-than-5-VQRs rule: `references/mini-batch-strategy.md`.
 
 ```bash
-# Write mini-batch eval config for this candidate
-cat > /tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml << 'EOF'
-evaluation:
-  agent_params:
-    agent_name: "<DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_<N>"
-    agent_type: "SEMANTIC VIEW"
-  source_metadata:
-    type: "dataset"
-    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
-
-metrics:
-  - "sql_correctness"
-EOF
+echo '<vqr_json_array>' | python3 scripts/sample_batch.py --from-stdin --batch-pct 0.30 \
+  --generation <G> --history-file /tmp/gepa_workspace/gepa_state.json > batch_gen<G>.json
 ```
+Input is `[{"question": "...", "previously_passed": true}]`. Fewer than 5 VQRs: all are used. The batch is recorded in state and rotated between generations.
+
+### Step 7: Fire evaluations
+
+Write one YAML per candidate from the batch saved in Step 6 (same question list for every candidate in the generation):
+
+```bash
+python3 scripts/sample_batch.py --reuse-questions batch_gen<G>.json --emit-eval-yaml "$CAND" \
+  --metric-version v3 --generation <G> --history-file /tmp/gepa_workspace/gepa_state.json > eval_gen<G>_cand<N>.yaml
+```
+Then upload and start:
 
 ```sql
--- Upload config to eval stage
-PUT file:///tmp/gepa_workspace/eval_configs/eval_gen<G>_cand<N>.yaml
-  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
-  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
-
--- Launch evaluation (async START/STATUS pattern; see references/eval-polling.md).
-CALL SYSTEM$EXECUTE_AI_EVALUATION(
-  'START',
-  '<SV_NAME>__gen<G>__cand_<N>',
-  OBJECT_CONSTRUCT(
-    'analyst_type', 'SEMANTIC VIEW',
-    'analyst_name', '<DB>.<SCHEMA>.<SV_CANDIDATE>',
-    'evaluation_dataset', '<DB>.<SCHEMA>.<EVAL_DATASET>',
-    'metrics', ARRAY_CONSTRUCT(
-      OBJECT_CONSTRUCT('name', 'sql_correctness')
-    )
-  )
-);
+PUT file:///tmp/gepa_workspace/eval_gen<G>_cand<N>.yaml @<DB>.<SCHEMA>.<STAGE>/ AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
+CALL EXECUTE_AI_EVALUATION('START', OBJECT_CONSTRUCT('run_name', '<RUN>_G<G>_C<N>'),
+  '@<DB>.<SCHEMA>.<STAGE>/eval_gen<G>_cand<N>.yaml');
 ```
 
-**Naming convention:** `<SV_NAME>__gen<G>__cand_<N>` (double underscore separators)
+### Step 8: Collect scores
 
-### Step 8: Collect Scores
-
-Poll `EXECUTE_AI_EVALUATION('STATUS', '<run_name>')` every 30 seconds until COMPLETED (max 15 minutes per candidate). See `references/eval-polling.md § Evaluation Lifecycle` for the polling pattern.
-
-Poll every 30 seconds (if batching via a wrapper), max 15 minutes per candidate.
-
-Once COMPLETED, retrieve the fitness score (use normalized CTE pattern):
+Poll `STATUS` every 30 seconds, max 15 minutes per candidate (`references/eval-polling.md`). Then:
 
 ```sql
-WITH raw AS (
-  SELECT EVAL_AGG_SCORE
-  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_NAME>_GEPA_CAND_<N>', 'SEMANTIC VIEW', '<SV_NAME>__gen<G>__cand_<N>'
-  ))
-  WHERE METRIC_NAME = 'sql_correctness'
-)
 SELECT AVG(EVAL_AGG_SCORE) AS mean_score
-FROM raw;
+FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA('<DB>', '<SCHEMA>', '<CANDIDATE_NAME>', 'SEMANTIC VIEW', '<RUN>_G<G>_C<N>'))
+WHERE METRIC_NAME = 'sql_correctness';
 ```
-
-Collect all scores into a JSON object:
-```json
-{"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55, "cand_5": 0.70, "cand_6": 0.68}
-```
-
-**Error handling:**
-- If a candidate evaluation FAILS (invalid DDL, permission error): score = 0.0
-- If a candidate times out and has ≥80% partial results: use partial mean score
-- If a candidate times out with <80% results: score = 0.0
+Collect `{"cand_1": 0.75, ...}`. A failed candidate scores 0.0; a timed-out one scores 0.0 unless at least 80% of rows finished, in which case use the partial mean. Mark candidate status with `candidate.py set-status` (`evaluated` or `failed`). Save failed questions (question, expected and generated SQL, failure class) to `failures.json` for the next prompts.
 
 ---
 
 ## Phase 3: Select and Evolve
 
-### Step 9: Run Tournament
+### Step 9: Tournament
 
 ```bash
-python3 scripts/tournament.py \
-  '{"cand_1": 0.75, "cand_2": 0.60, "cand_3": 0.82, "cand_4": 0.55, "cand_5": 0.70, "cand_6": 0.68}' \
-  /tmp/gepa_workspace/gepa_state.json
+python3 scripts/tournament.py '<scores_json>' /tmp/gepa_workspace/gepa_state.json --metric-version v3
 ```
+It ranks the scores, splits at the midpoint (top half win, at least one winner), scales operator-weight updates by each candidate's score delta against its parent (or baseline), floors and normalizes weights, updates the convergence counter, records `best_candidate_fqn`, and exits non-zero if the metric version differs from the one pinned at init. Output: `winners`, `losers`, `best_fitness`, `gen_best_fitness`, `convergence_counter`, `converged`, `best_candidate_fqn`.
 
-Returns:
-```json
-{
-  "winners": ["cand_3", "cand_1", "cand_5"],
-  "losers": ["cand_2", "cand_4", "cand_6"],
-  "best_fitness": 0.82,
-  "gen_best_fitness": 0.82,
-  "convergence_counter": 0,
-  "converged": false
-}
-```
+### Step 10: Retire losers
 
-The script automatically:
-- Ranks candidates by score
-- Splits into winners (top half) and losers (bottom half)
-- Boosts operator weights for winner mutations (+0.02)
-- Penalizes loser operators (-0.01, floor 0.02)
-- Normalizes weights to sum to 1.0
-- Updates convergence counter
-- Saves updated state
-
-### Step 10: Update State and Clean Losers
-
-Remove eliminated candidates from state:
 ```bash
-python3 scripts/population_state.py remove-candidates \
-  /tmp/gepa_workspace/gepa_state.json \
-  --ids "cand_2,cand_4,cand_6"
+python3 scripts/population_state.py remove-candidates /tmp/gepa_workspace/gepa_state.json --ids "cand_2,cand_4"
+python3 scripts/candidate.py set-status /tmp/gepa_workspace/manifest.json --candidate <CAND> --status discarded
 ```
+Do not drop views mid-run; all drops happen in Step 15 through `SV-CANDIDATE-CLEANUP`. Add short summaries of winners' changes to `wins.json`.
 
-Drop loser candidate SVs:
-```sql
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_2;
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_4;
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_6;
-```
+### Step 11: Convergence (gate `GEPA-CONVERGENCE-STOP`)
 
-### Step 11: Check Convergence
-
-Read the `converged` flag from the tournament output.
-
-**If `converged: false`:**
-
-1. Increment generation:
-```bash
-python3 scripts/population_state.py increment-generation \
-  /tmp/gepa_workspace/gepa_state.json
-```
-
-2. Fill empty slots by mutating winners:
-   - For each empty slot, pick a random winner as the base
-   - Apply a new mutation (repeat Step 3a–3e using winner's DDL as input)
-   - Register new candidates for the next generation
-
-3. Return to **Phase 2, Step 5** (deploy and evaluate next generation)
-
-**If `converged: true`:**
-
-Check convergence reason via:
-```bash
-python3 scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.json
-```
-
-Proceed to Phase 4.
+If `converged` is false: `python3 scripts/population_state.py increment-generation ...`, fill slots by mutating winners (Step 3 with the winner as parent), then return to Step 5. If true, check `population_state.py get-status` for the reason and go to Phase 4. Stop rules: `references/convergence-criteria.md`.
 
 ---
 
-## Phase 4: Validate Winner
+## Phase 4: Validate Winner (candidate only)
 
-### Step 12: Deploy Winner as Production SV
+### Step 12: Finalists
 
-Identify the best candidate (highest fitness across all generations):
-
-```bash
-python3 scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.json
-```
-
-> **Production safety gate [GEPA-PROD-OVERWRITE] — OPERATOR_REQUIRED in BOTH modes:**
-> Before overwriting the production SV, verify the snapshot from Step 1 is present:
-> ```bash
-> ls /tmp/gepa_workspace/current_sv.sql
-> ```
-> If the file is absent or empty, snapshot now before proceeding (`AUTO_REMEDIATE: GEPA-PROD-SNAPSHOT`):
-> ```sql
-> SELECT GET_DDL('SEMANTIC VIEW', '<DB>.<SCHEMA>.<SV_NAME>');
-> -- Save output to /tmp/gepa_workspace/current_sv.sql
-> ```
-> **Do NOT proceed if the snapshot cannot be obtained.**
->
-> Present the winner summary and wait for explicit approval in **both INTERACTIVE and AUTONOMOUS modes**:
-> ```
-> Winner: <cand_N> | Operator: <OPERATOR> | Mini-batch fitness: <SCORE>
-> Baseline: <BASELINE_SCORE> | Delta: +<DELTA>
->
-> This will overwrite the production SV: <DB>.<SCHEMA>.<SV_NAME>
-> Approve production overwrite? (yes / no / show diff)
-> ```
-> Log the operator's decision: `[OPERATOR-DECISION: GEPA-PROD-OVERWRITE → <yes/no>]`
-> Do not deploy until the operator explicitly approves.
-
-Read the winner's DDL and deploy as the production semantic view:
-
-```sql
--- For SVs with materializations, use CREATE OR ALTER to preserve them.
--- For SVs without materializations, CREATE OR REPLACE is also valid.
-CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  <DDL from winning candidate>
-;
-```
-
-### Step 13: Full Evaluation
-
-Run a complete evaluation using ALL VQRs (not mini-batch):
+Evaluate the top 2-3 candidates and, for a fair comparison, production, at least twice each on the same full question list with `v3`. Record each run:
 
 ```bash
-# Write final eval config
-cat > /tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml << 'EOF'
-evaluation:
-  agent_params:
-    agent_name: "<DB>.<SCHEMA>.<SV_NAME>"
-    agent_type: "SEMANTIC VIEW"
-  source_metadata:
-    type: "dataset"
-    dataset_name: "<DB>.<SCHEMA>.<EVAL_DATASET>"
-
-metrics:
-  - "sql_correctness"
-EOF
+python3 scripts/population_state.py record-final /tmp/gepa_workspace/gepa_state.json --id cand_3 --fitness <SCORE> \
+  --metric-version v3 --questions-file questions.json
+python3 scripts/population_state.py finalize /tmp/gepa_workspace/gepa_state.json --min-repeats 2
 ```
+`finalize` refuses mixed question lists or metric versions and fewer than 2 repeats, then sets `best_candidate_fqn`.
+
+### Step 13: Accept or reject (on the candidate)
+
+Accept the winner for promotion only if its mean beats production's mean on the same list by at least 0.02 absolute, with no previously passing question now failing. Otherwise report no improvement. Mark the manifest (`winner` or `discarded`).
+
+### Step 14: Promote (`SV-PROMOTE`)
+
+Hand `best_candidate_fqn` to the `SV-PROMOTE` gate as described in `references/candidate-promotion.md` section 4: diff, evidence (question list, metric version, scores, repeats), consumers, grants/tags/materializations. The operator chooses retarget, replace, keep or discard. This skill never applies the change itself.
+
+### Step 15: Log and cleanup (`SV-CANDIDATE-CLEANUP`)
 
 ```sql
-PUT file:///tmp/gepa_workspace/eval_configs/eval_gepa_final.yaml
-  @<DB>.<SCHEMA>.SV_EVAL_CONFIGS/
-  AUTO_COMPRESS = FALSE OVERWRITE = TRUE;
-
--- Final eval (see references/eval-polling.md).
-CALL SYSTEM$EXECUTE_AI_EVALUATION(
-  'START',
-  '<SV_NAME>__gepa_final',
-  OBJECT_CONSTRUCT(
-    'analyst_type', 'SEMANTIC VIEW',
-    'analyst_name', '<DB>.<SCHEMA>.<WINNING_SV>',
-    'evaluation_dataset', '<DB>.<SCHEMA>.<EVAL_DATASET>',
-    'metrics', ARRAY_CONSTRUCT(
-      OBJECT_CONSTRUCT('name', 'sql_correctness')
-    )
-  )
-);
-```
-
-Retrieve full results (use normalized CTE pattern — note: GET_ANALYST_AI_EVALUATION_DATA requires an eval run recorded under a run_name; with ANALYST_PREVIEW you aggregate scores in your driver script instead):
-
-```sql
-WITH raw AS (
-  SELECT EVAL_AGG_SCORE
-  FROM TABLE(SNOWFLAKE.LOCAL.GET_ANALYST_AI_EVALUATION_DATA(
-    '<DB>', '<SCHEMA>', '<SV_NAME>', 'SEMANTIC VIEW', '<SV_NAME>__gepa_final'
-  ))
-  WHERE METRIC_NAME = 'sql_correctness'
-)
-SELECT
-    AVG(EVAL_AGG_SCORE) AS mean_score,
-    COUNT(*) AS total_vqrs,
-    SUM(CASE WHEN EVAL_AGG_SCORE = 1.0 THEN 1 ELSE 0 END) AS perfect_count,
-    SUM(CASE WHEN EVAL_AGG_SCORE = 0.0 THEN 1 ELSE 0 END) AS failed_count
-FROM raw;
-```
-
-### Step 14: Accept/Reject
-
-**ACCEPT if:**
-- Full eval score > baseline score
-- No new regressions (questions that previously passed now failing)
-- Improvement is statistically meaningful (>= 2% absolute improvement)
-
-**REJECT if:**
-- Full eval score <= baseline score
-- New regressions detected (even if overall score improved slightly)
-- Score improvement < 2% (not worth the structural changes)
-
-**On REJECT:** Revert to original DDL:
-```sql
-CREATE OR REPLACE SEMANTIC VIEW <DB>.<SCHEMA>.<SV_NAME>
-  <original DDL from /tmp/gepa_workspace/current_sv.sql>
-;
-```
-
-### Step 15: Log and Cleanup
-
-Record the GEPA run results:
-
-```sql
--- Record final GEPA result in structured EVAL_HISTORY (matches sv-evaluation write schema)
--- config_yaml carries GEPA-specific metadata as a serialized string
 INSERT INTO <DB>._SV_TOOLKIT_META.EVAL_HISTORY
     (run_name, sv_fqn, total_vqrs, mean_score, perfect_count, failed_count, regressions, config_yaml)
-VALUES (
-    CONCAT('<SV_NAME>', '_gepa_', TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD_HH24MISS')),
-    '<DB>.<SCHEMA>.<SV_NAME>',
-    <TOTAL_VQRS>,
-    <FINAL_SCORE>,
-    <PERFECT_COUNT>,
-    <FAILED_COUNT>,
-    <REGRESSIONS>,
-    '{"source":"gepa","status":"<ACCEPTED|REJECTED|CONVERGED|FAILED>","generations":<G>,"baseline_fitness":<BASELINE>,"best_candidate":"<cand_id>","best_operator":"<winning_operator>","convergence_reason":"<reason>","operator_weights_final":<weights_json>}'
-);
+VALUES ('<RUN>_gepa_final', '<DB>.<SCHEMA>.<SV_NAME>', <TOTAL_VQRS>, <FINAL_SCORE>, <PERFECT>, <FAILED>, <REGRESSIONS>,
+  '{"source":"gepa","status":"<ACCEPTED|REJECTED|CONVERGED|FAILED>","metric_version":"v3","best_candidate":"<fqn>","convergence_reason":"<reason>"}');
 ```
-
-Drop all remaining candidate SVs:
-```sql
--- Find and drop all GEPA candidate SVs
-SHOW SEMANTIC VIEWS LIKE '%_GEPA_CAND_%' IN SCHEMA <DB>.<SCHEMA>;
-
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_1;
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>_GEPA_CAND_2;
--- ... (all remaining candidates)
-```
-
-Remove workspace:
 ```bash
-rm -rf /tmp/gepa_workspace
+python3 scripts/candidate.py cleanup-plan /tmp/gepa_workspace/manifest.json --run "$RUN"
 ```
-
-Report final summary:
-```
-┌─────────────────────────────────────────────────────┐
-│ GEPA Optimization Complete                          │
-├─────────────────────────────────────────────────────┤
-│ Status:           ACCEPTED                          │
-│ Generations:      4                                 │
-│ Baseline Score:   0.65                              │
-│ Final Score:      0.82 (+17%)                       │
-│ Best Operator:    add_synonym (weight: 0.18)        │
-│ Convergence:      Counter hit threshold (3 gens)    │
-│ Candidates Tried: 24                                │
-│ Eval Runs:        28 (24 mini-batch + 4 full)       │
-└─────────────────────────────────────────────────────┘
-```
+Show the exact `DROP SEMANTIC VIEW IF EXISTS <candidate>;` list to the operator and wait. Keep `winner` and `promoted` candidates. Keep `/tmp/gepa_workspace` until cleanup is approved.
 
 ---
 
 ## Resume Protocol
 
-If `gepa_state.json` exists when starting the skill:
-
-### Step 1: Read State
-```bash
-python3 scripts/population_state.py get-status \
-  /tmp/gepa_workspace/gepa_state.json
-```
-
-### Step 2: Check Environment
+If `gepa_state.json` exists, run `population_state.py get-status`, then compare the manifest to what exists:
 
 ```sql
--- Are candidate SVs deployed?
-SHOW SEMANTIC VIEWS LIKE '%_GEPA_CAND_%' IN SCHEMA <DB>.<SCHEMA>;
+SHOW SEMANTIC VIEWS IN SCHEMA <DB>.<SCHEMA>;
 ```
+Match only the exact candidate names in `manifest.json`; never use `LIKE` (`_` is a wildcard).
 
-### Step 3: Determine Resume Point
+| State | Candidate views exist | Eval results | Resume at |
+|---|---|---|---|
+| Registered, not deployed | No | No | Step 5 |
+| Deployed, eval not started | Yes | No | Step 7 |
+| Eval started, incomplete | Yes | Partial | Step 8 |
+| Eval complete, no tournament | Yes | Yes | Step 9 |
+| Tournament done | Winners | Yes | Step 11 |
 
-| State | Candidate SVs Exist? | Eval Results? | Resume At |
-|-------|---------------------|---------------|-----------|
-| Candidates registered, not deployed | No | No | Phase 2, Step 5 |
-| Candidates deployed, no eval fired | Yes | No | Phase 2, Step 7 |
-| Eval fired, incomplete | Yes | Partial | Phase 2, Step 8 (continue polling) |
-| Eval complete, no tournament | Yes | Yes | Phase 3, Step 9 |
-| Tournament done, next gen needed | Partial (winners only) | Yes | Phase 3, Step 11 |
+## Cleanup intent ("gepa cleanup")
 
-### Step 4: Resume
-
-Pick up execution at the identified phase/step. Report to user:
-```
-Resuming GEPA optimization from generation <G>, Phase <P>, Step <S>.
-Previous best fitness: <score> (candidate: <id>)
-```
-
----
-
-## Cleanup Intent
-
-When user says "gepa cleanup" or "clean gepa svs":
-
-```sql
--- Find all GEPA candidate SVs in the schema
-SHOW SEMANTIC VIEWS LIKE '%_GEPA_CAND_%' IN SCHEMA <DB>.<SCHEMA>;
-```
-
-For each found SV:
-```sql
-DROP SEMANTIC VIEW IF EXISTS <DB>.<SCHEMA>.<SV_NAME>;
-```
-
-Remove local state:
-```bash
-rm -rf /tmp/gepa_workspace
-```
-
-Report:
-```
-Cleaned up:
-- Dropped N candidate semantic views
-- Removed gepa_state.json and workspace
-```
-
----
-
-## Key Differences from Agent GEPA
-
-| Aspect | Agent GEPA | SV GEPA (this skill) |
-|--------|-----------|----------------------|
-| Target | Agent instructions (YAML) | Semantic View DDL |
-| Deploy | `CREATE OR REPLACE CORTEX AGENT` | `CREATE OR ALTER SEMANTIC VIEW ..._GEPA_CAND_<N>` (CREATE OR ALTER preserves materializations) |
-| Eval Function | `EXECUTE_AI_EVALUATION` (agent type) | `EXECUTE_AI_EVALUATION` (SV type — bug 392700 fixed 2026-08-07; fallback: `ANALYST_PREVIEW` synchronous loop) |
-| Results Function | `GET_AI_EVALUATION_DATA` | `GET_ANALYST_AI_EVALUATION_DATA` |
-| Metrics | 4 agent metrics | `sql_correctness` only |
-| Mutations | Agent instruction rewrites | SV DDL operators (synonym, description, metric, etc.) |
-| Scripts | agent-toolkit scripts/ | semantic-view-toolkit scripts/ (shared) |
+Never list or drop by name pattern and never touch the source view. Take the run id from `manifest.json`, run `candidate.py cleanup-plan` for it, and apply the printed drops only after the operator approves gate `SV-CANDIDATE-CLEANUP`.

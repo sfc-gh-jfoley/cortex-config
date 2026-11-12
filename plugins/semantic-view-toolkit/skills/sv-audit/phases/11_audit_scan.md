@@ -91,14 +91,13 @@ This may be because:
   - The tables are shared/sample data with no active users
 
 Falling back to STRUCTURAL ANALYSIS:
-  - Step 11C: Detect missing tables via column name inference on SV columns
-    (e.g., L_PARTKEY in the SV implies PART table should be included)
   - Step 11E: Scan neighboring tables in the same schema
-  - Query-based findings (missing columns, unused columns, relationship gaps from 
-    JOIN patterns) will be unavailable.
+  - Query-based findings (missing tables, missing columns, unused columns,
+    relationship gaps) will be unavailable.
 ```
 
-Set `QUERY_COUNT = 0`, `DISTINCT_USERS = 0`. Skip Steps 11A parsing and 11B entirely. Proceed directly to Step 11C (which uses column inference) and Step 11E (neighboring tables).
+Set `QUERY_COUNT = 0`, `DISTINCT_USERS = 0`. Skip Steps 11A parsing, 11B, 11C and 11D; they all need
+query evidence. Proceed to Step 11E. Phase 12 reports neighboring tables as context only.
 
 ---
 
@@ -116,7 +115,7 @@ FROM SNOWFLAKE.ACCOUNT_USAGE.ACCESS_HISTORY ah,
     LATERAL FLATTEN(input => ah.BASE_OBJECTS_ACCESSED) om,
     LATERAL FLATTEN(input => om.value:columns) col
 WHERE ah.QUERY_START_TIME >= DATEADD('day', -30, CURRENT_TIMESTAMP())
-  AND om.value:objectDomain::STRING = 'Table'
+  AND UPPER(om.value:objectDomain::STRING) IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW', 'EXTERNAL TABLE')
   AND om.value:objectName::STRING IN (
       '<SV_DB>.<SCHEMA>.<TABLE1>',
       '<SV_DB>.<SCHEMA>.<TABLE2>'
@@ -129,7 +128,7 @@ ORDER BY ACCESS_COUNT DESC;
 **Cross-reference with `SV_COLUMNS`:**
 
 - Columns with high `ACCESS_COUNT` that are **NOT in the SV** → store as `MISSING_COLUMNS` (candidates to add)
-- Columns that **ARE in the SV** but have zero access → store as `UNUSED_COLUMNS` (candidates to remove)
+- Columns that **ARE in the SV** but have zero direct access → store as `UNUSED_COLUMNS` (candidates for operator review, never automatic removal: access through the semantic view itself or through Cortex Analyst may not appear here)
 - Columns with high `DISTINCT_USERS` get higher priority — many users = broad need
 
 **If ACCESS_HISTORY query fails** (e.g., insufficient privileges, Standard Edition):
@@ -191,28 +190,30 @@ Store as `RELATIONSHIP_GAPS`:
 
 ---
 
-## Step 11E: Neighboring Table Scan
+## Step 11E: Neighboring Table Scan and SV Table Sizes
 
-Check for tables in the same schema that are not included in the SV:
+List tables in the SV's schema, flagging which are already in the SV. The SV rows provide the source
+sizes Phase 12 needs for materialization advice; the others are neighbors:
 
 ```sql
 SELECT
     TABLE_NAME,
     ROW_COUNT,
     BYTES,
-    LAST_ALTERED
+    LAST_ALTERED,
+    TABLE_NAME IN ('<table1>', '<table2>', ...) AS IN_SV
 FROM <SV_DB>.INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = '<SV_SCHEMA>'
   AND TABLE_TYPE = 'BASE TABLE'
-  AND TABLE_NAME NOT IN ('<table1>', '<table2>', ...)
 ORDER BY LAST_ALTERED DESC;
 ```
 
-**Note:** Replace `<table1>, <table2>` with unqualified names of tables already in the SV.
+**Note:** Replace `<table1>, <table2>` with unqualified names of tables already in the SV. For SV
+tables in other schemas or databases, run the same query against that schema.
 
 This provides context for Step 11C — if a missing table candidate from query analysis also lives in the same schema, it strengthens the case for inclusion.
 
-Store as `NEIGHBORING_TABLES`:
+Store rows with `IN_SV = FALSE` as `NEIGHBORING_TABLES` and rows with `IN_SV = TRUE` as `SV_TABLE_SIZES`:
 ```
 {table_name, row_count, bytes, last_altered}
 ```
@@ -231,7 +232,7 @@ Audit scan complete.
   Missing table candidates:     <N> (tables in FROM/JOIN with SV tables but not in SV)
   Subquery filter candidates:   <N> (tables used only in WHERE subquery contexts)
   Missing column candidates:    <N> (frequently accessed columns not in SV)
-  Unused columns found:         <N> (SV columns with zero access in 30 days)
+  Unused columns found:         <N> (SV columns with zero direct access in 30 days)
   Relationship gaps:            <N> (JOIN patterns without SV relationships)
   Neighboring tables:           <N> (same-schema tables not in SV)
 
@@ -257,4 +258,5 @@ No user gate here — proceed directly to Phase 12.
 | `AGGREGATE_COLUMNS` | List: {column, table, agg_function, frequency} — aggregated columns |
 | `RELATIONSHIP_GAPS` | List: {from_table, from_col, to_table, to_col, frequency, inferred_type} |
 | `NEIGHBORING_TABLES` | List: {table_name, row_count, bytes, last_altered} |
+| `SV_TABLE_SIZES` | List: {table_name, row_count, bytes, last_altered} for tables in the SV |
 | `ACCESS_HISTORY_AVAILABLE` | Boolean — whether ACCESS_HISTORY was queryable |

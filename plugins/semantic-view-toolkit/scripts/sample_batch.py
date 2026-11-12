@@ -20,7 +20,8 @@ Input VQR JSON format (stdin or file):
     {"question": "Show top customers", "previously_passed": false}
   ]
 
-Output: JSON list of selected VQR question strings to stdout.
+Output: JSON list of selected VQR question strings to stdout, or with --emit-eval-yaml CANDIDATE_FQN
+the evaluation config YAML that restricts the run to those questions.
 
 Run with: python3 scripts/sample_batch.py
 """
@@ -31,6 +32,25 @@ import math
 import random
 import sys
 from pathlib import Path
+
+
+MIN_VQRS_FOR_SAMPLING = 5
+
+
+def render_eval_config(analyst_name: str, questions: list, metric_version: str = "v3") -> str:
+    """Analyst evaluation YAML restricted to the sampled questions (documented spec)."""
+    lines = [
+        "evaluation:",
+        "  analyst_params:",
+        f"    analyst_name: {json.dumps(analyst_name)}",
+        '    analyst_type: "SEMANTIC VIEW"',
+        "  source_metadata:",
+        '    type: "verified_queries"',
+        "    verified_queries:",
+    ]
+    lines += [f"      - {json.dumps(q)}" for q in questions]
+    lines += ["", "metrics:", '  - name: "sql_correctness"', f'    version: "{metric_version}"']
+    return "\n".join(lines) + "\n"
 
 
 def load_state(state_path: str) -> dict:
@@ -82,6 +102,8 @@ def stratified_sample(
     if not vqrs:
         return []
 
+    if len(vqrs) < MIN_VQRS_FOR_SAMPLING:
+        batch_pct = 1.0
     batch_size = max(1, math.ceil(len(vqrs) * batch_pct))
     batch_size = min(batch_size, len(vqrs))  # Can't sample more than we have
 
@@ -145,6 +167,9 @@ def main():
     parser.add_argument("--batch-pct", type=float, default=0.30, help="Batch percentage (0.20-0.50)")
     parser.add_argument("--generation", type=int, required=True, help="Current generation number")
     parser.add_argument("--history-file", required=True, help="Path to gepa_state.json")
+    parser.add_argument("--emit-eval-yaml", metavar="CANDIDATE_FQN", help="Print evaluation YAML for this candidate instead of the question list")
+    parser.add_argument("--reuse-questions", metavar="FILE", help="With --emit-eval-yaml: use this saved question list instead of sampling")
+    parser.add_argument("--metric-version", default="v3", help="Pinned sql_correctness version")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     args = parser.parse_args()
 
@@ -155,6 +180,14 @@ def main():
 
     if args.seed is not None:
         random.seed(args.seed)
+
+    if args.reuse_questions:
+        if not args.emit_eval_yaml:
+            print("Error: --reuse-questions requires --emit-eval-yaml", file=sys.stderr)
+            sys.exit(1)
+        saved = json.loads(Path(args.reuse_questions).read_text())
+        print(render_eval_config(args.emit_eval_yaml, saved, args.metric_version), end="")
+        return
 
     # Read VQR input
     if args.from_stdin or (not args.from_file and not sys.stdin.isatty()):
@@ -207,8 +240,10 @@ def main():
     })
     save_state(args.history_file, state)
 
-    # Output selected VQR questions
-    print(json.dumps(selected, indent=2))
+    if args.emit_eval_yaml:
+        print(render_eval_config(args.emit_eval_yaml, selected, args.metric_version), end="")
+    else:
+        print(json.dumps(selected, indent=2))
 
 
 if __name__ == "__main__":
