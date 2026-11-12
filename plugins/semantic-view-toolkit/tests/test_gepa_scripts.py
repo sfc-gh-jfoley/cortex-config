@@ -138,12 +138,13 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(set(mutate.OPERATORS), set(ps.DEFAULT_OPERATOR_WEIGHTS))
         self.assertEqual(set(mutate.OPERATORS), set(mutate.PROMPT_TEMPLATES))
 
-    def test_validate_rejects_or_replace_header(self):
-        with tempfile.TemporaryDirectory() as t:
-            a, b = Path(t, "a"), Path(t, "b")
-            a.write_text("CREATE SEMANTIC VIEW X TABLES (t AS u)")
-            b.write_text("CREATE OR " + "REPLACE SEMANTIC VIEW X TABLES (t AS v)")
-            self.assertEqual(json.loads(run("mutate.py", "validate", str(a), str(b)).stdout)["status"], "FAIL")
+    def test_replace_header_never_reaches_deploy(self):
+        # GET_DDL returns a replace-style header; validate accepts it, rewrite-ddl must always neutralize it.
+        ddl = "CREATE OR " + "REPLACE SEMANTIC VIEW DB.SCH.X TABLES (t AS v)"
+        out = subprocess.run([sys.executable, str(SCRIPTS / "candidate.py"), "rewrite-ddl", "--source", "DB.SCH.X",
+                              "--candidate", "DB.SCH.X__CAND__R1A2B3C"], input=ddl, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(out.stdout.startswith("CREATE SEMANTIC VIEW DB.SCH.X__CAND__R1A2B3C "))
 
 
 class SamplingTests(unittest.TestCase):

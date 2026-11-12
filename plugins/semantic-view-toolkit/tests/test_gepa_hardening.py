@@ -173,5 +173,35 @@ class HoldoutTests(unittest.TestCase):
             self.assertEqual(ok.returncode, 0, ok.stdout)
 
 
+
+class GetDdlHeaderTests(unittest.TestCase):
+    """GET_DDL returns 'create or replace semantic view <name>'; generation-1 mutations keep that header."""
+
+    GET_DDL = "create or replace semantic view SALES_SV\n\ttables (\n\t\tS as DB.SCH.SALES\n\t);"
+
+    def test_validate_accepts_get_ddl_header_and_rewrite_neutralizes_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "o.sql").write_text(self.GET_DDL)
+            mutated = self.GET_DDL.replace("S as DB.SCH.SALES", "S as DB.SCH.SALES comment='x'")
+            (d / "m.sql").write_text(mutated)
+            proc = run("mutate.py", "validate", str(d / "o.sql"), str(d / "m.sql"), "--source", "DB.SCH.SALES_SV",
+                       "--target", "DB.SCH.SALES_SV__CAND__R1A2B3C", "--operator", "improve_description")
+            self.assertEqual(proc.returncode, 0, proc.stdout)
+            out = run("candidate.py", "rewrite-ddl", "--source", "DB.SCH.SALES_SV", "--candidate",
+                      "DB.SCH.SALES_SV__CAND__R1A2B3C", stdin=mutated)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertTrue(out.stdout.startswith("CREATE SEMANTIC VIEW DB.SCH.SALES_SV__CAND__R1A2B3C\n"))
+            self.assertNotIn("replace", out.stdout.lower().split("\n", 1)[0])
+
+    def test_validate_still_rejects_non_semantic_view_ddl(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "o.sql").write_text(self.GET_DDL)
+            (d / "m.sql").write_text("create or replace view SALES_SV as select 1")
+            proc = run("mutate.py", "validate", str(d / "o.sql"), str(d / "m.sql"))
+            self.assertEqual(proc.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

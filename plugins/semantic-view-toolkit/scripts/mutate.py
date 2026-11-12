@@ -485,11 +485,11 @@ def cmd_validate(args: argparse.Namespace) -> None:
     if original.strip() == mutated.strip():
         errors.append("Mutation is a no-op: mutated DDL is identical to original")
 
-    # Check 5: header must be a plain create (candidate.py rewrites the name; no OR REPLACE / OR ALTER)
-    if re.match(r"\s*CREATE\s+OR\s+", mutated, re.IGNORECASE):
-        errors.append("DDL header must be a plain CREATE SEMANTIC VIEW (no OR REPLACE / OR ALTER)")
-    elif not re.match(r"\s*CREATE\s+SEMANTIC\s+VIEW", mutated, re.IGNORECASE):
-        errors.append("DDL must start with CREATE SEMANTIC VIEW")
+    # Check 5: must be a semantic view definition. GET_DDL returns a replace-style header; it is accepted
+    # here because candidate.py rewrite-ddl always emits a plain CREATE with the candidate name, so a
+    # replace or alter header never reaches a deploy step.
+    if not re.match(r"\s*CREATE\s+(?:OR\s+(?:REPLACE|ALTER)\s+)?SEMANTIC\s+VIEW\b", mutated, re.IGNORECASE):
+        errors.append("DDL must start with CREATE [OR REPLACE | OR ALTER] SEMANTIC VIEW")
 
     # Check 6: exactly one statement (LLM output is untrusted; a trailing DROP must never reach a deploy step)
     try:
