@@ -1,150 +1,105 @@
 ---
 name: agent-architect
-description: >
-  Coordinate multi-agent project builds through intake, research, approved planning,
-  isolated implementation, independent security review, testing and integration.
-  Use for projects with multiple independent workstreams, team coordination,
-  architect project, multi-agent build, arch status or arch ship.
+description: "Adds independent security review, exact-SHA artifact evidence, tracked review conditions and a ship gate on top of team-workflow for multi-agent project builds. Use when a build has several independent workstreams and needs per-task security review before testing and shipping. Triggers: architect project, multi-agent build, security-reviewed team build, arch status, arch ship. Not for designing or writing skills, and not a replacement for team-workflow."
 ---
 
 # Agent Architect
 
-Primary is the single live coordinator and canonical manifest writer. Workers and
-reviewers publish committed evidence from isolated worktrees. Team Architects
-research and propose charters; they do not run independent scheduling loops.
-This skill does not provide a persistent headless supervisor. If Primary exits,
-existing agents may finish but dispatch, integration and shipping pause.
+A layer on top of the bundled `team-workflow` skill. `team-workflow` owns teams, steps, claiming,
+phase gates, plan mode, failure handling and cleanup through `cortex ctx`. Load it first and follow
+it exactly. This skill adds only what it lacks:
 
-## Required References
+1. A per-task **security review** of the exact artifact before verification.
+2. **Artifact evidence**: every verdict names the full commit SHA it judged.
+3. **Conditions**: non-blocking findings that must be closed before shipping.
+4. **Disjoint ownership** and **dependency integration** rules for parallel implementors.
+5. A **ship gate** and a short retrospective.
 
-Resolve ARCH_SKILL_ROOT to this installed skill's absolute directory.
-Load `roles/manifest-schema.md`, `references/worktree-handoff.md`, and
-`roles/model-map.md` before execution. Load each role file before assigning it.
-Use `scripts/manifest.py` and `scripts/collect_events.py`; do not replace their
-checks with grep counts or historical verdict matches.
+There is no separate manifest, event log or recovery script. Task state lives in `cortex ctx` steps;
+evidence lives in git refs and discoveries. If the session is lost, resume with
+`cortex ctx step list -t <tid>` and `cortex ctx team get team-workflow-<tid> --json`.
 
-Requires local Git, Python 3.9+, and an agent platform supporting isolated agents,
-status/liveness inspection and explicit worktree locations. Verify actual tool
-schemas before spawning. If unavailable, pause instead of inventing bindings.
-Examples use `uv run --no-project python`; use an operator-approved interpreter
-when uv is unavailable. No Python package dependencies are required.
+## Setup
 
-## Startup and Intake
+1. Load `team-workflow` and complete its Setup. Do not create a second task or team.
+2. Make the security role visible: copy `roles/security-reviewer.md` to `.cortex/agents/roles/` in
+   the target project, then run `list_teammates(phase="all")` and confirm `security-reviewer`
+   appears under Verify. If it does not, stop and tell the operator; do not substitute prose.
+3. Record in the plan: target repo, integration branch, ownership scope per task, dependency
+   graph, which tasks are major changes, and whether a remote or push is permitted. Default is
+   local-only: never push, create a remote, or commit outside the repo without explicit permission.
 
-1. Inspect existing `.agent-project` state and live agents. Never overwrite a prior
-   run. Offer explicit resume or operator-approved archival when state exists.
-2. Gather goal, acceptance criteria, existing assets, constraints, target repo and
-   execution permissions. Ask whether a remote is needed; local-only never pushes.
-   Creating repos, commits or remotes requires the applicable user authorization.
-3. Select a unique run ID. Create notes.md, canonical manifest from the template,
-   events directory and a coordinator integration worktree. Record absolute paths,
-   model choices, run ID, permissions and remote policy in notes.md.
-4. Preserve existing user changes. Do not force-reset, force-remove worktrees or
-   change global Git configuration. Resume only after verifying recorded refs.
+## Plan additions
 
-## Research and Plan
+Every implementation step in the plan states:
 
-1. Assign bounded research using `roles/researcher.md`; optionally use Team
-   Architects for charter proposals. Collect committed proposals by exact SHA/path.
-2. Run the SecArch pre-planning risk scan. Record capability limitations and domain
-   hints in notes.md, not multiline manifest entries.
-3. Primary defines task IDs, disjoint ownership scopes, dependency DAG, major-change
-   flags and at least two atomic acceptance criteria per task. Reject dependency
-   cycles. Present the plan and obtain approval before implementation.
-4. Primary registers each approved task exactly once:
+- **Ownership scope**: the files or directories this step may change. Scopes are disjoint between
+  steps that can run in parallel. If two steps need the same file, make one depend on the other.
+- **Acceptance criteria**: at least two atomic, checkable criteria.
+- **Major change**: yes if it touches shared contracts, auth, dependencies or migrations.
 
-```text
-<timestamp> | <task> | TASK_REGISTERED | orchestrator | run=<run> | attempt=1 | team=<team-id> | title=<title> | depends_on=<comma-separated ids or none> | criteria=C1,C2
-```
+## Implement
 
-The approved registry must survive restart. Metadata, full task specifications,
-charters and execution permissions live in committed notes/charter files.
+- Run each implementor in its own worktree when the platform provides isolation (`task` supports
+  `worktree_isolation`); otherwise rely on disjoint scopes and confirm with `git diff --stat` that
+  nothing outside the scope changed. Verify actual tool behavior before depending on either.
+- Implementors stage only files in their scope (no blanket `git add -A`) and report the full
+  40-character artifact SHA in their final `Step <sid> complete:` line.
+- **Dependent steps**: a step marked completed does not put its code in another worker's tree.
+  Before starting a dependent step, integrate the dependency's approved commits into the integration
+  branch (code only, not evidence or ledger files), inspect the diff against ownership, run the
+  interface checks, and create the dependent worktree from that exact integration SHA.
+  On conflict, stop and ask the operator. Never pick ours/theirs or force-reset.
 
-## Execute and Collect
+## Verify: security first, then tests
 
-Primary serializes canonical changes and integration updates. Parallel agents are
-allowed only on disjoint task ownership with verified integrated dependencies.
+For each implementation step, add two Verify steps, the second depending on the first:
 
-1. Validate canonical state using `manifest.py status MANIFEST`.
-2. For each ready task, integrate approved dependency code as described in
-   `references/worktree-handoff.md`. Record its exact base SHA. A DONE marker is
-   not evidence that prerequisite code exists in the worker's tree.
-3. Commit DISPATCH_REQUESTED and launch the worker with its unique dispatch name,
-   base SHA, event path, run ID and attempt. Record DISPATCH_STARTED after launch.
-4. Collect worker evidence with `collect_events.py`. Require exit 0, apply the
-   candidate canonical manifest and commit it before any further transition.
-5. On current CODE_WRITTEN, record REVIEW_REQUESTED with its artifact SHA, run and
-   attempt; dispatch SecArch in a detached worktree at that SHA.
-6. Collect current security evidence. REVIEW_PASSED permits TESTER_ASSIGNED, with
-   identical artifact SHA and attempt. Dispatch Tester in another detached worktree.
-7. Collect current tester evidence. VERIFIED permits Primary's major-change review
-   where required, then DONE with the same SHA/run/attempt. Do not mark DONE based
-   on return text or an earlier attempt's approval.
+1. `security-reviewer` step with the base SHA, artifact SHA, scope, criteria and major-change flag.
+2. `verifier` step with the same artifact SHA. It tests that SHA, not the branch tip.
 
-Every role event carries `run`, `attempt`, and `dispatch`. The collector checks
-these against current canonical dispatch state. Never append copied registrations
-from worker branches. Preserve report refs and retrieve findings through git show.
+Rules:
 
-## Retries and Conditions
+- `REVIEW_FAILED` or a failed verifier step: create a retry implementor step with the report as
+  input, at most three attempts per task. After that, stop and ask the operator.
+- A changed artifact SHA invalidates earlier verdicts. Re-review and re-test the new SHA.
+- Verdicts are advisory records, not signatures. Confirm the reviewed SHA matches the integrated SHA
+  before accepting a step.
 
-- REVIEW_FAILED or TESTER_FAILED: read the current pointer from helper state and
-  retrieve its report from the recorded evidence commit. Primary writes ISSUES_FOUND
-  with attempt incremented by one, then creates a new dispatch. Default maximum:
-  three attempts per task. On exhaustion pause for operator decision.
-- BLOCKED: identify the cause, preserve worktree and evidence, and retry only after
-  prerequisites are corrected. Do not repeatedly relaunch an unresolved dependency.
-- Scope changes: obtain approval. Register a successor first, then REARCHITECT the
-  original with successor ID, or explicitly approved `successor=none`.
-- Conditions: assign remediation as a separate task through all gates. SecArch
-  records closure evidence with the original condition ID, verified SHA and report
-  pointer. No worker self-closes conditions. Do not reuse DONE approval for changed
-  code. Cross-team successor conditions also block charter shipping.
-- New permissions, destructive actions, unresolved ambiguity affecting acceptance,
-  or inaccessible required tests: pause and request operator guidance.
+## Conditions
 
-## Recovery
+Non-blocking findings become discoveries tagged `condition` with an ID `COND-<task>-<n>`.
+Close a condition by creating a separate remediation step that goes through implement, security
+review and verification. Record the closing SHA in a discovery. A worker never closes its own
+condition. Open conditions block shipping.
 
-Run `manifest.py recover MANIFEST` on startup and periodically during execution.
-For interrupted agents also load `references/cleanup-protocol.md` and run
-`recovery.py OBSERVATIONS.json`. Require confirmed child cleanup and explicit claim
-reconciliation before retry; agent cancellation alone is insufficient.
-Follow the dispatch reconciliation procedure in `references/worktree-handoff.md`.
-Missing launch acknowledgement does not prove no agent exists. Query the platform
-by agent ID or dispatch name and inspect evidence refs before retrying. When
-liveness is unknown, pause. Never kill a worker based solely on commit age.
+## Stopping points
 
-## Status and Ship
+Stop and ask the operator at:
 
-`arch status`: collect available evidence in causal order, then run:
+- Plan approval (team-workflow's `ExitPlanMode`).
+- Any request for new permissions, a remote, a push, a destructive action, or sending source to
+  an outside reviewer.
+- Ambiguity that changes acceptance criteria.
+- A merge conflict during dependency integration.
+- Three failed attempts on one task.
+- Shipping (below).
 
-```bash
-uv run --no-project python "$ARCH_SKILL_ROOT/scripts/manifest.py" status "$MANIFEST"
-uv run --no-project python "$ARCH_SKILL_ROOT/scripts/manifest.py" recover "$MANIFEST"
-```
+## Status and ship
 
-Report current tasks, pending dispatches, blocked states and open conditions.
-Do not report abandoned solely because some tasks are DONE without SHIPPED.
+`arch status`: run `cortex ctx step list -t <tid>`, then report per task: phase, reviewed SHA,
+open conditions, and blocked or failed steps. Do not call a run abandoned because some steps are
+done and others are not.
 
-`arch ship`: Primary requires the global gate (or charter-scoped gate for a team):
+`arch ship` requires all of: every implementation step completed; each task has a passing security
+review and verifier result for the same SHA that is on the integration branch; no open conditions;
+the full regression suite passes on the integrated tree. Then ask the operator for explicit
+release authorization (and push permission if any), record the released SHA, and run team-workflow
+Cleanup. Remove clean disposable worktrees without `--force`; leave dirty ones for inspection and
+keep review refs.
 
-```bash
-uv run --no-project python "$ARCH_SKILL_ROOT/scripts/manifest.py" ship "$MANIFEST"
-```
+## Retrospective
 
-On exit 0, integrate reviewed code and run the complete integrated regression suite.
-Any changed integration behavior requires re-review/test of that artifact. Do not
-ship based only on individually green branches. Obtain applicable release/remote
-authorization, record the exact released SHA, then append SHIPPED. Run the
-retrospective using `references/retrospective-protocol.md`. Preserve evidence refs
-before removing clean disposable worktrees, without force. Leave dirty worktrees
-for inspection. No implicit commits or pushes beyond granted execution permissions.
-
-## Verification and Output
-
-```bash
-uv run --no-project python -B -m unittest discover -s "$ARCH_SKILL_ROOT/tests" -v
-```
-
-Output the release or blocked status, artifact SHA, acceptance-test evidence,
-remaining conditions, deviations and recovery instructions. Local Git tests do not
-prove platform background-agent survival or unattended execution guarantees.
+After shipping, write a short note: tasks that needed retries and why, the most common finding
+class, any scope or integration conflicts, and one change to try next run. Keep it to what the step
+list, discoveries and git history show.

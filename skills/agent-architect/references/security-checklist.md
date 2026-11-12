@@ -1,6 +1,6 @@
 # Security Checklist
 
-Reusable security checklist for code review. Used by the Security Architect role
+Reusable security checklist for code review. Used by the security-reviewer role
 in agent-architect, but standalone — can be referenced by any skill or review process.
 
 ## Universal (All Stacks)
@@ -76,6 +76,6 @@ in agent-architect, but standalone — can be referenced by any skill or review 
 
 ## Usage
 
-SecArch runs every applicable section based on detected stack.
+The security reviewer runs every applicable section based on detected stack.
 Mark each check: PASS / FAIL / NA.
-Any FAIL at CRITICAL or HIGH level → task REJECTED.
+Any FAIL at CRITICAL or HIGH level → REVIEW_FAILED.
