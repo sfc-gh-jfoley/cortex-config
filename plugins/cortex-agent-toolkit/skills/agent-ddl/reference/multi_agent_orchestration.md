@@ -1,7 +1,7 @@
 ---
 name: agent-ddl-multi-agent-orchestration
 description: Infrastructure setup and UDF templates for multi-agent routing — a master agent dispatches queries to specialized sub-agents via custom tools backed by Python UDFs calling the Snowflake Agent REST API
-last_verified: 2026-05-07
+last_verified: 2026-09-22
 ---
 
 # Multi-Agent Orchestration Reference

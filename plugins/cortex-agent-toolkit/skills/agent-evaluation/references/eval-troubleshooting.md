@@ -18,8 +18,11 @@ FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_EVALUATION_DATA(
 ```
 - `LLM_CALL_COUNT > 0` + `METRIC_CALLS = NULL` → COMPUTE_METRICS silently skipped.
 
-**Fix**: Use `SYSTEM$EXECUTE_AI_OBSERVABILITY_RUN` instead of `EXECUTE_AI_EVALUATION`.
-See the alternative procedure block in the main evaluation SKILL.md.
+**Fix**: Verify `EXECUTE_AI_EVALUATION` STATUS shows `COMPUTATION_IN_PROGRESS` or `COMPLETED`
+(not stuck at `INVOCATION_COMPLETED`). If COMPUTE_METRICS silently fails, check that the
+evaluation dataset's GROUND_TRUTH column contains valid VARIANT values, not strings.
+`SYSTEM$EXECUTE_AI_OBSERVABILITY_RUN` is a deprecated legacy procedure — use `EXECUTE_AI_EVALUATION`
+as the primary API.
 
 ---
 

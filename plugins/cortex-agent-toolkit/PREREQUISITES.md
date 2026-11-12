@@ -33,7 +33,7 @@ Replace `<database>`, `<schema>`, `<your_role>`, `<your_user>`, and object names
 
 - A running warehouse is required for all operations (agent creation, evaluation runs, queries).
 - **Size**: X-Small is sufficient for agent creation and querying. Small or Medium recommended for evaluation runs with large datasets (50+ questions).
-- The warehouse must be specified in the agent spec's `execution_environment.warehouse` field.
+- The warehouse must be specified inside each `tool_resources` entry's `execution_environment.warehouse` field (not at the spec root — a top-level `execution_environment` is rejected).
 
 ## Tooling
 

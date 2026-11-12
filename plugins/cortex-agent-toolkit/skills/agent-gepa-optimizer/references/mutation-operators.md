@@ -7,7 +7,7 @@ Catalog of 8 mutation operators used by the Genetic Evolutionary Prompt Algorith
 **Primary approach: LLM-assisted mutations.** Most operators require semantic understanding of the instruction file structure (finding the right section, understanding context, crafting examples). Only the simplest operators (appending fixed text) use template-based insertion.
 
 **Implementation:**
-- LLM-assisted: Call `CORTEX_AI_COMPLETE('claude-3-5-sonnet', prompt)` or delegate to CoCo agent with a focused prompt
+- LLM-assisted: Call `CORTEX_AI_COMPLETE('claude-sonnet-4-6', prompt)` or delegate to CoCo agent with a focused prompt
 - Template-based: Direct string append/insert at a known location (end of file, after a marker)
 
 **Anti-pattern guards (apply to ALL operators):**

@@ -79,10 +79,13 @@ A systematic, phase-based workflow for optimizing any Snowflake Cortex Agent fro
   },
   "instructions": "You are an expert assistant...",
   "tools": [
-    {"tool_type": "cortex_analyst_tool", "tool_name": "my_analyst"}
+    {"tool_spec": {"type": "cortex_analyst_text_to_sql", "name": "my_analyst", "description": "Query sales and revenue data..."}}
   ],
   "tool_resources": {
-    "my_analyst": {"semantic_view": "MY_DB.MY_SCHEMA.MY_SEMANTIC_VIEW"}
+    "my_analyst": {
+      "semantic_view": "MY_DB.MY_SCHEMA.MY_SEMANTIC_VIEW",
+      "execution_environment": {"type": "warehouse", "warehouse": "MY_WH"}
+    }
   },
   "experimental": {}
 }
@@ -226,15 +229,17 @@ Each variant uses a YAML config staged to Snowflake:
 agent: MY_DB.MY_SCHEMA.MY_AGENT_AGENTIC
 evaluation_dataset: MY_DB.MY_SCHEMA.EVAL_DATASET
 metrics:
-  - answer_correctness
-  - tool_selection_accuracy
+  - name: "answer_correctness"
+    version: "v3"
+  - name: "tool_selection_accuracy"
+    version: "v3"
 ```
 
 ### Decision Criteria
 
 - If AGENTIC improves complex queries without hurting simple ones: adopt
 - If FASTPATH improves latency without accuracy loss: adopt
-- If both help: combine as `{"EnableAgenticAnalyst": true, "EnableVQRFastPath": true}`
+- If both help: combine as `{"EnableVQRFastPath": true}`
 - If neither helps or hurts: use BASE (fewer moving parts)
 
 ### Cleanup
@@ -451,7 +456,7 @@ Record in your optimization log:
 
 | Flag | Effect | Best For |
 |------|--------|----------|
-| `EnableAgenticAnalyst` | Multi-step reasoning in Cortex Analyst tool | Complex queries requiring decomposition |
+| ~~`EnableAgenticAnalyst`~~ | ~~Multi-step reasoning~~ | **OBSOLETE since Apr 2026 — behavior is now default. Do not set.** |
 | `EnableVQRFastPath` | Skip orchestration when VQR match is exact | High-VQR-coverage agents |
 | `EnableUnrestrictedChartTool` | Extended chart generation capabilities | Visualization-heavy agents |
 | `EnableSkillBasedPromptNoExtendedThinking` | Disable extended thinking for skill-based prompts | Latency reduction |
@@ -460,10 +465,9 @@ Record in your optimization log:
 
 | Flag | Cortex Analyst Tools | Cortex Search Tools | Custom Tools |
 |------|---------------------|--------------------:|-------------:|
-| EnableAgenticAnalyst | Yes | No | No |
-| EnableVQRFastPath | Yes (VQR-dependent) | No | No |
-| EnableUnrestrictedChartTool | Yes | No | No |
-| EnableSkillBasedPromptNoExtendedThinking | Yes | Yes | Yes |
+| `EnableVQRFastPath` | Yes (VQR-dependent) | No | No |
+| `EnableUnrestrictedChartTool` | Yes | No | No |
+| `EnableSkillBasedPromptNoExtendedThinking` | Yes | Yes | Yes |
 
 ### Chart Customization
 

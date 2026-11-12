@@ -327,6 +327,9 @@ Query my agent MY_DB.PUBLIC.SALES_AGENT: "What were the top 5 products by revenu
 
 You can also run this directly in Snowsight or any SQL client:
 
+> `DATA_AGENT_RUN` takes two VARCHAR arguments: the agent FQN and a JSON request string.
+> Do NOT pass `OBJECT_CONSTRUCT` as the second argument — it must be a plain VARCHAR containing JSON.
+
 ```sql
 SELECT TRY_PARSE_JSON(
   SNOWFLAKE.CORTEX.DATA_AGENT_RUN(

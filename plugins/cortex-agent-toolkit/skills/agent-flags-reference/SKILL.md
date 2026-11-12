@@ -134,7 +134,6 @@ Add the selected flags to the `experimental` key in the agent specification:
 {
   "models": {"orchestration": "auto"},
   "experimental": {
-    "EnableAgenticAnalyst": true,
     "EnableVQRFastPath": true
   },
   "tools": [...],

@@ -129,9 +129,14 @@ def convert_dataset(
         print(f"  CALL SYSTEM$CREATE_EVALUATION_DATASET(")
         print(f"      'Cortex Agent',")
         print(f"      '{target_table}',")
-        print(f"      '{ds_name}',")
-        print(f"      OBJECT_CONSTRUCT('query_text', 'INPUT_QUERY', 'expected_tools', 'GROUND_TRUTH')")
+        print(f"      '{target_table.split('.')[0]}.{target_table.split('.')[1]}.{ds_name}',")
+        print(f"      OBJECT_CONSTRUCT(")
+        print(f"          'query_text', 'INPUT_QUERY',")
+        print(f"          'expected_tools', 'GROUND_TRUTH'")
+        print(f"      )")
         print(f"  );")
+        print(f"  -- expected_tools maps to the GROUND_TRUTH column here; in YAML dataset.column_mapping the same column uses the key ground_truth.")
+        print(f"  -- Run USE DATABASE / USE SCHEMA and this CALL in the same session.")
 
     finally:
         cursor.close()

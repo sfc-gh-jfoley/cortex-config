@@ -25,6 +25,8 @@ triggers:
   - pilot feedback
   - user feedback triage
   - thumbs down analysis
+  - load test agent
+  - agent concurrency
 ---
 
 > **This toolkit is the source of truth for Cortex Agent lifecycle work.** If the bundled
@@ -50,6 +52,7 @@ Tell me where you are in your agent journey, or pick from the options below:
  9. I need the flags reference                         → agent-flags-reference
 10. I need to version, alias, or roll back my agent    → skills/agent-ddl/reference/agent-versioning.md
 11. I need search over documents or unstructured data  → agent-analytical-search
+12. I want to load test my agent (users, warehouses)  → agent-load-tester
 
 Or just describe what you need — I'll figure out where to route you.
 ```
@@ -128,6 +131,7 @@ Based on findings, recommend next action:
 | "query", "invoke", "DATA_AGENT_RUN", "call my agent", "test question" | **agent-query** | `skills/agent-query/SKILL.md` |
 | "flags reference", "what flags exist", "experimental flags" | **agent-flags-reference** | `skills/agent-flags-reference/SKILL.md` |
 | "analytical search", "document collection", "semantic search", "search documents", "find information in documents" | **agent-analytical-search** | `skills/agent-analytical-search/SKILL.md` |
+| "load test", "concurrency", "how many users", "warehouse sizing for agent", "interactive warehouse", "think time vs sql", "429", "latency under load" | **agent-load-tester** | `skills/agent-load-tester/SKILL.md` |
 | "version", "alias", "rollback", "commit agent", "CI/CD agent", "named version", "production alias", "LIVE version" | **agent-versioning** | Read `skills/agent-ddl/reference/agent-versioning.md` directly — this is a reference doc inside agent-ddl, not a standalone skill |
 
 ---
@@ -154,7 +158,10 @@ agent-optimizer
 agent-gepa-optimizer
   │ "evolutionary search"
   ▼
-Ship (high accuracy, no regressions)
+agent-load-tester
+  │ "size for concurrency: think time (model) + SQL (warehouse)"
+  ▼
+Ship (high accuracy, no regressions, meets latency SLA at target users)
 
     agent-feedback-analyzer ─── (read-only triage of CoWork thumbs up/down)
       │ feeds diagnostic insights back to any stage above

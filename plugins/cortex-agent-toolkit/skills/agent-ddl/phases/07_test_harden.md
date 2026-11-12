@@ -16,6 +16,9 @@ This phase has **one mandatory stopping point** — present smoke test results a
 
 Pick 2-3 questions from `SAMPLE_QUESTIONS` (from Phase 3). Cover different question types: one aggregate, one filter, one trend.
 
+> `DATA_AGENT_RUN` takes two VARCHAR arguments: the agent FQN and a JSON request string.
+> Do NOT pass `OBJECT_CONSTRUCT` as the second argument — it must be a plain VARCHAR containing JSON.
+
 For each question, use the FLATTEN pattern — the text response index varies by account so hardcoding `content[N]` is unreliable:
 
 ```sql

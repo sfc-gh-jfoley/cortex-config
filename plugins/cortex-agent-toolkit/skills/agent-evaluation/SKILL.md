@@ -420,6 +420,22 @@ INSERT INTO ... VALUES (
 | `tool_output["search results"]` | Use "search results" (space) for Cortex Search |
 | Escape single quotes | Double them: `''` |
 
+### Ground Truth Format
+
+The `ground_truth_output` value determines `answer_correctness` scoring. The v3 judge compares
+the agent's full streamed response against this value.
+
+**Use actual expected values, not prose descriptions:**
+- GOOD: `"Music ($925.79B), Shoes ($924.22B)... Total across 10 categories is ~$9.19T"`
+- BAD: `"Returns net sales broken down by the 10 item categories"`
+
+Include specific numbers, realistic tolerance guidance where values may round or format
+differently (for example `~$9.19T`, `about 12.4%`, or `between 120 and 122 orders`), the
+expected structure of the answer (single value, ranked list, grouped breakdown, table-like
+summary), and the exact scope requested (date range, filters, top N, region, etc.). Prose
+rubrics score `0.0` because the judge cannot match data tables against structural descriptions.
+
+
 > ⚠️ **April 2026 Note: `tool_name` in eval ground truth**
 >
 > As of April 13, 2026, raw Cortex Agent response blocks report `system_execute_sql` instead of
@@ -563,10 +579,15 @@ Fill in `<DATABASE>`, `<SCHEMA>`, `<AGENT_NAME>`, `<EVAL_TABLE>`, and the select
 >     'Cortex Agent',
 >     '<DATABASE>.<SCHEMA>.<EVAL_TABLE>',
 >     '<DATABASE>.<SCHEMA>.<AGENT_NAME>_EVAL_DS_<YYYYMMDD_HHMMSS>',
->     OBJECT_CONSTRUCT('query_text', 'INPUT_QUERY', 'expected_tools', 'GROUND_TRUTH')
+>     OBJECT_CONSTRUCT(
+>         'query_text', 'INPUT_QUERY',
+>         'expected_tools', 'GROUND_TRUTH'
+>     )
 > );
 > ```
-> Note: column mapping key is `expected_tools` here (not `ground_truth` — different from YAML).
+> The `expected_tools` key in the function call maps to the `GROUND_TRUTH` column. In YAML
+> `dataset.column_mapping`, the same column is referenced as `ground_truth` (different key name).
+> This function requires `USE DATABASE` / `USE SCHEMA` context in the same session.
 >
 > **Step 2 — YAML for the run (no `dataset:` block — omit it entirely once dataset exists):**
 > The `dataset:` block in YAML tells Snowflake to CREATE the dataset. If it already exists from Step 1

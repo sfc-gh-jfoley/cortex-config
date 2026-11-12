@@ -136,6 +136,19 @@ Every OPERATOR_REQUIRED gate that fires (in INTERACTIVE mode) must log the opera
 | `QUERY-QUESTION-MISSING` | No question provided and context does not contain one | **TERMINATE** | — |
 | `QUERY-CONTEXT-REUSE` | Caller-provided context available; re-asking would duplicate | **AUTO_RESOLVE** | Use existing context; do not re-ask |
 
+### Load Tester Gates
+
+| Gate ID | Description | Classification | Default (AUTONOMOUS) |
+|---|---|---|---|
+| `LOAD-NO-EVAL-TRACES` | Agent has no eval traces (`run.name`) to profile | **TERMINATE** | — (route to agent-evaluation) |
+| `LOAD-PROFILE-PRESENT` | Present think% vs SQL%, modeled concurrency, outliers | **AUTO_RESOLVE** | Log the table; continue (read-only) |
+| `LOAD-OUTLIER-TUNE-FIRST` | SQL outliers ≥ threshold found before sizing | **AUTO_RESOLVE** | Exclude outliers from the sweep via `sql_replay --exclude-over-ms <threshold>`, list them for `workload-performance-analysis` |
+| `LOAD-COST-ESTIMATE` | Accept estimated LLM + warehouse spend for the planned matrix | **OPERATOR_REQUIRED** | Always pause; present estimate and reduced-matrix option |
+| `LOAD-AGENT-LIVE` | Run live agent:run load (Side 1-A) | **OPERATOR_REQUIRED** | Always pause; show call cap, tiers, clones |
+| `LOAD-WH-CREATE` | Create LT_ warehouses / Interactive WH / interactive tables | **OPERATOR_REQUIRED** | Always pause; show DDL and 24h Interactive billing floor |
+| `LOAD-THROTTLE-STOP` | Success rate < 0.8 at a tier | **AUTO_RESOLVE** | Skip higher tiers for that model; log ceiling |
+| `LOAD-TEARDOWN` | Drop LT_ warehouses, interactive schema, agent clones | **AUTO_REMEDIATE** | After report written, drop LT_-prefixed objects only; INTERACTIVE asks first |
+
 ### Stateful Persistence Gates
 
 | Gate ID | Description | Classification | Default (AUTONOMOUS) |
