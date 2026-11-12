@@ -35,7 +35,8 @@ Check if a baseline score exists in EVAL_HISTORY:
 ```sql
 SELECT run_name, mean_score, run_timestamp
 FROM <DB>._SV_TOOLKIT_META.EVAL_HISTORY
-WHERE sv_fqn = '<SV_FQN>'
+WHERE source_sv_fqn = '<SV_FQN>' OR sv_fqn = '<SV_FQN>'
+  AND metric_version = '<METRIC_VERSION>'  -- never compare scores across metric versions
 ORDER BY run_timestamp DESC
 LIMIT 1;
 ```

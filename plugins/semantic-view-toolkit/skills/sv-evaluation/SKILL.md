@@ -59,7 +59,7 @@ If Check 3 finds a `with extension (CA='...')` block (column-drop risk): (A) eva
 
 Logical-name rule (per the CREATE SEMANTIC VIEW docs example): VQR SQL selects from the logical table (`FROM orders AS o`) and references logical dimension/fact names (`o.order_year`), not the physical column behind them. A physical column name appearing in VQR SQL is the defect. Whether to prefix logical tables with `__`: the DDL docs example uses bare names and the YAML form uses `__`; treat bare logical names as acceptable (style at most) and flag FQN/physical table references. This is the canonical statement; `vqr-eval-health.md` Checks 1-2 must agree with it. Verify against current docs before changing severity.
 
-Recipe: run the shared **VQR Dry-Run** procedure in `references/vqr-eval-health.md` (it translates logical names through `DESCRIBE SEMANTIC VIEW`, then compiles and counts rows). Outcomes `PASS`, `EMPTY` and `FAIL` map to executes, empty result and review.
+Recipe: run the shared **VQR Dry-Run** procedure in `../../references/vqr-eval-health.md` (it translates logical names through `DESCRIBE SEMANTIC VIEW`, then compiles and counts rows). Outcomes `PASS`, `EMPTY` and `FAIL` map to executes, empty result and review.
 - Gate `EVAL-COMPILE-ERROR-VQR`: a dry-run failure is evidence, not a verdict: never auto-skip. If more than half of the VQRs fail, the translation is probably wrong; stop and report instead of excluding them.
 - INTERACTIVE (STOP Gate): confirm when any VQR fails. AUTONOMOUS: continue with all VQRs, log the list, and flag the failures in the report.
 

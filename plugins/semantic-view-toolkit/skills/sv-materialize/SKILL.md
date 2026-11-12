@@ -280,11 +280,11 @@ production change and waits at `SV-PROMOTE`.
 ```sql
 -- Step 1: Set MAX_STALENESS on the SV (integer seconds, min 120)
 -- Skip if already set (check Phase 1A results)
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+ALTER SEMANTIC VIEW <CAND>   -- the mat candidate, never the production view
   SET MAX_STALENESS = 3600;  -- 1 hour = 3600 seconds
 
 -- Step 2: Add the materialization
-ALTER SEMANTIC VIEW <db>.<schema>.<sv_name>
+ALTER SEMANTIC VIEW <CAND>
   ADD MATERIALIZATION <mat_name>
   WAREHOUSE = <wh>
   REFRESH_MODE = AUTO

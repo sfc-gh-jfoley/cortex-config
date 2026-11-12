@@ -491,12 +491,33 @@ def cmd_validate(args: argparse.Namespace) -> None:
     elif not re.match(r"\s*CREATE\s+SEMANTIC\s+VIEW", mutated, re.IGNORECASE):
         errors.append("DDL must start with CREATE SEMANTIC VIEW")
 
-    if errors:
-        result = {"status": "FAIL", "errors": errors}
-    else:
-        result = {"status": "PASS", "errors": []}
+    # Check 6: exactly one statement (LLM output is untrusted; a trailing DROP must never reach a deploy step)
+    try:
+        candidate_contract.assert_single_statement(mutated)
+    except candidate_contract.ContractError as error:
+        errors.append(str(error))
 
+    # Check 7: existing verified queries are immutable (gate SV-VQR-MUTATE); additions are listed for gate VQR-GEN-INSERT
+    vqr = candidate_contract.vqr_diff(original, mutated)
+    if vqr["removed"] or vqr["changed"]:
+        errors.append(
+            f"existing verified queries were removed or changed (gate SV-VQR-MUTATE): "
+            f"removed={vqr['removed']} changed={vqr['changed']}"
+        )
+    if vqr["added"] and getattr(args, "operator", None) not in (None, "add_vqr"):
+        errors.append(f"operator {args.operator} added verified queries {vqr['added']}; only add_vqr may")
+    if vqr["added"] and getattr(args, "holdout_file", None):
+        held = {" ".join(q.lower().split()) for q in json.loads(Path(args.holdout_file).read_text())}
+        added_text = candidate_contract.extract_vqrs(mutated)
+        for name in vqr["added"]:
+            match = re.search(r"QUESTION\s+'((?:[^']|'')*)'", added_text[name], re.IGNORECASE)
+            if match and " ".join(match.group(1).replace("''", "'").lower().split()) in held:
+                errors.append(f"added verified query {name} repeats a hold-out question; hold-out questions must never be taught")
+
+    result = {"status": "FAIL" if errors else "PASS", "errors": errors, "vqr_added": vqr["added"]}
     print(json.dumps(result, indent=2))
+    if errors:
+        sys.exit(1)
 
 
 def main() -> None:
@@ -525,6 +546,8 @@ def main() -> None:
     p_validate.add_argument("mutated_ddl_path", help="Path to mutated DDL")
     p_validate.add_argument("--source", help="Production FQN (enables candidate guard)")
     p_validate.add_argument("--target", help="Candidate FQN to be written")
+    p_validate.add_argument("--holdout-file", help="JSON array of hold-out questions that no added VQR may repeat")
+    p_validate.add_argument("--operator", choices=OPERATORS, help="Operator that produced the mutation (only add_vqr may add VQRs)")
 
     args = parser.parse_args()
 

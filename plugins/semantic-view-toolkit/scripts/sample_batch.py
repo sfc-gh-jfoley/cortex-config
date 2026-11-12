@@ -27,6 +27,7 @@ Run with: python3 scripts/sample_batch.py
 """
 
 import argparse
+import hashlib
 import json
 import math
 import random
@@ -51,6 +52,25 @@ def render_eval_config(analyst_name: str, questions: list, metric_version: str =
     lines += [f"      - {json.dumps(q)}" for q in questions]
     lines += ["", "metrics:", '  - name: "sql_correctness"', f'    version: "{metric_version}"']
     return "\n".join(lines) + "\n"
+
+
+MIN_VQRS_FOR_HOLDOUT = 8
+
+
+def split_holdout(vqrs: list, holdout_pct: float) -> dict:
+    """Deterministic train/hold-out split by question hash (same input, same split, any run).
+
+    Hold-out questions are scored only at finalist time and are never shown to the mutator.
+    Fewer than MIN_VQRS_FOR_HOLDOUT questions: no hold-out (too small to be meaningful), reported as such.
+    """
+    questions = sorted({v["question"] for v in vqrs})
+    if len(questions) < MIN_VQRS_FOR_HOLDOUT:
+        return {"train": questions, "holdout": [], "note": f"fewer than {MIN_VQRS_FOR_HOLDOUT} questions: no hold-out; "
+                "finalist scores are measured on questions the mutator saw, so treat gains as optimistic"}
+    ranked = sorted(questions, key=lambda q: hashlib.sha256(q.encode()).hexdigest())
+    n_hold = max(1, round(len(ranked) * holdout_pct))
+    holdout = set(ranked[:n_hold])
+    return {"train": [q for q in questions if q not in holdout], "holdout": [q for q in questions if q in holdout], "note": None}
 
 
 def load_state(state_path: str) -> dict:
@@ -165,13 +185,21 @@ def main():
     parser.add_argument("--from-stdin", action="store_true", help="Read VQR JSON from stdin")
     parser.add_argument("--from-file", help="Read VQR JSON from file")
     parser.add_argument("--batch-pct", type=float, default=0.30, help="Batch percentage (0.20-0.50)")
-    parser.add_argument("--generation", type=int, required=True, help="Current generation number")
-    parser.add_argument("--history-file", required=True, help="Path to gepa_state.json")
+    parser.add_argument("--generation", type=int, help="Current generation number (required unless --holdout-pct)")
+    parser.add_argument("--history-file", help="Path to gepa_state.json (required unless --holdout-pct)")
+    parser.add_argument("--holdout-pct", type=float, help="Print a deterministic {train, holdout} split of the input questions and exit")
     parser.add_argument("--emit-eval-yaml", metavar="CANDIDATE_FQN", help="Print evaluation YAML for this candidate instead of the question list")
     parser.add_argument("--reuse-questions", metavar="FILE", help="With --emit-eval-yaml: use this saved question list instead of sampling")
     parser.add_argument("--metric-version", default="v3", help="Pinned sql_correctness version")
     parser.add_argument("--seed", type=int, help="Random seed for reproducibility")
     args = parser.parse_args()
+
+    if args.holdout_pct is None and (args.generation is None or not args.history_file):
+        print("Error: --generation and --history-file are required", file=sys.stderr)
+        sys.exit(1)
+    if args.holdout_pct is not None and not 0.1 <= args.holdout_pct <= 0.5:
+        print("Error: --holdout-pct must be between 0.1 and 0.5", file=sys.stderr)
+        sys.exit(1)
 
     # Validate batch-pct
     if args.batch_pct < 0.10 or args.batch_pct > 1.0:
@@ -212,6 +240,10 @@ def main():
     if not isinstance(vqrs, list):
         print("Error: Input must be a JSON array of VQR objects", file=sys.stderr)
         sys.exit(1)
+
+    if args.holdout_pct is not None:
+        print(json.dumps(split_holdout(vqrs, args.holdout_pct), indent=2))
+        return
 
     # Normalize: if input is just strings, wrap them
     normalized_vqrs = []

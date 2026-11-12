@@ -23,8 +23,10 @@ evidence lives in git refs and discoveries. If the session is lost, resume with
 
 1. Load `team-workflow` and complete its Setup. Do not create a second task or team.
 2. Make the security role visible: copy `roles/security-reviewer.md` to `.cortex/agents/roles/` in
-   the target project, then run `list_teammates(phase="all")` and confirm `security-reviewer`
-   appears under Verify. If it does not, stop and tell the operator; do not substitute prose.
+   the target project (the file is self-contained; it reads the full checklist from this skill's
+   `references/security-checklist.md` only when present), then run `list_teammates(phase="all")` and
+   confirm `security-reviewer` appears under Verify. If it does not, stop and tell the operator; do not
+   substitute prose.
 3. Record in the plan: target repo, integration branch, ownership scope per task, dependency
    graph, which tasks are major changes, and whether a remote or push is permitted. Default is
    local-only: never push, create a remote, or commit outside the repo without explicit permission.
@@ -40,28 +42,35 @@ Every implementation step in the plan states:
 
 ## Implement
 
-- Run each implementor in its own worktree when the platform provides isolation (`task` supports
-  `worktree_isolation`); otherwise rely on disjoint scopes and confirm with `git diff --stat` that
-  nothing outside the scope changed. Verify actual tool behavior before depending on either.
-- Implementors stage only files in their scope (no blanket `git add -A`) and report the full
-  40-character artifact SHA in their final `Step <sid> complete:` line.
-- **Dependent steps**: a step marked completed does not put its code in another worker's tree.
-  Before starting a dependent step, integrate the dependency's approved commits into the integration
-  branch (code only, not evidence or ledger files), inspect the diff against ownership, run the
-  interface checks, and create the dependent worktree from that exact integration SHA.
-  On conflict, stop and ask the operator. Never pick ours/theirs or force-reset.
+- Spawn implementors with `spawn_teammate` as `team-workflow` requires; do not launch role names through
+  the `task` tool. No worktree isolation is documented for `spawn_teammate` workers, so parallel
+  implementors share one checkout. Isolation comes from disjoint ownership scopes.
+- Implementors stage and commit only files in their scope (`git add <paths>`, `git commit -- <paths>`,
+  never `git add -A`) and report the full 40-character artifact SHA in their final
+  `Step <sid> complete:` line. Confirm with `git diff --stat <base>..<sha>` that nothing outside the
+  scope changed.
+- **Dependent steps** run only after their dependencies are completed and reviewed. Before starting one,
+  confirm the dependency's approved SHA is an ancestor of the integration branch
+  (`git merge-base --is-ancestor <sha> HEAD`) and run the interface checks. On a conflict or a missing
+  ancestor, stop and ask the operator. Never pick ours/theirs or force-reset.
 
 ## Verify: security first, then tests
 
 For each implementation step, add two Verify steps, the second depending on the first:
 
-1. `security-reviewer` step with the base SHA, artifact SHA, scope, criteria and major-change flag.
-2. `verifier` step with the same artifact SHA. It tests that SHA, not the branch tip.
+1. `security-reviewer` step with the base SHA, artifact SHA, scope, criteria, major-change flag,
+   attempt number and report path.
+2. `verifier` step with the same artifact SHA. Its step text must say: test that SHA, not the branch tip,
+   and **do not edit implementation files**. The bundled verifier may fix failures it finds; that would
+   change the reviewed code. If a failure needs an implementation change, end with `Step <sid> FAILED:`
+   so a retry implementor step is created.
 
 Rules:
 
 - `REVIEW_FAILED` or a failed verifier step: create a retry implementor step with the report as
-  input, at most three attempts per task. After that, stop and ask the operator.
+  input, at most three attempts per task. This is separate from `team-workflow`'s Failure Contract,
+  which covers a worker that crashed (retry once). After three review or test failures, stop and ask
+  the operator.
 - A changed artifact SHA invalidates earlier verdicts. Re-review and re-test the new SHA.
 - Verdicts are advisory records, not signatures. Confirm the reviewed SHA matches the integrated SHA
   before accepting a step.

@@ -72,11 +72,16 @@ Present, in this order:
 4. Production grants, tags, comment and materializations, captured with `SHOW GRANTS ON SEMANTIC VIEW`,
    `GET_DDL`, and `SHOW MATERIALIZATIONS`.
 
+Verified queries: run `python3 scripts/candidate.py vqr-diff <production.sql> <candidate.sql>`. Existing
+VQRs must be byte-for-byte equivalent (whitespace aside); a removed or changed VQR is gate
+`SV-VQR-MUTATE` and blocks promotion. Added VQRs are listed and need gate `VQR-GEN-INSERT` before they
+reach production.
+
 Options:
 
 | Option | When to offer | How |
 |---|---|---|
-| Retarget consumers | Every consumer is a permanent object the toolkit can update | Update those objects to the candidate FQN. Production is untouched. |
+| Retarget consumers | Every consumer is a permanent object the toolkit can update | Update those objects to the candidate FQN, then `candidate.py set-status <manifest> --candidate <FQN> --status promoted`. A promoted candidate is protected from every later write and cleanup, and later runs pass `--manifest` so it can be the source of new candidates. Production is untouched. |
 | Replace production | Callers exist that cannot be traced, or the name must stay | Apply the **full** approved DDL with `CREATE OR ALTER SEMANTIC VIEW` after saving a rollback copy. Re-apply captured grants, tags and materializations. `CREATE OR ALTER` unsets any property the statement omits. |
 | Keep candidate | Operator wants to compare further | Mark `winner`; do not drop it. |
 | Discard | Operator rejects | Mark `discarded`. |

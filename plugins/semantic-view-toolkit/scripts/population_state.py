@@ -221,8 +221,8 @@ def cmd_record_final(args):
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    if not any(c["id"] == args.id for c in state["candidates"]):
-        print(f"Error: Candidate {args.id} not found", file=sys.stderr)
+    if args.id != "production" and not any(c["id"] == args.id for c in state["candidates"]):
+        print(f"Error: Candidate {args.id} not found (use --id production for the baseline)", file=sys.stderr)
         sys.exit(1)
     questions = json.loads(Path(args.questions_file).read_text())
     digest = hashlib.sha256("\n".join(sorted(questions)).encode()).hexdigest()[:16]
@@ -235,6 +235,8 @@ def cmd_record_final(args):
 
 def finalize_winner(state: dict, min_repeats: int = 2) -> dict:
     """Pick the winner by mean over repeated runs on one question list; set best_candidate_fqn."""
+    if min_repeats < 2:
+        raise ValueError("--min-repeats must be at least 2: one run is within generation noise")
     runs = state.get("final_runs", [])
     if not runs:
         raise ValueError("no final runs recorded")
@@ -249,11 +251,18 @@ def finalize_winner(state: dict, min_repeats: int = 2) -> dict:
     if short:
         raise ValueError(f"candidates with fewer than {min_repeats} repeats: {short}")
     means = {i: sum(v) / len(v) for i, v in by_id.items()}
+    production_mean = means.pop("production", None)
+    if not means:
+        raise ValueError("no candidate finalists recorded (only production)")
     best_id = max(means, key=means.get)
-    cand = next(c for c in state["candidates"] if c["id"] == best_id)
+    cand = next((c for c in state["candidates"] if c["id"] == best_id), None)
+    if cand is None:
+        raise ValueError(f"finalist {best_id} is no longer in the state file (removed after record-final); re-run it")
     state["best_candidate_fqn"] = cand["candidate_fqn"]
     state["best_fitness"] = means[best_id]
-    return {"winner": best_id, "best_candidate_fqn": cand["candidate_fqn"], "means": means}
+    delta = None if production_mean is None else round(means[best_id] - production_mean, 6)
+    return {"winner": best_id, "best_candidate_fqn": cand["candidate_fqn"], "means": means,
+            "production_mean": production_mean, "delta_vs_production": delta}
 
 
 def cmd_finalize(args):

@@ -26,6 +26,36 @@ class SkillStructure(unittest.TestCase):
         self.assertEqual(meta["phase"].strip(), "Verify")
         self.assertEqual(meta["teammate"].strip(), "true")
 
+    def test_role_name_matches_skill_usage(self):
+        role = frontmatter(ROOT / "roles" / "security-reviewer.md")["name"].strip()
+        skill = (ROOT / "SKILL.md").read_text()
+        self.assertEqual(role, "security-reviewer")
+        self.assertIn(f"`{role}`", skill)
+        self.assertNotIn("agent-security-reviewer", skill)
+
+    def test_role_follows_bundled_role_structure(self):
+        text = (ROOT / "roles" / "security-reviewer.md").read_text()
+        for section in ("## Authorized", "## Prohibited", "## Output Contract", "## Claim Loop"):
+            self.assertIn(section, text)
+        self.assertIn("cortex ctx step claim -t {task_id} --role security-reviewer", text)
+        self.assertIn("cortex ctx step done", text)
+        self.assertIn("Step <step_id> complete:", text)
+        self.assertIn("Step <step_id> FAILED:", text)
+        self.assertIn("git worktree add --detach", text)
+
+    def test_role_does_not_depend_on_a_skill_relative_path(self):
+        text = (ROOT / "roles" / "security-reviewer.md").read_text()
+        for line in text.splitlines():
+            if "security-checklist.md" in line:
+                self.assertTrue("~/.snowflake" in line or "references/security-checklist.md" in line, line)
+        self.assertNotIn("](../", text)
+
+    def test_skill_forbids_verifier_edits_and_task_tool_roles(self):
+        skill = (ROOT / "SKILL.md").read_text()
+        self.assertIn("do not edit implementation files", skill)
+        self.assertIn("`spawn_teammate`", skill)
+        self.assertNotIn("worktree_isolation", skill)
+
     def test_every_referenced_path_exists(self):
         for doc in [ROOT / "SKILL.md", *(ROOT / "roles").glob("*.md"), *(ROOT / "references").glob("*.md")]:
             for ref in re.findall(r"`((?:roles|references)/[\w./-]+\.md)`", doc.read_text()):

@@ -137,6 +137,16 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
+    known = {c["id"] for c in state["candidates"]}
+    unknown = sorted(set(scores) - known)
+    if unknown:
+        print(f"Error: scores for ids not in the state file: {unknown}", file=sys.stderr)
+        sys.exit(1)
+    unscored = sorted(c["id"] for c in state["candidates"] if c.get("fitness") is None and c["id"] not in scores)
+    if unscored:
+        print(f"Error: pending candidates have no score: {unscored}; score every candidate of the generation", file=sys.stderr)
+        sys.exit(1)
+
     # Run tournament
     result = run_tournament(scores, state)
     winners = result["winners"]

@@ -22,7 +22,8 @@ Save the result as `CURRENT_DDL`. Get most recent score as `SCORE_BEFORE`:
 ```sql
 SELECT run_name, mean_score
 FROM <DB>._SV_TOOLKIT_META.EVAL_HISTORY
-WHERE sv_fqn = '<SV_FQN>'
+WHERE source_sv_fqn = '<SV_FQN>' OR sv_fqn = '<SV_FQN>'
+  AND metric_version = '<METRIC_VERSION>'  -- never compare scores across metric versions
 ORDER BY run_timestamp DESC
 LIMIT 1;
 ```

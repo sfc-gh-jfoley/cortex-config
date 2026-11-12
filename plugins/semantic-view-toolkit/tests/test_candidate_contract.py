@@ -152,6 +152,7 @@ class NoBareReplaceTests(unittest.TestCase):
     ALLOWED = {
         "references/candidate-promotion.md",
         "tests/test_candidate_contract.py",
+        "tests/test_candidate_hardening.py",
         "tests/test_vqr_subquery_checks.py",
         "scripts/candidate.py",
     }
