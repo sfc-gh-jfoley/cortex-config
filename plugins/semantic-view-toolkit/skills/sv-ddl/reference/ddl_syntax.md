@@ -476,14 +476,14 @@ See `../../../references/composable-sv-patterns.md` for full patterns, selective
 | 3 | For a direct column reference, the alias **MUST match the source column name exactly** | `orders.order_date AS order_dt` → broken. Must be `AS o_orderdate` if the source object's col is `o_orderdate` |
 | 4 | Computed expressions **CAN** have a new name | `orders.order_year AS YEAR(o_orderdate)` is valid |
 | 5 | A column with the same name appearing in multiple tables → define as fact/dim from **ONE table only**, skip the others | Defining `CUSTOMER_ID` from both orders and customers tables |
-| 6 | The **right-hand table** in a REFERENCES clause needs `PRIMARY KEY` or `UNIQUE` on the join column | Referencing a table with no key constraint → join fails |
+| 6 | The **right-hand table** in a REFERENCES clause needs `PRIMARY KEY` or `UNIQUE` on the join column, **unless** you intend a direct many-to-many relationship (Preview, 2026-11-13), which references non-unique columns | Referencing a non-key column by accident → silently becomes many-to-many instead of failing. Queries traversing M:N (direct or bridge) cannot use LOD or `USING` metrics |
 | 7 | `PRIVATE` is valid on facts and metrics; dimensions only support `PUBLIC` | Using `PRIVATE` on a dimension |
 | 8 | When two relationship paths exist between the same pair of tables, use `USING (rel_name)` on the metric (Preview — Open) | Ambiguous routing causes query errors |
 | 9 | `NON ADDITIVE BY` marks a metric as non-additive along the given dimensions (e.g. DISTINCT COUNT by user) | Omitting this causes incorrect roll-up aggregation |
 | 10 | `AI_VERIFIED_QUERIES` SQL must reference the logical alias names (not physical table.col), and use the SV's fact/dim/metric names | Using physical table names in VQ SQL |
 | 11 | `LABELS = ( FILTER )` requires the `AS` expression to resolve to BOOLEAN | Applying FILTER label to a VARCHAR or numeric column |
 | 12 | Window function metrics cannot reference aggregates or subqueries in `PARTITION BY` | `PARTITION BY SUM(x)` → use a PRIVATE metric for the inner aggregate |
-| 13 | `DISTINCT RANGE BETWEEN` (range joins) is a **Preview Feature — Open** (available all accounts); `USING` is also Preview — Open | Treating these as GA; they may not be available on older account versions |
+| 13 | `DISTINCT RANGE BETWEEN` (range joins) is a **Preview Feature — Open** (available all accounts); `USING` is also Preview — Open; many-to-many relationships (direct or via bridge) are Preview (2026-11-13) | Treating these as GA; they may not be available on older account versions |
 | 14 | `LABELS = ( FILTER )` must appear **before** the `AS` keyword — unlike every other modifier (SYNONYMS, TAG, COMMENT) which come after `AS` | Writing `<alias> AS <expr> LABELS = ( FILTER )` → syntax error; must be `<alias> LABELS = ( FILTER ) AS <expr>` |
 | 15 | `SAMPLE_VALUES (...)` uses **no `WITH` prefix** — `WITH SAMPLE_VALUES` is a syntax error; also valid on facts, not just dimensions | Writing `WITH SAMPLE_VALUES (...)` causes a DDL parse error |
 | 16 | `DESCRIBE SEMANTIC VIEW` requires a fully-qualified three-part name — bare name or two-part name produces a different error than "not found" | Using `DESCRIBE SEMANTIC VIEW my_view` instead of `DESCRIBE SEMANTIC VIEW db.schema.my_view` |

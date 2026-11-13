@@ -79,7 +79,14 @@ Use results to classify:
 
 ## Step 4.2.5: M:N (many-to-many) bridge table detection
 
-If the cardinality check in Step 4.2 reveals M:N (neither side is unique on the join column), the tables cannot be directly related in a semantic view — Snowflake requires one side to have a PRIMARY KEY or UNIQUE.
+If the cardinality check in Step 4.2 reveals M:N (neither side is unique on the join column), there are two ways to model it. Both are in Preview (release note 2026-11-13), and Snowflake infers the M:N path and de-duplicates automatically in either case:
+
+- **Bridge table (default):** two many-to-one relationships from a junction table. Works with ordinary `PRIMARY KEY` declarations.
+- **Direct M:N (opt-in):** one relationship that references non-unique columns in a table with no `PRIMARY KEY`/`UNIQUE` for those columns (for example `orders(promo_code) REFERENCES promotions(promo_code)`). No special keyword.
+
+**Constraint for both:** queries that traverse an M:N path cannot use Level of Detail (LOD) metrics or `USING` multi-path metrics. If the SV relies on `USING` (`multi_path_metrics`, `accumulating_snapshot`) or LOD metrics on either endpoint, say so before choosing.
+
+**Default to the bridge table.** Offer direct M:N only when the user confirms the account has the feature, then validate with `python3 <toolkit-root>/scripts/sv_validator.py --allow-many-to-many <ddl.sql>`. Without the flag the validator fails the PK check on a direct M:N, which is the intended guard for accounts without the feature.
 
 ### Detection signal
 
@@ -109,6 +116,10 @@ Present to the user:
       A) A bridge table already exists in your schema — tell me which one
          (e.g., LINE_ITEMS bridges ORDERS ↔ PRODUCTS)
 
+      D) Direct many-to-many, no bridge (Preview — only if this account has it):
+         add `<name> AS <table_a>(<col>) REFERENCES <table_b>(<col>)` with no PRIMARY KEY/UNIQUE
+         on <table_b>.<col>. USING/LOD metrics cannot traverse it.
+
       B) No bridge table exists — I'll suggest the structure:
 
          The bridge table should have:
@@ -134,6 +145,7 @@ Present to the user:
 Based on response:
 - **A (bridge exists)** → add two N:1 relationships: bridge → table_a, bridge → table_b. Add the bridge table to `SOURCE_OBJECTS` if not already included.
 - **B (create bridge)** → generate the DDL, present for approval, note that user must populate the table before the SV will work with this relationship.
+- **D (direct M:N)** → add the single relationship, leave the referenced table without a key on that column, and record `allow_many_to_many` in the validation step. Reconcile aggregates against detail totals before accepting (see 06_execute_validate).
 - **C (skip)** → remove this candidate, proceed without connecting these tables.
 
 ---
@@ -248,7 +260,7 @@ rather than guessing — log which pairs were auto-joined and which were left di
 
 ## Step 4.4: Identify the "one" side — PRIMARY KEY confirmation
 
-For each relationship, the right-hand (referenced) table **must** have PRIMARY KEY or UNIQUE on the join column.
+For each relationship, the right-hand (referenced) table **must** have PRIMARY KEY or UNIQUE on the join column, except for an approved direct many-to-many relationship (Step 4.2.5, option D).
 
 For each reference table, run uniqueness check:
 ```sql

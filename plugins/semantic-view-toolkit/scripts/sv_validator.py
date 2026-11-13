@@ -7,7 +7,7 @@ derived from the semantic-view-ddl Phase 5 specification.
 Stdlib-only — no external dependencies required.
 
 Usage:
-    python sv_validator.py <file.sql>
+    python sv_validator.py [--allow-many-to-many] <file.sql>
 
 Programmatic:
     from sv_validator import validate_ddl, validate_file, CheckResult
@@ -169,7 +169,7 @@ def _parse_single_relationship(entry: str) -> Optional[dict]:
     """
     # Try named format first: name AS left_table(COL) REFERENCES right_table
     m = re.match(
-        r"(\w+)\s+AS\s+(\w+)\s*\(([^)]*)\)\s*REFERENCES\s+(\w+)",
+        r"(\w+)\s+AS\s+(\w+)\s*\(([^)]*)\)\s*REFERENCES\s+(\w+)\s*(?:\(([^)]*)\))?",
         entry,
         re.IGNORECASE,
     )
@@ -178,10 +178,11 @@ def _parse_single_relationship(entry: str) -> Optional[dict]:
         left_table = m.group(2)
         left_cols = [c.strip().strip('"') for c in m.group(3).split(",") if c.strip()]
         right_table = m.group(4)
+        right_cols_raw = m.group(5)
     else:
         # Try unnamed format: left_table(COL) REFERENCES right_table
         m = re.match(
-            r"(\w+)\s*\(([^)]*)\)\s*REFERENCES\s+(\w+)",
+            r"(\w+)\s*\(([^)]*)\)\s*REFERENCES\s+(\w+)\s*(?:\(([^)]*)\))?",
             entry,
             re.IGNORECASE,
         )
@@ -190,6 +191,7 @@ def _parse_single_relationship(entry: str) -> Optional[dict]:
         left_table = m.group(1)
         left_cols = [c.strip().strip('"') for c in m.group(2).split(",") if c.strip()]
         right_table = m.group(3)
+        right_cols_raw = m.group(4)
         name = f"_auto_{left_table}_{right_table}"
 
     is_asof = bool(re.search(r"\bASOF\b", entry, re.IGNORECASE))
@@ -203,6 +205,7 @@ def _parse_single_relationship(entry: str) -> Optional[dict]:
         "left_table": left_table,
         "left_cols": left_cols,
         "right_table": right_table,
+        "right_cols": [c.strip().strip('"') for c in (right_cols_raw or "").split(",") if c.strip()],
         "is_asof": is_asof,
         "asof_col": asof_col,
     }
@@ -226,7 +229,11 @@ def _parse_column_entries(body: str) -> list[dict]:
 def _parse_single_column(entry: str) -> Optional[dict]:
     """Parse: table.col_name AS expr [COMMENT = '...'] [LABELS = (...)] [WITH SYNONYMS (...)] [USING ...]"""
     # Match table.col_name AS <rest>
-    m = re.match(r"(\w+)\.(\w+)\s+AS\s+", entry, re.IGNORECASE)
+    m = re.match(
+        r"(\w+)\.(\w+)\s+(?:USING\s*\([^)]*\)\s+)?(?:NON\s+ADDITIVE\s+BY\s*\([^)]*\)\s+)?(?:USING\s*\([^)]*\)\s+)?AS\s+",
+        entry,
+        re.IGNORECASE,
+    )
     if not m:
         return None
     table = m.group(1)
@@ -260,7 +267,7 @@ def _parse_single_column(entry: str) -> Optional[dict]:
         comment = cm.group(1)
 
     using = None
-    using_m = re.search(r"USING\s+(\w+)", entry, re.IGNORECASE)
+    using_m = re.search(r"\bUSING\s*\(?\s*(\w+)", entry, re.IGNORECASE)
     if using_m:
         using = using_m.group(1)
 
@@ -299,10 +306,11 @@ class _DDLContext:
     metrics_body: Optional[str] = None
     vqrs_body: Optional[str] = None
     clause_order: list = field(default_factory=list)
+    allow_many_to_many: bool = False
 
 
-def _build_context(ddl: str) -> _DDLContext:
-    ctx = _DDLContext(raw=ddl)
+def _build_context(ddl: str, allow_many_to_many: bool = False) -> _DDLContext:
+    ctx = _DDLContext(raw=ddl, allow_many_to_many=allow_many_to_many)
     ctx.clause_order = _clause_positions(ddl)
 
     ctx.tables_body = _find_clause(ddl, "TABLES")
@@ -416,8 +424,30 @@ def _check_no_duplicate_columns(ctx: _DDLContext) -> CheckResult:
     return CheckResult("no_duplicate_columns", True, "error", "No duplicate columns found.")
 
 
+def _direct_many_to_many(ctx: _DDLContext) -> list[dict]:
+    """Relationships whose referenced columns are not a PK/UNIQUE key of the
+    right-hand table (direct many-to-many, Preview 2026-11-13). ASOF skipped."""
+    alias_to_table = {t["alias"].upper(): t for t in ctx.tables}
+    found = []
+    for rel in ctx.relationships:
+        if rel["is_asof"]:
+            continue
+        tbl = alias_to_table.get(rel["right_table"].upper())
+        if not tbl:
+            continue
+        keys = [k for k in (tbl["pk_cols"], tbl["unique_cols"]) if k]
+        if not keys:
+            found.append(rel)
+        elif rel["right_cols"]:
+            wanted = {c.upper() for c in rel["right_cols"]}
+            if not any(wanted == {c.upper() for c in k} for k in keys):
+                found.append(rel)
+    return found
+
+
 def _check_pk_on_referenced_tables(ctx: _DDLContext) -> CheckResult:
-    """4. Every table on RHS of REFERENCES must have PK or UNIQUE defined."""
+    """4. Every table on RHS of REFERENCES must have PK or UNIQUE defined,
+    unless direct many-to-many (Preview) is explicitly allowed."""
     alias_to_table = {t["alias"].upper(): t for t in ctx.tables}
     issues = []
     for rel in ctx.relationships:
@@ -425,9 +455,73 @@ def _check_pk_on_referenced_tables(ctx: _DDLContext) -> CheckResult:
         tbl = alias_to_table.get(rt)
         if tbl and not tbl["pk_cols"] and not tbl["unique_cols"]:
             issues.append(f"Table '{rel['right_table']}' referenced by '{rel['name']}' has no PK/UNIQUE.")
+    if issues and ctx.allow_many_to_many:
+        return CheckResult(
+            "pk_on_referenced_tables", True, "error",
+            "No PK/UNIQUE on referenced table(s) accepted as direct many-to-many (Preview): " + "; ".join(issues),
+        )
     if issues:
-        return CheckResult("pk_on_referenced_tables", False, "error", "; ".join(issues))
+        hint = " If this is an intentional direct many-to-many (Preview), validate with allow_many_to_many=True; otherwise add a bridge table."
+        return CheckResult("pk_on_referenced_tables", False, "error", "; ".join(issues) + hint)
     return CheckResult("pk_on_referenced_tables", True, "error", "All referenced tables have PK/UNIQUE.")
+
+
+def _bridge_tables(ctx: _DDLContext) -> list[tuple[str, set[str]]]:
+    """Pure junction tables: exactly two outgoing relationships to distinct tables whose
+    FK columns together make up the table's composite PRIMARY KEY. Returns (bridge, endpoints)."""
+    out_rels: dict[str, list[dict]] = defaultdict(list)
+    for rel in ctx.relationships:
+        if not rel["is_asof"]:
+            out_rels[rel["left_table"].upper()].append(rel)
+    bridges = []
+    for t in ctx.tables:
+        alias = t["alias"].upper()
+        rels = out_rels.get(alias, [])
+        targets = {r["right_table"].upper() for r in rels}
+        pk = {c.upper() for c in t["pk_cols"]}
+        fk = {c.upper() for r in rels for c in r["left_cols"]}
+        if len(rels) == 2 and len(targets) == 2 and len(pk) >= 2 and pk == fk:
+            bridges.append((alias, targets))
+    return bridges
+
+
+def _check_many_to_many_relationships(ctx: _DDLContext) -> CheckResult:
+    """Many-to-many (Preview): direct M:N needs an explicit opt-in; USING metrics on
+    M:N endpoints (direct or bridge) cannot be used in queries traversing the M:N path."""
+    m2m = _direct_many_to_many(ctx)
+    bridges = _bridge_tables(ctx)
+    if not m2m and not bridges:
+        return CheckResult("many_to_many_relationships", True, "warning", "No many-to-many relationships detected.")
+    endpoints = {r[side].upper() for r in m2m for side in ("left_table", "right_table")}
+    for bridge, targets in bridges:
+        endpoints |= {bridge} | targets
+    using_hits = [
+        f"{m['table']}.{m['col_name']}" for m in ctx.metrics
+        if m["using"] and m["table"].upper() in endpoints
+    ]
+    problems = []
+    if m2m and not ctx.allow_many_to_many:
+        names = ", ".join(r["name"] for r in m2m)
+        problems.append(
+            f"Direct many-to-many relationship(s) {names} rely on a Preview feature. Validate with "
+            "allow_many_to_many=True if the account has it; otherwise model a bridge table."
+        )
+    if using_hits:
+        problems.append(
+            "USING metrics on many-to-many endpoints cannot be used in queries that traverse the "
+            "many-to-many path (also true for LOD metrics): " + ", ".join(using_hits)
+        )
+    if problems:
+        return CheckResult("many_to_many_relationships", False, "warning", " ".join(problems))
+    kinds = []
+    if m2m:
+        kinds.append("direct: " + ", ".join(r["name"] for r in m2m))
+    if bridges:
+        kinds.append("bridge: " + ", ".join(b for b, _ in bridges))
+    return CheckResult(
+        "many_to_many_relationships", True, "warning",
+        "Many-to-many detected (" + "; ".join(kinds) + "). Reconcile aggregates against detail totals on a live account.",
+    )
 
 
 def _check_using_clause_for_multi_rel(ctx: _DDLContext) -> CheckResult:
@@ -912,15 +1006,16 @@ def _check_description_quality(ctx: _DDLContext) -> CheckResult:
     return CheckResult("description_quality", True, "warning", "No missing/name-only descriptions; owner evidence review still required.")
 
 
-def validate_ddl(ddl: str) -> List[CheckResult]:
+def validate_ddl(ddl: str, allow_many_to_many: bool = False) -> List[CheckResult]:
     """Validate a CREATE SEMANTIC VIEW DDL string. Returns list of CheckResults."""
-    ctx = _build_context(ddl)
+    ctx = _build_context(ddl, allow_many_to_many)
 
     checks = [
         _check_clause_order,
         _check_alias_matches_physical,
         _check_no_duplicate_columns,
         _check_pk_on_referenced_tables,
+        _check_many_to_many_relationships,
         _check_using_clause_for_multi_rel,
         _check_no_empty_relationships,
         _check_fully_qualified_tables,
@@ -958,7 +1053,7 @@ def validate_ddl(ddl: str) -> List[CheckResult]:
     return results
 
 
-def validate_file(path: str) -> List[CheckResult]:
+def validate_file(path: str, allow_many_to_many: bool = False) -> List[CheckResult]:
     """Read a .sql file and validate each CREATE SEMANTIC VIEW statement found."""
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -990,7 +1085,7 @@ def validate_file(path: str) -> List[CheckResult]:
 
     all_results = []
     for idx, stmt in enumerate(statements):
-        results = validate_ddl(stmt)
+        results = validate_ddl(stmt, allow_many_to_many)
         if len(statements) > 1:
             # Prefix check names with statement index
             for r in results:
@@ -1005,16 +1100,18 @@ def validate_file(path: str) -> List[CheckResult]:
 # ---------------------------------------------------------------------------
 
 def _cli_main() -> int:
-    if len(sys.argv) < 2:
-        print("Usage: python sv_validator.py <file.sql>", file=sys.stderr)
+    flag = "--allow-many-to-many"
+    args = [a for a in sys.argv[1:] if a != flag]
+    if not args:
+        print(f"Usage: python sv_validator.py [{flag}] <file.sql> [evidence.json]", file=sys.stderr)
         return 1
 
-    path = sys.argv[1]
-    results = validate_file(path)
+    path = args[0]
+    results = validate_file(path, allow_many_to_many=True) if flag in sys.argv[1:] else validate_file(path)
 
-    if len(sys.argv) == 3:
+    if len(args) == 2:
         import json
-        with open(sys.argv[2], encoding="utf-8") as evidence_file:
+        with open(args[1], encoding="utf-8") as evidence_file:
             evidence = json.load(evidence_file)
         results.append(validate_aggregate_evidence(evidence.get("expected", {}), evidence.get("observed", {}), evidence.get("rel_tol", 0.0), evidence.get("abs_tol", 0.0)))
 

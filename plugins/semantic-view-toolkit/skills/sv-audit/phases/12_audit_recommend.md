@@ -225,8 +225,9 @@ JOIN patterns observed in user queries that have no corresponding RELATIONSHIP i
 
 Recommend **ADD RELATIONSHIP** only when the referenced (`To`) side has a declared PRIMARY KEY or
 UNIQUE constraint in the SV, or the Phase 10 cardinality check shows the `To` column is unique.
-Otherwise mark **REVIEW — referenced side not proven unique** (many-to-many joins cannot be
-relationships).
+Otherwise mark **REVIEW — referenced side not proven unique**. A non-unique referenced side is a
+direct many-to-many relationship (Preview, 2026-11-13): valid only if intended, and queries that
+traverse it cannot use LOD or `USING` metrics. Prefer a bridge table unless the owner confirms.
 
 ---
 

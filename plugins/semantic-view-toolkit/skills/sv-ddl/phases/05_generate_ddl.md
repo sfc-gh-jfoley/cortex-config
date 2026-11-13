@@ -421,6 +421,7 @@ python3 <toolkit-root>/scripts/sv_validator.py /tmp/sv_ddl_check.sql
 ```
 
 The validator is bundled with this toolkit and requires only the Python standard library.
+Add `--allow-many-to-many` only when the operator approved a direct many-to-many relationship (Step 4.2.5, option D); the `many_to_many_relationships` check also warns when `USING` metrics sit on many-to-many endpoints.
 
 If the script is not found:
 ```

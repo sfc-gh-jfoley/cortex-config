@@ -29,8 +29,7 @@ triggers:
 > If your workload is Analyst-driven, this skill will not help you. Use `sv-iterative-optimizer` to
 > improve Analyst accuracy instead.
 >
-> Semantic view materializations are a **Preview feature (Open, available to all accounts)** per
-> the materializations guide. Re-check the status before relying on them in production.
+> Semantic view materializations are **generally available** (release note 2026-11-11).
 
 # SV Materialize Skill
 
@@ -151,7 +150,7 @@ Consult the **Additive Classification Reference** at the bottom of this skill.
 Build three lists:
 - `ADDITIVE_METRICS` — SUM, COUNT, MIN, MAX with no outer expression. These re-aggregate freely.
 - `NON_ADDITIVE_METRICS` — AVG, COUNT(DISTINCT), APPROX_COUNT_DISTINCT, MEDIAN, PERCENTILE, any DISTINCT aggregation, expressions wrapping aggregations (e.g. `SUM(a)/COUNT(b)`). A materialization can only help queries at the exact stored grain.
-- `CANNOT_MATERIALIZE` — Window function metrics, semi-additive metrics (NON ADDITIVE BY), metrics with USING clause. Exclude these from any materialization.
+- `CANNOT_MATERIALIZE` — Window function metrics and metrics with a USING clause. Exclude these from any materialization. Semi-additive metrics (NON ADDITIVE BY) **can** be materialized since GA (2026-11-11); treat them as `NON_ADDITIVE_METRICS` (exact stored grain only) until a rewrite check shows otherwise.
 
 ### Step 1C: Check base table sizes
 
@@ -309,6 +308,22 @@ AS
   METRICS orders.total_revenue, orders.order_count;
 ```
 
+**Pre-create rewrite check (no DDL executed, nothing created).** Before running Step 2, confirm the
+target query would actually be rewritten. Pass the hot query and the exact `ADD MATERIALIZATION`
+statement; the statement is validated like a real one, so an unsupported metric type returns an error
+here instead of at create time. The name must not already exist on the SV. It ignores state and
+staleness, and checks only this one materialization.
+
+```sql
+SELECT SYSTEM$CHECK_HYPOTHETICAL_SEMANTIC_VIEW_MATERIALIZATION_REWRITE(
+  $$SELECT * FROM SEMANTIC_VIEW(<CAND> DIMENSIONS <dims> METRICS <metrics>)$$,
+  $$ALTER SEMANTIC VIEW <CAND> ADD MATERIALIZATION <mat_name> WAREHOUSE = <wh>
+      AS DIMENSIONS <dims> METRICS <metrics>$$);
+-- {"canRewrite":true,"reason":"ELIGIBLE"} or {"canRewrite":false,"reason":"MISSING_DIMENSION","dimension":"..."}
+```
+
+Do not create the materialization when `canRewrite` is false for the queries that motivated it.
+
 **To update an existing materialization:** re-run `ADD MATERIALIZATION` with the same name. Same definition = no-op. A different definition (metrics, dimensions, WHERE) triggers a full reinitialize; the materialization stays usable for rewrite meanwhile. Moving the `IMMUTABLE WHERE` boundary forward (larger immutable region) refreshes without reinitializing; shrinking or removing it reinitializes.
 
 **YAML-based management (declarative / CI/CD):**
@@ -371,7 +386,16 @@ Expected output after creation: one `INITIALIZE` action with `state = 'ACTIVE'`.
 
 Subsequent refreshes show `REFRESH` or `NO_DATA` (no new data since last refresh) actions.
 
-**Check whether the planner uses it:** run a representative query against the SV with and without the trial (production vs `<CAND>`) and compare `TOTAL_ELAPSED_TIME` and `BYTES_SCANNED` from `QUERY_HISTORY`. A large drop in bytes scanned suggests a rewrite; it is a heuristic, not proof. Inspect the query profile to confirm.
+**Check whether the planner uses it (deterministic):** once the state is ACTIVE, call the existing-materialization check. It includes state (for example `SUSPENDED`) and `MAX_STALENESS`, and matches what happens at query time. It runs nothing and creates nothing.
+
+```sql
+SELECT SYSTEM$CHECK_SEMANTIC_VIEW_MATERIALIZATION_REWRITE(
+  $$SELECT * FROM SEMANTIC_VIEW(<CAND> DIMENSIONS <dims> METRICS <metrics>)$$,
+  '<CAND>', '<mat_name>');
+-- {"materialization":"<MAT_NAME>","canRewrite":true,"reason":"ELIGIBLE"}
+```
+
+**Timing comparison (secondary evidence):** run a representative query against the SV with and without the trial (production vs `<CAND>`) and compare `TOTAL_ELAPSED_TIME` and `BYTES_SCANNED` from `QUERY_HISTORY`. A large drop in bytes scanned suggests a rewrite; it is a heuristic, not proof. Prefer the rewrite check above for pass/fail.
 
 ```sql
 SELECT query_text, total_elapsed_time, bytes_scanned
@@ -489,7 +513,7 @@ Use this table when classifying SV metrics in Phase 1B.
 | Expression over aggregations: `SUM(a) / COUNT(b)`, `2 * SUM(x)` | ❌ No | Only helps at exact stored grain |
 | Derived metric referencing a non-additive metric | ❌ No | Only helps at exact stored grain |
 | Window function metric | 🚫 N/A | **Cannot materialize** |
-| Semi-additive metric (NON ADDITIVE BY clause) | 🚫 N/A | **Cannot materialize** |
+| Semi-additive metric (NON ADDITIVE BY clause) | ❌ No | Materializable since GA (2026-11-11); treat as exact stored grain only until a rewrite check shows otherwise |
 | Metric with USING (relationship specifier) | 🚫 N/A | **Cannot materialize** |
 
 **Key insight:** "additive" means one stored rollup can answer coarser queries. Non-additive
@@ -513,6 +537,7 @@ Queries fall back to base table scan (materialization is NOT used) when:
 
 ## Integration with Toolkit
 
+- **Bundled `suggest-sv-materializations` (CoCo, GA 2026-11-11)** recommends materializations from slow SV queries or a dashboard. Its recommendations are inputs to Phase 2 here; creation still goes through the `mat` candidate flow and `SV-PROMOTE`, never straight onto the production SV.
 - **After sv-iterative-optimizer**: when Analyst accuracy is maximized and query latency is the next concern
 - **Flagged by sv-audit**: Section 9b surfaces repeated query patterns with additive metrics on large tables as materialization candidates
 - **Monitored by sv-watch**: Check 6 surfaces auto-suspended materializations

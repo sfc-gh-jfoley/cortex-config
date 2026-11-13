@@ -78,7 +78,7 @@ METRICS (
 "snapshot", "on hand"). Keep `avg_daily_balance` synonyms explicitly trend-oriented ("average",
 "trend", "typical"). Never share "balance" between them without a qualifier.
 
-**What cannot be materialized:** Semi-additive metrics (NON ADDITIVE BY) cannot be materialized.
+**Materialization:** Semi-additive metrics (NON ADDITIVE BY) can be materialized since GA (2026-11-11). They are not additive across the NON ADDITIVE BY dimension, so treat them as exact-grain only and confirm with `SYSTEM$CHECK_HYPOTHETICAL_SEMANTIC_VIEW_MATERIALIZATION_REWRITE` before creating.
 
 ---
 
@@ -681,10 +681,11 @@ ALTER SEMANTIC VIEW my_sv ADD MATERIALIZATION revenue_by_customer
     METRICS mat_orders.total_revenue;
 ```
 
-**Cannot be materialized:** Window metrics, semi-additive (NON ADDITIVE BY) metrics,
-metrics with USING clause, AVG/COUNT DISTINCT/MEDIAN/PERCENTILE.
+**Cannot be materialized:** Window metrics and metrics with a USING clause.
+Semi-additive (NON ADDITIVE BY) metrics can be materialized since GA. AVG/COUNT DISTINCT/MEDIAN/PERCENTILE
+can be materialized but only serve queries at the exact stored grain.
 
-**Status:** Preview (Open, available to all accounts). Materializations benefit queries executed
+**Status:** GA (release note 2026-11-11). Materializations benefit queries executed
 as Semantic SQL; Cortex Analyst, Cortex Agents and Snowflake CoWork queries that run physical SQL
 against the base tables do not benefit.
 
