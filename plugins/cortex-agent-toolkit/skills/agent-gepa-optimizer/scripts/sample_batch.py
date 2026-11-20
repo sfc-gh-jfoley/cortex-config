@@ -21,17 +21,33 @@ def _fqn(database: str, schema: str, obj: str) -> str:
     return f"{_qi(database)}.{_qi(schema)}.{_qi(obj)}"
 
 
+def _lit(value: str) -> str:
+    """Single-quoted SQL string literal."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def get_batch_sql(database: str, schema: str, eval_table: str,
                   dev_split_value: str, batch_pct: float,
-                  generation: int, history: list[dict]) -> tuple[str, str]:
-    """Generate CREATE VIEW SQL for a stratified batch.
+                  generation: int, history: list[dict],
+                  id_column: str = "TEST_ID") -> tuple[str, str]:
+    """Generate SQL that materializes a stratified batch and exposes it as a view.
+
+    The sample is frozen into ``GEPA_BATCH_GEN_<G>_DATA`` and the view
+    ``GEPA_BATCH_GEN_<G>`` selects from it, so every candidate in a generation
+    is scored on the same questions. Ordering uses HASH(id, seed), which is
+    deterministic; RANDOM(seed) is not stable across view evaluations.
 
     Returns:
-        tuple of (CREATE VIEW SQL, SELECT query to retrieve chosen IDs)
+        tuple of (setup SQL: CREATE TABLE + CREATE VIEW, SELECT query to retrieve chosen IDs)
     """
+    if not id_column.replace("_", "").isalnum():
+        raise ValueError(f"invalid id column: {id_column!r}")
+    id_col = _qi(id_column)
     table_fqn = _fqn(database, schema, eval_table)
     view_name = _fqn(database, schema, f"GEPA_BATCH_GEN_{generation}")
+    data_name = _fqn(database, schema, f"GEPA_BATCH_GEN_{generation}_DATA")
     seed = generation  # reproducible but different each gen
+    split = _lit(dev_split_value)
 
     # Build exclusion set from immediately previous generation only
     exclude_ids = set()
@@ -43,26 +59,26 @@ def get_batch_sql(database: str, schema: str, eval_table: str,
     exclude_clause = ""
     if exclude_ids:
         # Exclude up to half of previous batch to force partial exploration
-        id_list = ",".join(f"'{qid}'" for qid in list(exclude_ids)[:50])
+        id_list = ",".join(_lit(qid) for qid in sorted(exclude_ids)[:50])
         exclude_clause = f"""
-        AND INPUT_ID NOT IN (
-            SELECT INPUT_ID FROM (
-                SELECT INPUT_ID, ROW_NUMBER() OVER (ORDER BY RANDOM({seed + 1000})) AS rn
+        AND {id_col} NOT IN (
+            SELECT {id_col} FROM (
+                SELECT {id_col}, ROW_NUMBER() OVER (ORDER BY HASH({id_col}, {seed + 1000})) AS rn
                 FROM {table_fqn}
-                WHERE SPLIT = '{dev_split_value}'
-                AND INPUT_ID IN ({id_list})
+                WHERE SPLIT = {split}
+                AND {id_col} IN ({id_list})
             ) WHERE rn <= {len(exclude_ids) // 2}
         )"""
 
-    # Stratified proportional sample via QUALIFY
-    sql = f"""CREATE OR REPLACE VIEW {view_name} AS
+    # Stratified proportional sample, frozen into a table so it cannot drift
+    sql = f"""CREATE OR REPLACE TABLE {data_name} AS
 WITH category_counts AS (
     SELECT
         TEST_CATEGORY,
         COUNT(*) AS cat_total,
         GREATEST(1, CEIL(COUNT(*) * {batch_pct})) AS cat_sample_size
     FROM {table_fqn}
-    WHERE SPLIT = '{dev_split_value}'{exclude_clause}
+    WHERE SPLIT = {split}{exclude_clause}
     GROUP BY TEST_CATEGORY
 ),
 ranked AS (
@@ -70,18 +86,19 @@ ranked AS (
         t.*,
         ROW_NUMBER() OVER (
             PARTITION BY t.TEST_CATEGORY
-            ORDER BY RANDOM({seed})
+            ORDER BY HASH(t.{id_col}, {seed})
         ) AS rn
     FROM {table_fqn} t
-    WHERE t.SPLIT = '{dev_split_value}'{exclude_clause}
+    WHERE t.SPLIT = {split}{exclude_clause}
 )
-SELECT r.*
+SELECT r.* EXCLUDE (rn)
 FROM ranked r
 JOIN category_counts c ON r.TEST_CATEGORY = c.TEST_CATEGORY
-WHERE r.rn <= c.cat_sample_size;"""
+WHERE r.rn <= c.cat_sample_size;
+CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM {data_name};"""
 
     # Query to retrieve selected IDs after view creation
-    id_query = f"SELECT INPUT_ID FROM {view_name} ORDER BY INPUT_ID;"
+    id_query = f"SELECT {id_col} FROM {view_name} ORDER BY {id_col};"
 
     return sql, id_query
 
@@ -98,6 +115,8 @@ def main():
                         help="Current generation number")
     parser.add_argument("--history-file", default=None,
                         help="Path to gepa_state.json for history lookup")
+    parser.add_argument("--id-column", default="TEST_ID",
+                        help="Question ID column in the eval table (default: TEST_ID)")
 
     args = parser.parse_args()
 
@@ -118,6 +137,7 @@ def main():
         batch_pct=args.batch_pct,
         generation=args.generation,
         history=history,
+        id_column=args.id_column,
     )
 
     # Structured JSON to stdout (for CoCo to parse)

@@ -20,6 +20,7 @@ def load_script(name, relative):
 tournament = load_script("tournament", "agent-gepa-optimizer/scripts/tournament.py")
 state = load_script("population_state", "agent-gepa-optimizer/scripts/population_state.py")
 builder = load_script("builder", "agent-instruction-optimizer/scripts/build_candidate.py")
+batch = load_script("sample_batch", "agent-gepa-optimizer/scripts/sample_batch.py")
 
 
 class OptimizerContracts(unittest.TestCase):
@@ -116,6 +117,22 @@ class OptimizerContracts(unittest.TestCase):
             self.assertIn("Missing or invalid fitness", result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertEqual(state_path.read_text(), original)
+
+    def test_batch_sampler_is_frozen_deterministic_and_uses_test_id(self):
+        history = [{"batch_questions": ["CD_Q01", "O'Q2", "SR_Q03"]}]
+        sql, id_query = batch.get_batch_sql("DB", "SCH", "EVAL", "dev", 0.3, 2, history)
+        self.assertIn("CREATE OR REPLACE TABLE DB.SCH.GEPA_BATCH_GEN_2_DATA AS", sql)
+        self.assertIn("CREATE OR REPLACE VIEW DB.SCH.GEPA_BATCH_GEN_2 AS SELECT * FROM DB.SCH.GEPA_BATCH_GEN_2_DATA", sql)
+        self.assertNotIn("RANDOM(", sql)
+        self.assertIn("HASH(t.TEST_ID, 2)", sql)
+        self.assertNotIn("INPUT_ID", sql + id_query)
+        self.assertIn("'O''Q2'", sql)
+        self.assertEqual(id_query, "SELECT TEST_ID FROM DB.SCH.GEPA_BATCH_GEN_2 ORDER BY TEST_ID;")
+        self.assertEqual(sql, batch.get_batch_sql("DB", "SCH", "EVAL", "dev", 0.3, 2, history)[0])
+
+    def test_batch_sampler_rejects_unsafe_id_column(self):
+        with self.assertRaises(ValueError):
+            batch.get_batch_sql("DB", "SCH", "EVAL", "dev", 0.3, 1, [], id_column="ID; DROP TABLE X")
 
 
 if __name__ == "__main__":

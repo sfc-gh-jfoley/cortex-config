@@ -169,10 +169,15 @@ Load `references/mini-batch-strategy.md` for stratification rules and rotation c
 ```bash
 python scripts/sample_batch.py <DATABASE> <SCHEMA> <EVAL_TABLE> \
   <DEV_SPLIT_VALUE> --batch-pct 0.30 --generation <G> \
-  --history-file <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.json
+  --history-file <WORKSPACE_ROOT>/<AGENT_DIR>/gepa_state.json \
+  --id-column TEST_ID
 ```
 
-Execute the returned SQL to create view `<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>`.
+Execute the returned SQL (two statements). It freezes the sample into table
+`<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>_DATA` and creates view
+`<DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>` over it, so every candidate in the generation
+is scored on the same questions. Run `id_query` and record the IDs as the generation's
+`batch_questions`.
 
 ### Step 6: Deploy Candidate Agents (`AGENT-CANDIDATE-DEPLOY`)
 
@@ -307,7 +312,7 @@ Load `references/convergence-criteria.md`. Evaluate stop conditions:
 
 **If NOT converged:**
 - Drop loser agents: `DROP AGENT IF EXISTS <AGENT_NAME>_GEPA_CAND_<N>;`
-- Drop generation view: `DROP VIEW IF EXISTS GEPA_BATCH_GEN_<G>;`
+- Drop generation view and data: `DROP VIEW IF EXISTS GEPA_BATCH_GEN_<G>; DROP TABLE IF EXISTS GEPA_BATCH_GEN_<G>_DATA;`
 - Mutate winners to fill empty candidate slots (repeat Phase 1 Step 3 for new candidates only)
 - Return to Phase 2
 
@@ -405,7 +410,7 @@ WHERE run_id = '<run_id>';
 **Always (after accept or reject):**
 - `DROP AGENT IF EXISTS <AGENT_NAME>_GEPA_WINNER;`
 - `DROP AGENT IF EXISTS <AGENT_NAME>_GEPA_CAND_<N>;` for all candidates
-- `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;` for all generations
+- `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;` and `DROP TABLE IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>_DATA;` for all generations
 - Remove `gepa_population/` directory
 - Remove `gepa_state.json`
 - Remove GEPA eval configs from stage
@@ -438,6 +443,6 @@ If user says "gepa cleanup" or "clean gepa agents":
 1. Load `gepa_state.json` (if exists) → get candidate agent names and generation count
 2. If no state file, probe: `SHOW AGENTS LIKE '<AGENT_NAME>_GEPA_CAND_%' IN SCHEMA <DATABASE>.<SCHEMA>;`
 3. For each found agent: `DROP AGENT IF EXISTS <DATABASE>.<SCHEMA>.<agent_name>;`
-4. For each generation view: `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;`
+4. For each generation: `DROP VIEW IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>;` and `DROP TABLE IF EXISTS <DATABASE>.<SCHEMA>.GEPA_BATCH_GEN_<G>_DATA;`
 5. Remove local artifacts: `gepa_population/`, `gepa_state.json`
 6. Report what was cleaned
